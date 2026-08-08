@@ -12,7 +12,7 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     });
     if (!this.gl) throw new Error("This administration map requires WebGL2.");
 
-    this.camera = { yaw: 0, pitch: degrees(55), distance: 1000, target: [0, 0, 0] };
+    this.camera = { yaw: 0, pitch: degrees(89.5), distance: 1000, target: [0, 0, 0] };
     this.origin = [0, 0, 0];
     this.bounds = null;
     this.symbols = [];
@@ -25,6 +25,9 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     this.gridVertexCount = 0;
     this.railPointCount = 0;
     this.symbolPointCount = 0;
+    this.selectedPointCount = 0;
+    this.railBlocksVisible = false;
+    this.gridVisible = false;
 
     this.segmentProgram = createProgram(this.gl, SEGMENT_VERTEX_SHADER, SEGMENT_FRAGMENT_SHADER);
     this.pointProgram = createProgram(this.gl, POINT_VERTEX_SHADER, POINT_FRAGMENT_SHADER);
@@ -32,6 +35,7 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     this.gridBuffer = this.gl.createBuffer();
     this.railPointBuffer = this.gl.createBuffer();
     this.symbolPointBuffer = this.gl.createBuffer();
+    this.selectedPointBuffer = this.gl.createBuffer();
     this.configureEvents();
     this.requestRender();
   }
@@ -39,16 +43,21 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
   setScene(graph, symbols) {
     const nodes = graph.nodes || [];
     const points = nodes.map(node => ({ x: node[0], y: node[1], z: node[2] }));
-    points.push(...symbols.map(symbol => ({ x: symbol.x, y: symbol.y, z: symbol.z })));
     this.bounds = calculateBounds(points);
-    this.symbols = symbols;
+    this.symbols = this.bounds ? symbols : [];
+    this.canvas.setAttribute(
+      "aria-label",
+      `Discovered railway network map with ${this.symbols.length} selectable symbol markers.`
+    );
     if (!this.bounds) {
       this.origin = [0, 0, 0];
       this.uploadBuffer(this.railBuffer, new Float32Array());
       this.uploadBuffer(this.gridBuffer, new Float32Array());
       this.uploadBuffer(this.railPointBuffer, new Float32Array());
       this.uploadBuffer(this.symbolPointBuffer, new Float32Array());
-      this.railVertexCount = this.gridVertexCount = this.railPointCount = this.symbolPointCount = 0;
+      this.uploadBuffer(this.selectedPointBuffer, new Float32Array());
+      this.railVertexCount = this.gridVertexCount = this.railPointCount = 0;
+      this.symbolPointCount = this.selectedPointCount = 0;
       this.requestRender();
       return;
     }
@@ -69,13 +78,13 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     for (const edge of graph.edges || []) {
       const first = relativeNodes[edge[0]], second = relativeNodes[edge[1]];
       if (!first || !second) continue;
-      appendSegmentQuad(railVertices, first, second, Math.max(first[3], second[3]));
+      appendSegmentQuad(railVertices, first, second, 0);
     }
     this.railVertexCount = railVertices.length / 9;
     this.uploadBuffer(this.railBuffer, new Float32Array(railVertices));
 
     const railPoints = [];
-    for (const node of relativeNodes) railPoints.push(node[0], node[1], node[2], node[3], 2.4);
+    for (const node of relativeNodes) railPoints.push(node[0], node[1], node[2], node[3], 2.4, -1);
     this.railPointCount = relativeNodes.length;
     this.uploadBuffer(this.railPointBuffer, new Float32Array(railPoints));
 
@@ -84,10 +93,43 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     this.fit();
   }
 
+  setSymbols(symbols) {
+    this.symbols = this.bounds ? symbols || [] : [];
+    this.rebuildSymbolBuffer();
+    this.canvas.setAttribute(
+      "aria-label",
+      `Discovered railway network map with ${this.symbols.length} selectable symbol markers.`
+    );
+    this.requestRender();
+  }
+
   setSelectedSymbol(symbolId) {
     this.selectedSymbolId = symbolId || null;
     this.rebuildSymbolBuffer();
     this.requestRender();
+  }
+
+  setRailBlocksVisible(visible) {
+    this.railBlocksVisible = Boolean(visible);
+    this.requestRender();
+  }
+
+  setGridVisible(visible) {
+    this.gridVisible = Boolean(visible);
+    this.requestRender();
+  }
+
+  focusSymbol(symbolId) {
+    const symbol = this.symbols.find(item => item.id === symbolId);
+    if (!symbol) return false;
+    this.camera.target = [
+      symbol.x - this.origin[0],
+      (symbol.y - this.origin[1]) * 3,
+      symbol.z - this.origin[2]
+    ];
+    this.camera.distance = clamp(this.camera.distance, 45, 180);
+    this.requestRender();
+    return true;
   }
 
   setTheme(theme) {
@@ -144,6 +186,7 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     }, { passive: false });
     this.canvas.addEventListener("pointerdown", event => {
       this.canvas.setPointerCapture(event.pointerId);
+      this.canvas.classList.remove("marker-hover");
       this.drag = {
         button: event.button,
         startX: event.clientX,
@@ -155,7 +198,10 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
       this.canvas.classList.add("dragging");
     });
     this.canvas.addEventListener("pointermove", event => {
-      if (!this.drag) return;
+      if (!this.drag) {
+        this.updateMarkerHover(event.clientX, event.clientY);
+        return;
+      }
       const deltaX = event.clientX - this.drag.lastX;
       const deltaY = event.clientY - this.drag.lastY;
       this.drag.lastX = event.clientX;
@@ -184,27 +230,83 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
       this.drag = null;
       this.canvas.classList.remove("dragging");
     });
+    this.canvas.addEventListener("pointerleave", () => this.updateMarkerHover());
+    this.canvas.addEventListener("keydown", event => this.handleKeydown(event));
   }
 
   pickSymbol(clientX, clientY) {
+    const candidates = this.symbolsNear(clientX, clientY);
+    if (!candidates.length) {
+      this.onSymbolSelected(null);
+      return;
+    }
+    const selectedIndex = candidates.findIndex(candidate => candidate.symbol.id === this.selectedSymbolId);
+    const next = selectedIndex >= 0 && candidates.length > 1
+      ? candidates[(selectedIndex + 1) % candidates.length]
+      : candidates[0];
+    this.onSymbolSelected(next.symbol);
+  }
+
+  symbolsNear(clientX, clientY) {
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return [];
     const rect = this.canvas.getBoundingClientRect();
     const x = (clientX - rect.left) * this.canvas.width / rect.width;
     const y = (clientY - rect.top) * this.canvas.height / rect.height;
-    let nearest = null, nearestDistance = 15 * (window.devicePixelRatio || 1);
+    const maximumDistance = 16 * (window.devicePixelRatio || 1);
+    const candidates = [];
     for (const symbol of this.symbols) {
       const projected = projectPoint(this.viewProjection, [
         symbol.x - this.origin[0],
-        (symbol.y - this.origin[1]) * 3 + 1.5,
+        (symbol.y - this.origin[1]) * 3 + 2,
         symbol.z - this.origin[2]
       ], this.canvas.width, this.canvas.height);
       if (!projected) continue;
       const distance = Math.hypot(projected[0] - x, projected[1] - y);
-      if (distance < nearestDistance) {
-        nearest = symbol;
-        nearestDistance = distance;
-      }
+      if (distance < maximumDistance) candidates.push({ symbol, distance });
     }
-    if (nearest) this.onSymbolSelected(nearest);
+    return candidates.sort((first, second) =>
+      first.distance - second.distance || first.symbol.id.localeCompare(second.symbol.id));
+  }
+
+  updateMarkerHover(clientX, clientY) {
+    const candidates = this.symbolsNear(clientX, clientY);
+    const nearest = candidates[0]?.symbol || null;
+    this.canvas.classList.toggle("marker-hover", Boolean(nearest));
+    this.canvas.title = nearest
+      ? `${nearest.type} / ${nearest.decision} / ${nearest.worldName} ${nearest.x} ${nearest.y} ${nearest.z}${candidates.length > 1 ? ` / ${candidates.length} nearby markers; click again to cycle` : ""}`
+      : "Drag to pan. Use the wheel to zoom. Only symbol markers are selectable.";
+  }
+
+  handleKeydown(event) {
+    const panKeys = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+    if (panKeys.has(event.key)) {
+      event.preventDefault();
+      const step = Math.max(2, this.camera.distance * 0.05);
+      if (event.key === "ArrowLeft") this.camera.target[0] -= step;
+      if (event.key === "ArrowRight") this.camera.target[0] += step;
+      if (event.key === "ArrowUp") this.camera.target[2] -= step;
+      if (event.key === "ArrowDown") this.camera.target[2] += step;
+      this.requestRender();
+      return;
+    }
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      this.camera.distance = clamp(this.camera.distance * 0.84, 8, 1000000);
+      this.requestRender();
+    } else if (event.key === "-" || event.key === "_") {
+      event.preventDefault();
+      this.camera.distance = clamp(this.camera.distance * 1.18, 8, 1000000);
+      this.requestRender();
+    } else if (event.key.toLowerCase() === "f") {
+      event.preventDefault();
+      this.fit();
+    } else if (event.key.toLowerCase() === "n") {
+      event.preventDefault();
+      this.north();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      this.onSymbolSelected(null);
+    }
   }
 
   rebuildGrid() {
@@ -231,18 +333,23 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
 
   rebuildSymbolBuffer() {
     const vertices = [];
+    const selectedVertices = [];
     for (const symbol of this.symbols) {
       const selected = symbol.id === this.selectedSymbolId;
-      vertices.push(
+      const target = selected ? selectedVertices : vertices;
+      target.push(
         symbol.x - this.origin[0],
         (symbol.y - this.origin[1]) * 3 + 2,
         symbol.z - this.origin[2],
         symbolType(symbol),
-        selected ? 14 : 8
+        selected ? 13 : 7,
+        symbolDecision(symbol)
       );
     }
-    this.symbolPointCount = this.symbols.length;
+    this.symbolPointCount = vertices.length / 6;
+    this.selectedPointCount = selectedVertices.length / 6;
     this.uploadBuffer(this.symbolPointBuffer, new Float32Array(vertices));
+    this.uploadBuffer(this.selectedPointBuffer, new Float32Array(selectedVertices));
   }
 
   uploadBuffer(buffer, data) {
@@ -284,13 +391,20 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     const view = lookAtMatrix(eye, this.camera.target, [0, 1, 0]);
     this.viewProjection = multiplyMatrices(projection, view);
 
-    this.drawSegments(this.gridBuffer, this.gridVertexCount, 1, 2);
-    this.drawPoints(this.railPointBuffer, this.railPointCount, 0);
-    this.drawPoints(this.railPointBuffer, this.railPointCount, 1);
-    this.drawSegments(this.railBuffer, this.railVertexCount, 6, 0);
-    this.drawSegments(this.railBuffer, this.railVertexCount, 2.6, 1);
-    this.drawPoints(this.symbolPointBuffer, this.symbolPointCount, 0);
-    this.drawPoints(this.symbolPointBuffer, this.symbolPointCount, 1);
+    if (this.gridVisible) this.drawSegments(this.gridBuffer, this.gridVertexCount, 0.8, 2);
+    if (this.railBlocksVisible) this.drawPoints(this.railPointBuffer, this.railPointCount, 3, 0);
+    this.drawSegments(this.railBuffer, this.railVertexCount, 3.8, 0);
+    this.drawSegments(this.railBuffer, this.railVertexCount, 1.5, 1);
+    this.drawPoints(this.symbolPointBuffer, this.symbolPointCount, 0, 3);
+    this.drawPoints(this.symbolPointBuffer, this.symbolPointCount, 1, 0);
+    if (this.selectedPointCount) {
+      gl.disable(gl.DEPTH_TEST);
+      this.drawPoints(this.selectedPointBuffer, this.selectedPointCount, 2, 11);
+      this.drawPoints(this.selectedPointBuffer, this.selectedPointCount, 4, 6);
+      this.drawPoints(this.selectedPointBuffer, this.selectedPointCount, 0, 3);
+      this.drawPoints(this.selectedPointBuffer, this.selectedPointCount, 1, 0);
+      gl.enable(gl.DEPTH_TEST);
+    }
   }
 
   drawSegments(buffer, count, width, layer) {
@@ -312,17 +426,19 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     gl.drawArrays(gl.TRIANGLES, 0, count);
   }
 
-  drawPoints(buffer, count, layer) {
+  drawPoints(buffer, count, layer, sizeOffset) {
     if (!count) return;
     const gl = this.gl, program = this.pointProgram;
     gl.useProgram(program);
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    const stride = 5 * 4;
+    const stride = 6 * 4;
     enableAttribute(gl, program, "aPosition", 3, stride, 0);
     enableAttribute(gl, program, "aType", 1, stride, 3 * 4);
     enableAttribute(gl, program, "aSize", 1, stride, 4 * 4);
+    enableAttribute(gl, program, "aDecision", 1, stride, 5 * 4);
     gl.uniformMatrix4fv(gl.getUniformLocation(program, "uViewProjection"), false, this.viewProjection);
     gl.uniform1f(gl.getUniformLocation(program, "uPixelRatio"), window.devicePixelRatio || 1);
+    gl.uniform1f(gl.getUniformLocation(program, "uSizeOffset"), sizeOffset);
     gl.uniform1i(gl.getUniformLocation(program, "uLayer"), layer);
     gl.uniform1i(gl.getUniformLocation(program, "uLightTheme"), this.lightTheme ? 1 : 0);
     gl.drawArrays(gl.POINTS, 0, count);
@@ -343,8 +459,11 @@ function materialType(material = "") {
 }
 
 function symbolType(symbol) {
-  if (symbol.decision === "IGNORED") return 14;
   return ({ STATION: 10, SPAWN: 11, ANNOUNCE: 12, PROPERTY: 13 })[symbol.type] || 15;
+}
+
+function symbolDecision(symbol) {
+  return ({ PENDING: 0, INCLUDED: 1, IGNORED: 2 })[symbol.decision] ?? 0;
 }
 
 function calculateBounds(points) {
@@ -474,37 +593,53 @@ uniform int uLayer;
 uniform bool uLightTheme;
 out vec4 color;
 void main() {
-  if (uLayer == 0) { color = uLightTheme ? vec4(0.06, 0.09, 0.15, 0.88) : vec4(0.005, 0.018, 0.024, 0.95); return; }
-  if (uLayer == 2) { color = uLightTheme ? vec4(0.45, 0.52, 0.64, 0.24) : vec4(0.12, 0.31, 0.36, 0.35); return; }
-  if (vType < 0.5) color = uLightTheme ? vec4(0.15, 0.39, 0.92, 1.0) : vec4(0.41, 0.82, 0.84, 1.0);
-  else if (vType < 1.5) color = vec4(1.0, 0.69, 0.12, 1.0);
-  else if (vType < 2.5) color = vec4(0.37, 0.88, 0.43, 1.0);
-  else color = vec4(0.86, 0.40, 0.72, 1.0);
+  if (uLayer == 0) { color = uLightTheme ? vec4(0.68, 0.72, 0.78, 0.76) : vec4(0.08, 0.12, 0.19, 0.94); return; }
+  if (uLayer == 1) { color = uLightTheme ? vec4(0.25, 0.30, 0.39, 0.92) : vec4(0.58, 0.66, 0.78, 0.88); return; }
+  color = uLightTheme ? vec4(0.45, 0.52, 0.64, 0.18) : vec4(0.28, 0.36, 0.48, 0.24);
 }`;
 
 const POINT_VERTEX_SHADER = `#version 300 es
 in vec3 aPosition;
 in float aType;
 in float aSize;
+in float aDecision;
 uniform mat4 uViewProjection;
 uniform float uPixelRatio;
+uniform float uSizeOffset;
 out float vType;
+out float vDecision;
 void main() {
   gl_Position = uViewProjection * vec4(aPosition, 1.0);
-  gl_PointSize = aSize * uPixelRatio;
+  gl_PointSize = (aSize + uSizeOffset) * uPixelRatio;
   vType = aType;
+  vDecision = aDecision;
 }`;
 
 const POINT_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 in float vType;
+in float vDecision;
 uniform int uLayer;
 uniform bool uLightTheme;
 out vec4 color;
 void main() {
   vec2 point = gl_PointCoord * 2.0 - 1.0;
-  if (dot(point, point) > 1.0) discard;
+  bool station = vType >= 9.5 && vType < 10.5;
+  bool spawn = vType >= 10.5 && vType < 11.5;
+  bool announcement = vType >= 11.5 && vType < 12.5;
+  bool propertyMarker = vType >= 12.5 && vType < 13.5;
+  bool symbolMarker = vType >= 9.5;
+  if ((station || !symbolMarker) && dot(point, point) > 1.0) discard;
+  if (spawn && abs(point.x) + abs(point.y) > 1.0) discard;
+  if (propertyMarker && (point.y > 0.9 || point.y < -0.9 || abs(point.x) > (1.0 - point.y) * 0.52)) discard;
+  if (!station && !spawn && !announcement && !propertyMarker && symbolMarker && max(abs(point.x), abs(point.y)) + 0.35 * min(abs(point.x), abs(point.y)) > 1.0) discard;
   if (uLayer == 0) { color = uLightTheme ? vec4(0.06, 0.09, 0.15, 0.88) : vec4(0.01, 0.03, 0.04, 0.95); return; }
+  if (uLayer == 2) { color = uLightTheme ? vec4(0.09, 0.25, 0.62, 1.0) : vec4(0.46, 0.58, 0.93, 1.0); return; }
+  if (uLayer == 3) { color = uLightTheme ? vec4(0.35, 0.40, 0.49, 0.48) : vec4(0.55, 0.62, 0.74, 0.52); return; }
+  if (uLayer == 4) { color = uLightTheme ? vec4(0.97, 0.98, 0.99, 1.0) : vec4(0.05, 0.07, 0.11, 1.0); return; }
+  if (symbolMarker && vDecision < 0.5) { color = uLightTheme ? vec4(0.55, 0.29, 0.0, 1.0) : vec4(0.95, 0.71, 0.36, 1.0); return; }
+  if (symbolMarker && vDecision < 1.5) { color = uLightTheme ? vec4(0.02, 0.40, 0.28, 1.0) : vec4(0.29, 0.78, 0.61, 1.0); return; }
+  if (symbolMarker) { color = uLightTheme ? vec4(0.40, 0.44, 0.51, 1.0) : vec4(0.57, 0.62, 0.70, 1.0); return; }
   if (vType < 0.5) color = uLightTheme ? vec4(0.15, 0.39, 0.92, 1.0) : vec4(0.41, 0.82, 0.84, 1.0);
   else if (vType < 1.5) color = vec4(1.0, 0.69, 0.12, 1.0);
   else if (vType < 2.5) color = vec4(0.37, 0.88, 0.43, 1.0);

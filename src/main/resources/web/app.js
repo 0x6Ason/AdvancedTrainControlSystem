@@ -21,7 +21,11 @@ const state = {
   fareRules: [],
   selectedSymbol: null,
   graph: { nodes: [], edges: [], materials: [], shapes: [], runId: null, worldName: "", truncated: false },
-  networkMap: null
+  networkMap: null,
+  mapViewMode: "TOP",
+  railBlocksVisible: false,
+  mapGridVisible: false,
+  mapLoadSequence: 0
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -109,6 +113,9 @@ function bindEvents() {
   $("#reload-map").addEventListener("click", loadMap);
   $("#fit-map").addEventListener("click", fitMap);
   $("#north-map").addEventListener("click", () => state.networkMap?.north());
+  $("#map-object-scope").addEventListener("change", handleMapObjectScopeChange);
+  $("#toggle-map-grid").addEventListener("click", toggleMapGrid);
+  $("#toggle-rail-blocks").addEventListener("click", toggleRailBlocks);
   $("#view-3d-map").addEventListener("click", () => setMapView(false));
   $("#view-top-map").addEventListener("click", () => setMapView(true));
   $("#map-world").addEventListener("change", loadMap);
@@ -503,17 +510,37 @@ function replaceSelectOptions(select, firstLabel, values) {
 }
 
 function applyFilters() {
-  const world = $("#world-filter").value;
+  state.filteredSymbols = state.symbols.filter((item) => symbolMatchesCurrentFilters(item, true));
+  const networkView = $("#view-network").classList.contains("active");
+  if (networkView) synchronizeMapScopeWithDecision();
+  const selectionVisible = state.selectedSymbol && (networkView
+    ? state.selectedSymbol.worldName === $("#map-world").value &&
+      symbolMatchesCurrentFilters(state.selectedSymbol, false) &&
+      mapObjectScopeIncludes($("#map-object-scope").value, state.selectedSymbol)
+    : state.filteredSymbols.some((item) => item.id === state.selectedSymbol.id));
+  if (state.selectedSymbol && !selectionVisible) {
+    state.selectedSymbol = null;
+    renderInspector();
+  }
+  renderSymbolTable();
+  updateNetworkMapScene();
+}
+
+function synchronizeMapScopeWithDecision() {
+  const decision = $("#decision-filter").value;
+  const requiredScope = ({ INCLUDED: "INCLUDED", PENDING: "REVIEWABLE", IGNORED: "ALL" })[decision];
+  if (requiredScope) $("#map-object-scope").value = requiredScope;
+}
+
+function symbolMatchesCurrentFilters(item, includeWorld) {
+  const world = includeWorld ? $("#world-filter").value : "";
   const type = $("#type-filter").value;
   const decision = $("#decision-filter").value;
   const search = $("#search-filter").value.trim().toLowerCase();
-  state.filteredSymbols = state.symbols.filter((item) =>
-    (!world || item.worldName === world) &&
+  return (!world || item.worldName === world) &&
     (!type || item.type === type) &&
     (!decision || item.decision === decision) &&
-    (!search || searchableSymbol(item).includes(search))
-  );
-  renderSymbolTable();
+    (!search || searchableSymbol(item).includes(search));
 }
 
 function clearFilters() {
@@ -521,14 +548,16 @@ function clearFilters() {
   $("#type-filter").value = "";
   $("#decision-filter").value = "";
   $("#search-filter").value = "";
+  $("#map-object-scope").value = "INCLUDED";
   applyFilters();
 }
 
 function renderSymbolTable() {
   $("#symbol-count").textContent = `${state.filteredSymbols.length} / ${state.symbols.length} RECORDS`;
   const body = $("#symbol-table-body");
-  body.replaceChildren(...state.filteredSymbols.map((item) => {
+  body.replaceChildren(...state.filteredSymbols.map((item, index) => {
     const row = document.createElement("tr");
+    row.dataset.symbolId = item.id;
     if (state.selectedSymbol?.id === item.id) row.classList.add("selected");
     const stateCell = document.createElement("td");
     const pill = document.createElement("span");
@@ -543,19 +572,58 @@ function renderSymbolTable() {
       return cell;
     }));
     row.addEventListener("click", () => selectSymbol(item));
+    row.tabIndex = state.selectedSymbol?.id === item.id || (!state.selectedSymbol && index === 0) ? 0 : -1;
+    row.addEventListener("keydown", (event) => handleSymbolRowKeydown(event, index));
     return row;
   }));
 }
 
 function selectSymbol(symbol) {
-  state.selectedSymbol = symbol;
+  state.selectedSymbol = symbol || null;
   renderInspector();
-  renderSymbolTable();
-  state.networkMap?.setSelectedSymbol(symbol.id);
+  updateSymbolTableSelection();
+  state.networkMap?.setSelectedSymbol(symbol?.id || null);
+  updateNetworkMapScene();
+}
+
+function updateSymbolTableSelection() {
+  Array.from($("#symbol-table-body").rows).forEach((row, index) => {
+    const selected = row.dataset.symbolId === state.selectedSymbol?.id;
+    row.classList.toggle("selected", selected);
+    row.tabIndex = selected || (!state.selectedSymbol && index === 0) ? 0 : -1;
+  });
+}
+
+function handleSymbolRowKeydown(event, index) {
+  const rows = Array.from($("#symbol-table-body").rows);
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    const next = Math.max(0, Math.min(rows.length - 1, index + delta));
+    rows[index].tabIndex = -1;
+    rows[next].tabIndex = 0;
+    rows[next].focus();
+    return;
+  }
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    selectSymbol(state.filteredSymbols[index]);
+    requestAnimationFrame(() => {
+      const selectedRow = $("#symbol-table-body").rows[index];
+      if (!selectedRow) return;
+      selectedRow.tabIndex = 0;
+      selectedRow.focus();
+    });
+  }
 }
 
 function renderInspector() {
-  if ($("#view-candidates").classList.contains("active")) {
+  const candidateView = $("#view-candidates").classList.contains("active");
+  $(".inspector").classList.toggle(
+    "has-selection",
+    Boolean(candidateView ? state.selectedCandidate : state.selectedSymbol)
+  );
+  if (candidateView) {
     renderCandidateInspector();
     return;
   }
@@ -785,7 +853,7 @@ async function saveCandidateDecision(event) {
   }
 }
 
-function showCandidateSourceOnMap() {
+async function showCandidateSourceOnMap() {
   const item = state.selectedCandidate;
   if (!item) return;
   const source = state.symbols.find((symbol) => symbol.id === item.sourceSignId);
@@ -793,12 +861,21 @@ function showCandidateSourceOnMap() {
     $("#candidate-decision-message").textContent = "The source sign is not present in the current active-world symbol register.";
     return;
   }
+  $("#world-filter").value = source.worldName;
+  $("#type-filter").value = "";
+  $("#decision-filter").value = "";
+  $("#search-filter").value = "";
+  $("#map-object-scope").value = source.decision === "IGNORED"
+    ? "ALL"
+    : source.decision === "PENDING" ? "REVIEWABLE" : "INCLUDED";
+  applyFilters();
   selectSymbol(source);
   if ($("#map-world").value !== source.worldName) {
     $("#map-world").value = source.worldName;
-    loadMap();
+    await loadMap();
   }
   activateView("network");
+  setTimeout(() => state.networkMap?.focusSymbol(source.id), 0);
 }
 
 function updateDecisionFields() {
@@ -1389,22 +1466,75 @@ async function refreshAudit() {
 
 async function loadMap() {
   const world = $("#map-world").value;
+  const loadSequence = ++state.mapLoadSequence;
+  if (!state.networkMap) return;
+  if (state.selectedSymbol && state.selectedSymbol.worldName !== world) {
+    state.selectedSymbol = null;
+    renderInspector();
+    renderSymbolTable();
+  }
   if (!world) {
-    state.graph = { nodes: [], edges: [], materials: [], shapes: [], runId: null, worldName: "", truncated: false };
-    $("#map-empty").hidden = false;
-    updateNetworkMapScene();
+    state.graph = emptyRailGraph("");
+    updateMapEmptyState(world);
+    updateNetworkMapScene(true);
     return;
   }
+  state.graph = emptyRailGraph(world);
+  showMapMessage("LOADING RAIL EVIDENCE", `Reading the latest saved rail snapshot for ${world}.`);
+  updateNetworkMapScene(true);
   try {
-    state.graph = await request(`/api/v1/network/rails?world=${encodeURIComponent(world)}`);
+    const graph = await request(`/api/v1/network/rails?world=${encodeURIComponent(world)}`);
+    if (loadSequence !== state.mapLoadSequence || $("#map-world").value !== world) return;
     const overviewRunId = state.overview?.railRun?.runId || null;
-    const graphRunId = state.graph.runId || null;
+    const graphRunId = graph.runId || null;
     if (overviewRunId !== graphRunId) await refreshOverview();
-    $("#map-empty").hidden = Boolean(state.graph.runId);
-    updateNetworkMapScene();
+    if (loadSequence !== state.mapLoadSequence || $("#map-world").value !== world) return;
+    state.graph = graph;
+    updateMapEmptyState(world);
+    updateNetworkMapScene(true);
     fitMap();
   } catch (error) {
+    if (loadSequence !== state.mapLoadSequence || $("#map-world").value !== world) return;
+    state.graph = emptyRailGraph(world);
+    state.selectedSymbol = null;
+    renderInspector();
+    renderSymbolTable();
+    showMapMessage("RAIL MAP UNAVAILABLE", `${error.message} Use Reload to try again.`);
+    updateNetworkMapScene(true);
     showToast(error.message, true);
+  }
+}
+
+function emptyRailGraph(world) {
+  return { nodes: [], edges: [], materials: [], shapes: [], runId: null, worldName: world, truncated: false };
+}
+
+function showMapMessage(titleText, messageText) {
+  const empty = $("#map-empty");
+  empty.hidden = false;
+  const title = document.createElement("b");
+  const message = document.createElement("span");
+  title.textContent = titleText;
+  message.textContent = messageText;
+  empty.replaceChildren(title, message);
+}
+
+function updateMapEmptyState(world) {
+  if (!state.networkMap) return;
+  if (state.graph.runId && state.graph.nodes.length > 0) {
+    $("#map-empty").hidden = true;
+    return;
+  }
+  if (state.graph.runId) {
+    showMapMessage(
+      "NO RAIL EVIDENCE IN THIS WORLD",
+      `The latest rail snapshot contains no saved rail nodes for ${world}.`
+    );
+  } else {
+    showMapMessage(
+      "NO RAIL CANDIDATE SNAPSHOT",
+      "Run /atcs discover rail to inventory existing rail evidence without generating terrain."
+    );
   }
 }
 
@@ -1416,20 +1546,94 @@ function resizeCanvas() {
   state.networkMap?.resize();
 }
 
-function updateNetworkMapScene() {
+function updateNetworkMapScene(graphChanged = false) {
   const world = $("#map-world").value;
-  const symbols = state.symbols.filter(item => item.worldName === world);
-  state.networkMap?.setScene(state.graph, symbols);
+  const worldSymbols = state.symbols.filter((item) => item.worldName === world);
+  const filtered = worldSymbols.filter((item) => symbolMatchesCurrentFilters(item, false));
+  const objectScope = $("#map-object-scope")?.value || "INCLUDED";
+  const symbols = state.graph.nodes.length > 0
+    ? filtered.filter((item) => mapObjectScopeIncludes(objectScope, item))
+    : [];
+  if (graphChanged) state.networkMap?.setScene(state.graph, symbols);
+  else state.networkMap?.setSymbols(symbols);
   state.networkMap?.setSelectedSymbol(state.selectedSymbol?.id || null);
   const rail = state.overview?.railRun;
-  $("#map-coordinates").textContent = `WORLD ${world || "—"} / 3D RAIL NODES ${state.graph.nodes.length} / EDGES ${state.graph.edges.length} / SYMBOLS ${symbols.length}${state.graph.truncated ? " / TRUNCATED" : ""}${rail?.discoveryMode ? ` / ${rail.discoveryMode}` : ""}`;
+  const detail = [
+    `WORLD ${world || "—"}`,
+    state.mapViewMode,
+    `RAIL NODES ${state.graph.nodes.length}`,
+    `EDGES ${state.graph.edges.length}`,
+    `OBJECTS ${symbols.length}/${worldSymbols.length}`,
+    state.railBlocksVisible ? "RAIL BLOCKS ON" : "RAIL BLOCKS OFF",
+    state.mapGridVisible ? "GRID ON" : "GRID OFF"
+  ];
+  if (state.graph.truncated) detail.push("TRUNCATED");
+  if (rail?.discoveryMode) detail.push(rail.discoveryMode);
+  $("#map-coordinates").textContent = detail.join(" / ");
+  updateMapSelectionBadge(symbols);
+}
+
+function mapObjectScopeIncludes(scope, item) {
+  if (scope === "NONE") return false;
+  if (scope === "INCLUDED") return item.decision === "INCLUDED";
+  if (scope === "REVIEWABLE") return item.decision !== "IGNORED";
+  return true;
+}
+
+function handleMapObjectScopeChange() {
+  const scope = $("#map-object-scope").value;
+  const decision = $("#decision-filter").value;
+  if (decision && !mapObjectScopeIncludes(scope, { decision })) {
+    $("#decision-filter").value = "";
+    applyFilters();
+    return;
+  }
+  if (state.selectedSymbol && !mapObjectScopeIncludes(scope, state.selectedSymbol)) {
+    state.selectedSymbol = null;
+    renderInspector();
+    renderSymbolTable();
+  }
+  updateNetworkMapScene();
+}
+
+function toggleRailBlocks() {
+  state.railBlocksVisible = !state.railBlocksVisible;
+  const button = $("#toggle-rail-blocks");
+  button.classList.toggle("active-control", state.railBlocksVisible);
+  button.setAttribute("aria-pressed", String(state.railBlocksVisible));
+  state.networkMap?.setRailBlocksVisible(state.railBlocksVisible);
+  updateNetworkMapScene();
+}
+
+function toggleMapGrid() {
+  state.mapGridVisible = !state.mapGridVisible;
+  const button = $("#toggle-map-grid");
+  button.classList.toggle("active-control", state.mapGridVisible);
+  button.setAttribute("aria-pressed", String(state.mapGridVisible));
+  state.networkMap?.setGridVisible(state.mapGridVisible);
+  updateNetworkMapScene();
+}
+
+function updateMapSelectionBadge(visibleSymbols) {
+  const selected = state.selectedSymbol;
+  const visible = selected && visibleSymbols.some((item) => item.id === selected.id);
+  const badge = $("#map-selection");
+  badge.hidden = !visible;
+  if (!visible) return;
+  $("#map-selection-state").textContent = `SELECTED SIGN EVIDENCE / ${selected.decision}`;
+  $("#map-selection-title").textContent = `${selected.type} / ${selected.id.slice(0, 8)}`;
+  $("#map-selection-location").textContent = `${selected.worldName} / X ${selected.x} / Y ${selected.y} / Z ${selected.z}`;
 }
 
 function setMapView(top) {
   $("#view-top-map").classList.toggle("active-control", top);
   $("#view-3d-map").classList.toggle("active-control", !top);
+  $("#view-top-map").setAttribute("aria-pressed", String(top));
+  $("#view-3d-map").setAttribute("aria-pressed", String(!top));
+  state.mapViewMode = top ? "TOP" : "3D";
   if (top) state.networkMap?.setTopView();
   else state.networkMap?.setThreeDimensionalView();
+  updateNetworkMapScene();
 }
 
 function activateView(name) {
@@ -1437,7 +1641,23 @@ function activateView(name) {
   $$(".workspace .view").forEach((view) => view.classList.toggle("active", view.id === `view-${name}`));
   $("#candidate-filter-panel").hidden = name !== "candidates";
   $("#symbol-filter-panel").hidden = name === "candidates";
-  if (name === "network") setTimeout(resizeCanvas, 0);
+  $("#symbol-world-filter-label").hidden = name === "network";
+  if (name === "network") {
+    synchronizeMapScopeWithDecision();
+    if (state.selectedSymbol && !mapObjectScopeIncludes($("#map-object-scope").value, state.selectedSymbol)) {
+      $("#map-object-scope").value = state.selectedSymbol.decision === "IGNORED" ? "ALL" : "REVIEWABLE";
+    }
+    let mapPreparation = Promise.resolve();
+    if (state.selectedSymbol && $("#map-world").value !== state.selectedSymbol.worldName) {
+      $("#map-world").value = state.selectedSymbol.worldName;
+      mapPreparation = loadMap();
+    }
+    mapPreparation.finally(() => setTimeout(() => {
+      resizeCanvas();
+      updateNetworkMapScene();
+      if (state.selectedSymbol) state.networkMap?.focusSymbol(state.selectedSymbol.id);
+    }, 0));
+  }
   if (name === "audit") refreshAudit();
   if (name !== "candidates" && !state.selectedSymbol) {
     $("#inspector-empty b").textContent = "NO SYMBOL SELECTED";

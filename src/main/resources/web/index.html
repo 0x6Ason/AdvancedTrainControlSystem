@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>ATCS Network Administration</title>
-  <link rel="stylesheet" href="/styles.css?v=11">
+  <link rel="stylesheet" href="/styles.css?v=12">
 </head>
 <body>
   <!--
@@ -79,8 +79,8 @@
           <dl id="overview-list" class="register-list"></dl>
         </section>
         <section id="symbol-filter-panel" class="summary-box grow">
-          <div class="window-title">QUICK FILTER</div>
-          <label>World<select id="world-filter"><option value="">ALL ACTIVE</option></select></label>
+          <div class="window-title">SYMBOL FILTER / MAP LAYER</div>
+          <label id="symbol-world-filter-label" hidden>World<select id="world-filter"><option value="">ALL ACTIVE</option></select></label>
           <label>Symbol type<select id="type-filter"><option value="">ALL TYPES</option></select></label>
           <label>Decision<select id="decision-filter">
             <option value="">ALL DECISIONS</option>
@@ -93,11 +93,14 @@
           <button id="clear-filter" class="button muted">CLEAR</button>
           <hr>
           <div class="key-list">
-            <span><i class="key station"></i>Station sign</span>
-            <span><i class="key spawn"></i>Spawn sign</span>
-            <span><i class="key announce"></i>Announcement</span>
-            <span><i class="key other"></i>Other symbol</span>
-            <span><i class="key ignored"></i>Ignored</span>
+            <span><i class="key rail"></i>Rail evidence (not selectable)</span>
+            <span><i class="key station"></i>Station marker</span>
+            <span><i class="key spawn"></i>Spawn marker</span>
+            <span><i class="key announce"></i>Announcement marker</span>
+            <span><i class="key other"></i>Other sign marker</span>
+            <span><i class="key pending"></i>Pending evidence</span>
+            <span><i class="key included"></i>Included object</span>
+            <span><i class="key ignored"></i>Ignored evidence</span>
           </div>
         </section>
         <section id="candidate-filter-panel" class="summary-box grow" hidden>
@@ -137,16 +140,34 @@
           <div class="workspace-toolbar map-toolbar">
             <strong>PHYSICAL NETWORK / EVIDENCE LAYER</strong>
             <label>World<select id="map-world"></select></label>
+            <label>Objects<select id="map-object-scope">
+              <option value="INCLUDED">INCLUDED ONLY</option>
+              <option value="REVIEWABLE">PENDING + INCLUDED</option>
+              <option value="ALL">ALL SIGN EVIDENCE</option>
+              <option value="NONE">TRACKS ONLY</option>
+            </select></label>
             <button id="reload-map" class="button compact">RELOAD</button>
             <button id="fit-map" class="button compact">FIT</button>
             <button id="north-map" class="button compact">NORTH</button>
-            <button id="view-3d-map" class="button compact active-control">3D</button>
-            <button id="view-top-map" class="button compact">TOP</button>
-            <span class="toolbar-note">Wheel zoom / drag pan / right-drag rotate / click inspect</span>
+            <button id="toggle-map-grid" class="button compact" type="button" aria-pressed="false" title="Show coordinate grid">GRID</button>
+            <button id="toggle-rail-blocks" class="button compact" type="button" aria-pressed="false" title="Show individual rail blocks">BLOCKS</button>
+            <button id="view-3d-map" class="button compact" type="button" aria-pressed="false">3D</button>
+            <button id="view-top-map" class="button compact active-control" type="button" aria-pressed="true">TOP</button>
+            <span class="toolbar-note">Rail lines are context. Click a marker to inspect.</span>
           </div>
           <div class="map-shell">
-            <canvas id="network-canvas" tabindex="0" aria-label="Discovered railway network map"></canvas>
+            <canvas id="network-canvas" tabindex="0" aria-label="Discovered railway network map" aria-describedby="map-keyboard-help"></canvas>
+            <span id="map-keyboard-help" class="sr-only">Use arrow keys to pan, plus and minus to zoom, F to fit, N for north, and Escape to clear the selected symbol.</span>
+            <div id="map-selection" class="map-selection" aria-live="polite" hidden>
+              <span id="map-selection-state">SELECTED SIGN EVIDENCE</span>
+              <b id="map-selection-title"></b>
+              <small id="map-selection-location"></small>
+            </div>
             <div class="map-coordinates" id="map-coordinates">X -- / Z -- / SCALE --</div>
+            <div class="map-layer-key" aria-hidden="true">
+              <span><i class="track"></i>RAIL CONTEXT</span>
+              <span><i class="marker"></i>SELECTABLE MARKER</span>
+            </div>
             <div class="map-empty" id="map-empty" hidden>
               <b>NO RAIL CANDIDATE SNAPSHOT</b>
               <span>Run <code>/atcs discover rail</code> to inventory rails using the configured saved- or loaded-chunk scope.</span>
@@ -188,6 +209,7 @@
           </div>
           <div class="table-scroll">
             <table class="data-table">
+              <caption class="sr-only">Legacy sign evidence. Use Up and Down arrows to move between rows and Enter or Space to inspect a row.</caption>
               <thead><tr><th>STATE</th><th>TYPE</th><th>WORLD</th><th>X</th><th>Y</th><th>Z</th><th>SIGN COMMAND / TEXT</th><th>ID</th></tr></thead>
               <tbody id="symbol-table-body"></tbody>
             </table>
@@ -422,7 +444,7 @@
       <span>ATCS ADMIN FACILITY</span><span>SCHEMA <b id="schema-display">V7</b></span><span>ENGLISH OPERATIONAL OUTPUT</span><span id="footer-time"></span>
     </footer>
   </div>
-  <script src="/network-map.js?v=10" defer></script>
-  <script src="/app.js?v=11" defer></script>
+  <script src="/network-map.js?v=11" defer></script>
+  <script src="/app.js?v=12" defer></script>
 </body>
 </html>
