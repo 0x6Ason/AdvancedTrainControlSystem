@@ -1,0 +1,46 @@
+language: en
+
+templates:
+  APPROACHING:
+    chat: "Now approaching {station}. This is a {line} {service_type} service to {destination}."
+    action-bar: "Approaching {station}"
+  ARRIVED:
+    chat: "This is {station}. Doors will open on the platform side."
+    action-bar: "Arrived at {station}"
+  NEXT_STATION:
+    chat: "The next station is {next_station}."
+    action-bar: "Next station: {next_station}"
+  DOORS_CLOSING:
+    chat: "Doors are closing. Please stand clear of the doors."
+    action-bar: "Doors closing"
+  DEPARTING:
+    chat: "This train is departing for {destination}."
+    action-bar: "Departing for {destination}"
+  EXPRESS_PASSING:
+    chat: "Attention: an express train is passing through {station}. Please stand behind the safety line."
+    action-bar: "Express train passing"
+  SKIPPED_STOPS:
+    chat: "This service will not stop at {skipped_stations}."
+    action-bar: "Non-stop through {skipped_stations}"
+  DESTINATION_INFORMATION:
+    chat: "This is a {line} {service_type} service to {destination}, travelling via {direction}."
+    action-bar: "{destination} via {direction}"
+  TERMINAL:
+    chat: "This train terminates at {station}. All passengers must leave the train."
+    action-bar: "This train terminates here"
+  SHORT_TURN:
+    chat: "Service update: this train will now terminate at {destination}."
+    action-bar: "Now terminating at {destination}"
+  DELAY:
+    chat: "This service is delayed by approximately {delay}. We apologize for the delay."
+    action-bar: "Delayed by {delay}"
+  PLATFORM_CHANGE:
+    chat: "Platform alteration: the {destination} service will now depart from platform {platform}."
+    action-bar: "Now departing from platform {platform}"
+  SUSPENSION:
+    chat: "Service on the {line} is currently suspended. Please follow staff instructions."
+    action-bar: "Service suspended"
+  EMERGENCY:
+    chat: "Emergency notice: please remain calm and follow staff instructions immediately."
+    action-bar: "Follow staff instructions"
+

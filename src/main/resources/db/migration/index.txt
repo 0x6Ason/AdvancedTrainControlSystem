@@ -1,0 +1,7 @@
+V001__initial_schema.sql
+V002__legacy_inventory_and_hud.sql
+V003__legacy_review_queue.sql
+V004__infrastructure_candidates.sql
+V005__manual_editor_foundation.sql
+V006__route_plan_editor.sql
+V007__complete_loaded_rail_coverage.sql

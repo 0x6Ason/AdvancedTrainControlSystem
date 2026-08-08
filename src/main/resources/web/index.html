@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>ATCS Network Administration</title>
+  <link rel="stylesheet" href="/styles.css?v=10">
+</head>
+<body>
+  <div id="login-screen" class="login-screen" hidden>
+    <form id="login-form" class="login-panel">
+      <div class="login-brand">
+        <span class="roundel"><span></span></span>
+        <div>
+          <strong>ATCS</strong>
+          <small>ADVANCED TRAIN CONTROL SYSTEM</small>
+        </div>
+      </div>
+      <div class="window-title">SYSTEM ADMINISTRATION LOGON</div>
+      <label for="admin-token">Administration token</label>
+      <input id="admin-token" name="token" type="password" autocomplete="current-password" required>
+      <p class="field-help">Read the token from the configured token file on the server.</p>
+      <button class="button primary" type="submit">LOG ON</button>
+      <output id="login-message" class="form-message"></output>
+      <div class="login-foot">LOCAL OPERATIONS TERMINAL / SESSION SECURITY ENABLED</div>
+    </form>
+  </div>
+
+  <div id="application" class="application" hidden>
+    <header class="masthead">
+      <div class="brand-block">
+        <span class="roundel small"><span></span></span>
+        <div class="wordmark">
+          <strong>ATCS</strong>
+          <small>NETWORK ADMINISTRATION FACILITY</small>
+        </div>
+      </div>
+      <div class="masthead-cells">
+        <div><small>MODE</small><b>CONFIGURATION</b></div>
+        <div><small>ACCESS</small><b id="session-role">SYSTEM_ADMIN</b></div>
+        <div><small>UTC</small><b id="utc-clock">--:--:--</b></div>
+      </div>
+      <button id="theme-toggle" class="button compact theme-toggle" type="button" aria-label="Switch to dark theme">DARK</button>
+      <button id="logout-button" class="button compact">LOG OFF</button>
+    </header>
+
+    <nav class="module-strip" aria-label="Primary modules">
+      <button data-view="network" class="active"><svg><use href="/icons.svg#network"></use></svg>NETWORK MAP</button>
+      <button data-view="symbols"><svg><use href="/icons.svg#inventory"></use></svg>SYMBOL IMPORT</button>
+      <button data-view="stations"><svg><use href="/icons.svg#station"></use></svg>STATIONS</button>
+      <button data-view="lines"><svg><use href="/icons.svg#line"></use></svg>LINES / ROUTES</button>
+      <button data-view="fares"><svg><use href="/icons.svg#gate"></use></svg>GATES / FARES</button>
+      <button data-view="audit"><svg><use href="/icons.svg#audit"></use></svg>AUDIT</button>
+    </nav>
+
+    <div class="system-status">
+      <span class="lamp green"></span><b>DATABASE ONLINE</b>
+      <span class="separator">|</span>
+      <span id="rail-status"><span class="lamp amber"></span>RAIL SNAPSHOT NOT LOADED</span>
+      <span class="separator">|</span>
+      <span>NO WORLD WRITES FROM WEB EDITOR</span>
+      <span id="toast" class="toast"></span>
+    </div>
+
+    <main class="console-grid">
+      <aside class="left-rail">
+        <section class="summary-box">
+          <div class="window-title">NETWORK REGISTER</div>
+          <dl id="overview-list" class="register-list"></dl>
+        </section>
+        <section class="summary-box grow">
+          <div class="window-title">QUICK FILTER</div>
+          <label>World<select id="world-filter"><option value="">ALL ACTIVE</option></select></label>
+          <label>Symbol type<select id="type-filter"><option value="">ALL TYPES</option></select></label>
+          <label>Decision<select id="decision-filter">
+            <option value="">ALL DECISIONS</option>
+            <option value="PENDING">PENDING</option>
+            <option value="INCLUDED">INCLUDED</option>
+            <option value="IGNORED">IGNORED</option>
+          </select></label>
+          <label>Find<input id="search-filter" type="search" placeholder="ID, text, coordinate"></label>
+          <button id="apply-filter" class="button">APPLY FILTER</button>
+          <button id="clear-filter" class="button muted">CLEAR</button>
+          <hr>
+          <div class="key-list">
+            <span><i class="key station"></i>Station sign</span>
+            <span><i class="key spawn"></i>Spawn sign</span>
+            <span><i class="key announce"></i>Announcement</span>
+            <span><i class="key other"></i>Other symbol</span>
+            <span><i class="key ignored"></i>Ignored</span>
+          </div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <div id="view-network" class="view active">
+          <div class="workspace-toolbar map-toolbar">
+            <strong>PHYSICAL NETWORK / EVIDENCE LAYER</strong>
+            <label>World<select id="map-world"></select></label>
+            <button id="reload-map" class="button compact">RELOAD</button>
+            <button id="fit-map" class="button compact">FIT</button>
+            <button id="north-map" class="button compact">NORTH</button>
+            <button id="view-3d-map" class="button compact active-control">3D</button>
+            <button id="view-top-map" class="button compact">TOP</button>
+            <span class="toolbar-note">Wheel zoom / drag pan / right-drag rotate / click inspect</span>
+          </div>
+          <div class="map-shell">
+            <canvas id="network-canvas" tabindex="0" aria-label="Discovered railway network map"></canvas>
+            <div class="map-coordinates" id="map-coordinates">X -- / Z -- / SCALE --</div>
+            <div class="map-empty" id="map-empty" hidden>
+              <b>NO RAIL CANDIDATE SNAPSHOT</b>
+              <span>Run <code>/atcs discover rail</code> to inventory rails using the configured saved- or loaded-chunk scope.</span>
+              <span>Symbols remain available in SYMBOL IMPORT without rail discovery.</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="view-symbols" class="view">
+          <div class="workspace-toolbar">
+            <strong>LEGACY SYMBOL REGISTER</strong>
+            <span id="symbol-count">0 RECORDS</span>
+            <button id="refresh-symbols" class="button compact">REFRESH</button>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>STATE</th><th>TYPE</th><th>WORLD</th><th>X</th><th>Y</th><th>Z</th><th>SIGN COMMAND / TEXT</th><th>ID</th></tr></thead>
+              <tbody id="symbol-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="view-stations" class="view">
+          <div class="workspace-toolbar"><strong>STATION / PLATFORM REGISTER</strong><button id="refresh-stations" class="button compact">REFRESH</button></div>
+          <div class="split-editor">
+            <section>
+              <div class="window-title">AUTHORISED STATIONS</div>
+              <div id="station-register" class="station-register"></div>
+            </section>
+            <section class="form-panel">
+              <div class="window-title">CREATE STATION</div>
+              <form id="station-form" class="dense-form">
+                <label>Station ID<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" placeholder="CEN"></label>
+                <label>Display name<input name="displayName" required placeholder="Central Station"></label>
+                <label>World<select id="station-world" name="worldName" required></select></label>
+                <button class="button primary" type="submit">CREATE STATION RECORD</button>
+              </form>
+              <div class="window-title spacer">ADD PLATFORM</div>
+              <form id="platform-form" class="dense-form coordinate-form">
+                <label>Station<select name="stationId" required></select></label>
+                <label>Platform ID<input name="id" required placeholder="P1"></label>
+                <label>Display name<input name="displayName" required placeholder="Platform 1"></label>
+                <label>X<input name="x" type="number" required></label>
+                <label>Y<input name="y" type="number" required></label>
+                <label>Z<input name="z" type="number" required></label>
+                <label>Berth tolerance<input name="berthTolerance" type="number" min="0.1" step="0.1" value="1.5" required></label>
+                <button class="button primary" type="submit">ADD PLATFORM RECORD</button>
+              </form>
+            </section>
+          </div>
+        </div>
+
+        <div id="view-lines" class="view module-ledger">
+          <div class="workspace-toolbar"><strong>LINE REGISTER / ROUTE ENGINEERING</strong><button id="refresh-lines" class="button compact">REFRESH</button></div>
+          <div class="ledger-banner"><svg><use href="/icons.svg#line"></use></svg><div><b>PASSENGER LINE REGISTER</b><span>Public line identity and colour are editable here. Directional paths will only become operational after explicit track assignment.</span></div></div>
+          <div class="split-editor line-editor">
+            <section>
+              <div class="window-title">AUTHORISED LINES</div>
+              <div id="line-register" class="record-register"></div>
+              <div class="window-title spacer">DIRECTIONAL ROUTE PLANS</div>
+              <div id="route-plan-register" class="record-register"></div>
+            </section>
+            <section class="form-panel">
+              <div class="window-title">LINE DETAILS</div>
+              <form id="line-form" class="dense-form">
+                <input name="expectedVersion" type="hidden" value="0">
+                <label>Line ID<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" placeholder="L1"></label>
+                <label>Public display name<input name="displayName" required placeholder="Line 1"></label>
+                <label>Diagram colour<input name="color" type="color" value="#1687a7" required></label>
+                <label class="check-label"><input name="enabled" type="checkbox" checked> Enabled for configuration</label>
+                <div class="button-row"><button class="button primary" type="submit">SAVE LINE</button><button id="new-line" class="button" type="button">NEW</button></div>
+              </form>
+              <div class="window-title spacer">ROUTE PLAN DETAILS</div>
+              <form id="route-plan-form" class="dense-form">
+                <input name="expectedVersion" type="hidden" value="0">
+                <label>Route plan ID<input name="id" required placeholder="L1_UP"></label>
+                <label>Line<select name="lineId" required></select></label>
+                <label>Display name<input name="displayName" required placeholder="Line 1 Up"></label>
+                <div class="two-column">
+                  <label>Direction<input name="directionName" required placeholder="Up"></label>
+                  <label>Destination<input name="destinationName" placeholder="Central"></label>
+                  <label>Terminal policy<select name="terminalPolicy"><option>TURNBACK</option><option>CONTINUE_AS</option><option>DEPOT</option><option>DEADHEAD</option><option>DESPAWN</option><option>LOOP_CONTINUE</option></select></label>
+                  <label>Anchor station<select name="anchorStationId"></select></label>
+                </div>
+                <label class="check-label"><input name="circular" type="checkbox"> Circular route</label>
+                <fieldset class="call-builder">
+                  <legend>ORDERED STATION CALLS</legend>
+                  <div class="two-column">
+                    <label>Station<select id="call-station"></select></label>
+                    <label>Platform<select id="call-platform"></select></label>
+                    <label>Stop policy<select id="call-policy"><option>STOP</option><option>REQUEST</option><option>PASS</option><option>NON_SERVICE</option></select></label>
+                    <label>Dwell seconds<input id="call-dwell" type="number" min="0" value="8"></label>
+                  </div>
+                  <button id="add-route-call" class="button" type="button">ADD CALL</button>
+                  <table class="mini-table"><thead><tr><th>#</th><th>STATION</th><th>PLATFORM</th><th>POLICY</th><th>DWELL</th><th></th></tr></thead><tbody id="route-call-body"></tbody></table>
+                </fieldset>
+                <div class="button-row"><button class="button primary" type="submit">SAVE ROUTE PLAN</button><button id="new-route-plan" class="button" type="button">NEW</button></div>
+              </form>
+              <p class="warning-note">Route plans remain disabled while track assignment is UNASSIGNED or PARTIAL. No announcement or nearby rail is accepted as an operational path.</p>
+            </section>
+          </div>
+        </div>
+
+        <div id="view-fares" class="view module-ledger">
+          <div class="workspace-toolbar"><strong>FARE GATES / ZONES / RULES</strong><button id="refresh-fares" class="button compact">REFRESH</button></div>
+          <div class="fare-workbench">
+            <section>
+              <div class="window-title">GATE REGISTER</div>
+              <div id="gate-register" class="record-register compact-register"></div>
+              <form id="gate-form" class="dense-form coordinate-form">
+                <input name="expectedVersion" type="hidden" value="0">
+                <label>Gate ID<input name="id" required placeholder="CEN_E01"></label>
+                <label>Display name<input name="displayName" required placeholder="Central Entry 01"></label>
+                <label>Station<select name="stationId" required></select></label>
+                <label>X<input name="x" type="number" required></label>
+                <label>Y<input name="y" type="number" required></label>
+                <label>Z<input name="z" type="number" required></label>
+                <label>Mode<select name="gateMode"><option>ENTRY</option><option>EXIT</option><option>BIDIRECTIONAL</option></select></label>
+                <label>Authorization timeout<input name="authorizationTimeoutSeconds" type="number" min="1" value="10" required></label>
+                <label class="check-label"><input name="enabled" type="checkbox" checked> Enabled</label>
+                <label>Sensor definition JSON<textarea name="sensorDefinitionJson" rows="2">{}</textarea></label>
+                <label>Output definition JSON<textarea name="outputDefinitionJson" rows="2">{}</textarea></label>
+                <div class="button-row"><button class="button primary" type="submit">SAVE GATE</button><button id="new-gate" class="button" type="button">NEW</button></div>
+              </form>
+            </section>
+            <section>
+              <div class="window-title">FARE ZONES</div>
+              <div id="zone-register" class="record-register compact-register"></div>
+              <form id="zone-form" class="dense-form">
+                <input name="expectedVersion" type="hidden" value="0">
+                <label>Zone ID<input name="id" required placeholder="ZONE_A"></label>
+                <label>Display name<input name="displayName" required placeholder="Urban Zone"></label>
+                <label>Diagram colour<input name="color" type="color" value="#808080" required></label>
+                <div class="button-row"><button class="button primary" type="submit">SAVE ZONE</button><button id="new-zone" class="button" type="button">NEW</button></div>
+              </form>
+            </section>
+            <section>
+              <div class="window-title">FARE RULE MATRIX</div>
+              <div id="fare-rule-register" class="record-register compact-register"></div>
+              <form id="fare-rule-form" class="dense-form">
+                <input name="expectedVersion" type="hidden" value="0">
+                <label>Rule ID<input name="id" required placeholder="FLAT_BASE"></label>
+                <label>Display name<input name="displayName" required placeholder="Base fare"></label>
+                <label>Rule type<select name="ruleType"><option>FLAT</option><option>STATION_PAIR</option><option>ZONE_PAIR</option><option>DISTANCE</option></select></label>
+                <div class="two-column">
+                  <label>Origin station<select name="originStationId"></select></label>
+                  <label>Destination station<select name="destinationStationId"></select></label>
+                  <label>Origin zone<select name="originZoneId"></select></label>
+                  <label>Destination zone<select name="destinationZoneId"></select></label>
+                  <label>Line<select name="lineId"></select></label>
+                  <label>Amount (minor units)<input name="amountMinor" type="number" min="0" value="0" required></label>
+                  <label>Currency<input name="currencyCode" value="HKD" pattern="[A-Za-z]{3}" required></label>
+                  <label>Priority<input name="priority" type="number" value="0" required></label>
+                </div>
+                <label class="check-label"><input name="bidirectional" type="checkbox" checked> Bidirectional match</label>
+                <label class="check-label"><input name="enabled" type="checkbox" checked> Enabled</label>
+                <div class="button-row"><button class="button primary" type="submit">SAVE FARE RULE</button><button id="new-fare-rule" class="button" type="button">NEW</button></div>
+              </form>
+            </section>
+          </div>
+        </div>
+
+        <div id="view-audit" class="view module-ledger">
+          <div class="workspace-toolbar"><strong>AUDIT / CHANGE REGISTER</strong><button id="refresh-audit" class="button compact">REFRESH</button></div>
+          <div class="ledger-banner"><svg><use href="/icons.svg#audit"></use></svg><div><b>ALL EDITOR MUTATIONS ARE AUDITED</b><span>Every accepted web mutation records actor, action, target, timestamp and before/after evidence.</span></div></div>
+          <div class="table-scroll audit-scroll"><table class="data-table audit-table"><thead><tr><th>TIME</th><th>ACTION</th><th>TARGET</th><th>ID</th><th>ACTOR</th></tr></thead><tbody id="audit-table-body"></tbody></table></div>
+        </div>
+      </section>
+
+      <aside class="inspector">
+        <div class="window-title">PROPERTY INSPECTOR</div>
+        <div id="inspector-empty" class="empty-inspector">
+          <svg><use href="/icons.svg#cursor"></use></svg>
+          <b>NO SYMBOL SELECTED</b>
+          <span>Select a map marker or table row.</span>
+        </div>
+        <div id="symbol-inspector" hidden>
+          <div class="object-heading"><span id="object-state" class="state-tag">PENDING</span><b id="object-type">STATION</b></div>
+          <dl class="property-list" id="object-properties"></dl>
+          <div class="window-title">PRESERVED SIGN TEXT</div>
+          <ol id="sign-lines" class="sign-lines"></ol>
+          <div class="window-title">MANUAL CLASSIFICATION</div>
+          <form id="decision-form" class="dense-form">
+            <label>Decision<select name="decision">
+              <option value="PENDING">PENDING / UNDECIDED</option>
+              <option value="INCLUDED">INCLUDE IN NETWORK</option>
+              <option value="IGNORED">IGNORE SYMBOL</option>
+            </select></label>
+            <label>Assigned role<select name="assignedRole">
+              <option value="">SELECT ROLE</option>
+              <option value="PASSENGER_PLATFORM">PASSENGER PLATFORM</option>
+              <option value="DEPARTURE_POINT">DEPARTURE POINT</option>
+              <option value="REVERSING_CONTROL">REVERSING CONTROL</option>
+              <option value="MOTION_CONTROL">MOTION / RE-ACCELERATION</option>
+              <option value="TRACK_MARKER">TRACK MARKER</option>
+              <option value="OTHER">OTHER</option>
+            </select></label>
+            <label>Target record ID<input name="targetId" placeholder="CEN:P1 (optional)"></label>
+            <label>Operator note<textarea name="note" rows="3"></textarea></label>
+            <button class="button primary" type="submit">SAVE DECISION</button>
+          </form>
+          <button id="prefill-platform" class="button wide">USE COORDINATES IN PLATFORM FORM</button>
+          <p class="warning-note">No decision edits the sign or rail block. Authoritative assignment is explicit.</p>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="footer-strip">
+      <span>ATCS ADMIN FACILITY</span><span>SCHEMA <b id="schema-display">V7</b></span><span>ENGLISH OPERATIONAL OUTPUT</span><span id="footer-time"></span>
+    </footer>
+  </div>
+  <script src="/network-map.js?v=10" defer></script>
+  <script src="/app.js?v=10" defer></script>
+</body>
+</html>

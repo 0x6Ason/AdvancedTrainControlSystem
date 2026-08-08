@@ -1,0 +1,53 @@
+name: AdvancedTrainControlSystem
+version: '${version}'
+main: dev.advancedtrains.atcs.AdvancedTrainControlSystemPlugin
+description: Authoritative railway operations and passenger information for TrainCarts networks.
+api-version: '1.21.11'
+authors: [jason]
+depend: [BKCommonLib, Train_Carts]
+softdepend: [SignLink]
+
+commands:
+  atcs:
+    description: AdvancedTrainControlSystem administration command.
+    usage: /atcs help
+    permission: atcs.command
+    aliases: [advancedtraincontrolsystem, traincontrol]
+
+permissions:
+  atcs.command:
+    description: Allows access to basic ATCS commands.
+    default: op
+  atcs.admin:
+    description: Allows all ATCS administrative operations.
+    default: op
+    children:
+      atcs.command: true
+      atcs.announcement.test: true
+      atcs.receiver.build: true
+      atcs.scan: true
+      atcs.review: true
+      atcs.review.manage: true
+      atcs.discovery: true
+      atcs.hud: true
+  atcs.announcement.test:
+    description: Allows rendering test announcements.
+    default: op
+  atcs.receiver.build:
+    description: Allows building standardized ATCS TrainCarts receiver signs.
+    default: op
+  atcs.scan:
+    description: Allows read-only inventory scans of already loaded chunks.
+    default: op
+  atcs.review:
+    description: Allows inspection of the legacy sign review queue and preserved evidence.
+    default: op
+  atcs.review.manage:
+    description: Allows audited changes to legacy sign review decisions.
+    default: op
+  atcs.discovery:
+    description: Allows creation and inspection of infrastructure evidence and configured-scope rail snapshots.
+    default: op
+  atcs.hud:
+    description: Shows the continuous ATCS passenger action-bar display.
+    default: true

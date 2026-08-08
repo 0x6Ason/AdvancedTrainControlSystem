@@ -1,0 +1,90 @@
+# Operational writes remain disabled until the network inventory and exact dependencies are verified.
+operating-mode: READ_ONLY
+
+database:
+  filename: railcontrol.db
+  busy-timeout-millis: 5000
+  backup-before-migration: true
+
+integrations:
+  traincarts:
+    receiver-signs-enabled: true
+  signlink:
+    enabled: false
+
+# ATCS uses TrainCarts' enabledWorlds/disabledWorlds configuration directly.
+# Only worlds that are currently loaded and enabled in TrainCarts are discovered or controlled.
+
+inventory-scan:
+  # Only chunks that are already loaded are scanned. The scanner never generates or loads chunks.
+  chunks-per-tick: 4
+
+inventory-review:
+  # Aliases only create review warnings. ATCS never rewrites a sign automatically.
+  action-aliases:
+    annnounce: announce
+  flag-complex-spawn-patterns: true
+  launch-force:
+    # Zero disables the corresponding review boundary.
+    minimum: 0
+    maximum: 0
+  page-size: 8
+
+# Discovery only writes reviewable candidate snapshots. It never edits rails or
+# promotes records into the authoritative station/platform/track tables.
+infrastructure-discovery:
+  station-evidence:
+    arrival-prefixes:
+      - "Arrived:"
+      - "Arrive:"
+    horizontal-radius: 16
+    vertical-tolerance: 4
+  station-classification:
+    # When true, a legacy station sign without nearby passenger arrival evidence
+    # is treated as track motion control, not as a passenger platform.
+    platform-requires-arrival-evidence: true
+    reverse-instruction-implies-track-control: true
+    reverse-instructions:
+      - reverse
+    through-instructions:
+      - continue
+  station-grouping:
+    horizontal-radius: 48
+    vertical-tolerance: 12
+  confidence:
+    named-station: 0.90
+    unnamed-station: 0.40
+    departure-point: 0.85
+    track-control: 0.70
+  rail:
+    # SAVED_CHUNKS inventories every existing rail-bearing chunk without generating terrain.
+    # LOADED_CHUNKS limits discovery to chunks already present in server memory.
+    # Signs are independent map overlays and are never used as rail scan seeds.
+    scope: SAVED_CHUNKS
+    chunk-snapshots-per-tick: 2
+    block-checks-per-tick: 16384
+    edge-nodes-per-tick: 4096
+    maximum-nodes: 500000
+
+passenger-hud:
+  enabled: true
+  refresh-ticks: 10
+  show-unmanaged-trains: true
+
+announcements:
+  enabled: true
+  default-language: en
+  log-rendered-events: false
+
+web:
+  enabled: true
+  bind-address: 127.0.0.1
+  port: 8765
+  backlog: 64
+  api-page-size: 100
+  network-max-elements: 500000
+  auth:
+    token-file: web-admin.token
+    session-minutes: 30
+    login-attempts-per-minute: 5
+    secure-cookie: false
