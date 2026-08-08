@@ -136,6 +136,7 @@
       </aside>
 
       <section class="workspace">
+        <output id="symbol-selection-announcement" class="sr-only" aria-live="polite" aria-atomic="true"></output>
         <div id="view-network" class="view active">
           <div class="workspace-toolbar map-toolbar">
             <strong>PHYSICAL NETWORK / EVIDENCE LAYER</strong>
@@ -157,7 +158,7 @@
           </div>
           <div class="map-shell">
             <canvas id="network-canvas" tabindex="0" aria-label="Discovered railway network map" aria-describedby="map-keyboard-help"></canvas>
-            <span id="map-keyboard-help" class="sr-only">Use arrow keys to pan, plus and minus to zoom, F to fit, N for north, and Escape to clear the selected symbol.</span>
+            <span id="map-keyboard-help" class="sr-only">Use left and right bracket keys to select the previous or next visible marker, Enter or Space to confirm it, arrow keys to pan, plus and minus to zoom, F to fit, N for north, and Escape to clear the selected symbol.</span>
             <div id="map-selection" class="map-selection" aria-live="polite" hidden>
               <span id="map-selection-state">SELECTED SIGN EVIDENCE</span>
               <b id="map-selection-title"></b>
@@ -444,7 +445,7 @@
       <span>ATCS ADMIN FACILITY</span><span>SCHEMA <b id="schema-display">V7</b></span><span>ENGLISH OPERATIONAL OUTPUT</span><span id="footer-time"></span>
     </footer>
   </div>
-  <script src="/network-map.js?v=11" defer></script>
-  <script src="/app.js?v=12" defer></script>
+  <script src="/network-map.js?v=12" defer></script>
+  <script src="/app.js?v=13" defer></script>
 </body>
 </html>

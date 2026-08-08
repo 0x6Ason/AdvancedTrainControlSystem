@@ -555,10 +555,15 @@ function clearFilters() {
 function renderSymbolTable() {
   $("#symbol-count").textContent = `${state.filteredSymbols.length} / ${state.symbols.length} RECORDS`;
   const body = $("#symbol-table-body");
+  const table = body.closest("table");
+  table.setAttribute("role", "grid");
+  table.setAttribute("aria-label", "Legacy sign evidence");
   body.replaceChildren(...state.filteredSymbols.map((item, index) => {
     const row = document.createElement("tr");
     row.dataset.symbolId = item.id;
-    if (state.selectedSymbol?.id === item.id) row.classList.add("selected");
+    const selected = state.selectedSymbol?.id === item.id;
+    row.classList.toggle("selected", selected);
+    row.setAttribute("aria-selected", String(selected));
     const stateCell = document.createElement("td");
     const pill = document.createElement("span");
     pill.className = `state-pill ${item.decision.toLowerCase()}`;
@@ -584,12 +589,22 @@ function selectSymbol(symbol) {
   updateSymbolTableSelection();
   state.networkMap?.setSelectedSymbol(symbol?.id || null);
   updateNetworkMapScene();
+  announceSymbolSelection(symbol);
+}
+
+function announceSymbolSelection(symbol) {
+  const announcement = $("#symbol-selection-announcement");
+  if (!announcement) return;
+  announcement.textContent = symbol
+    ? `${symbol.decision} ${symbol.type} selected at ${symbol.worldName}, X ${symbol.x}, Y ${symbol.y}, Z ${symbol.z}.`
+    : "Symbol selection cleared.";
 }
 
 function updateSymbolTableSelection() {
   Array.from($("#symbol-table-body").rows).forEach((row, index) => {
     const selected = row.dataset.symbolId === state.selectedSymbol?.id;
     row.classList.toggle("selected", selected);
+    row.setAttribute("aria-selected", String(selected));
     row.tabIndex = selected || (!state.selectedSymbol && index === 0) ? 0 : -1;
   });
 }
@@ -1493,6 +1508,9 @@ async function loadMap() {
     updateMapEmptyState(world);
     updateNetworkMapScene(true);
     fitMap();
+    if (state.selectedSymbol?.worldName === world) {
+      state.networkMap?.focusSymbol(state.selectedSymbol.id);
+    }
   } catch (error) {
     if (loadSequence !== state.mapLoadSequence || $("#map-world").value !== world) return;
     state.graph = emptyRailGraph(world);

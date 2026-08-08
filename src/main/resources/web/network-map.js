@@ -17,6 +17,7 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     this.bounds = null;
     this.symbols = [];
     this.selectedSymbolId = null;
+    this.keyboardSymbolIndex = -1;
     this.drag = null;
     this.viewProjection = identityMatrix();
     this.renderPending = false;
@@ -45,10 +46,8 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     const points = nodes.map(node => ({ x: node[0], y: node[1], z: node[2] }));
     this.bounds = calculateBounds(points);
     this.symbols = this.bounds ? symbols : [];
-    this.canvas.setAttribute(
-      "aria-label",
-      `Discovered railway network map with ${this.symbols.length} selectable symbol markers.`
-    );
+    this.synchronizeKeyboardSymbolIndex();
+    this.updateAccessibilityLabel();
     if (!this.bounds) {
       this.origin = [0, 0, 0];
       this.uploadBuffer(this.railBuffer, new Float32Array());
@@ -95,17 +94,18 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
 
   setSymbols(symbols) {
     this.symbols = this.bounds ? symbols || [] : [];
+    this.synchronizeKeyboardSymbolIndex();
     this.rebuildSymbolBuffer();
-    this.canvas.setAttribute(
-      "aria-label",
-      `Discovered railway network map with ${this.symbols.length} selectable symbol markers.`
-    );
+    this.updateAccessibilityLabel();
     this.requestRender();
   }
 
   setSelectedSymbol(symbolId) {
     this.selectedSymbolId = symbolId || null;
+    const selectedIndex = this.symbols.findIndex(item => item.id === this.selectedSymbolId);
+    if (selectedIndex >= 0) this.keyboardSymbolIndex = selectedIndex;
     this.rebuildSymbolBuffer();
+    this.updateAccessibilityLabel();
     this.requestRender();
   }
 
@@ -129,6 +129,39 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     ];
     this.camera.distance = clamp(this.camera.distance, 45, 180);
     this.requestRender();
+    return true;
+  }
+
+  synchronizeKeyboardSymbolIndex() {
+    const selectedIndex = this.symbols.findIndex(item => item.id === this.selectedSymbolId);
+    if (selectedIndex >= 0) {
+      this.keyboardSymbolIndex = selectedIndex;
+      return;
+    }
+    if (this.keyboardSymbolIndex >= this.symbols.length) this.keyboardSymbolIndex = this.symbols.length - 1;
+    if (!this.symbols.length) this.keyboardSymbolIndex = -1;
+  }
+
+  updateAccessibilityLabel() {
+    const selected = this.symbols.find(item => item.id === this.selectedSymbolId);
+    const selection = selected
+      ? ` Selected ${selected.decision.toLowerCase()} ${selected.type.toLowerCase()} marker at X ${selected.x}, Y ${selected.y}, Z ${selected.z}.`
+      : "";
+    this.canvas.setAttribute(
+      "aria-label",
+      `Discovered railway network map with ${this.symbols.length} selectable symbol markers.${selection} Use left and right bracket keys to select the previous or next marker.`
+    );
+  }
+
+  selectAdjacentSymbol(delta) {
+    if (!this.symbols.length) return false;
+    const selectedIndex = this.symbols.findIndex(item => item.id === this.selectedSymbolId);
+    const currentIndex = selectedIndex >= 0 ? selectedIndex : this.keyboardSymbolIndex;
+    const startIndex = currentIndex >= 0 ? currentIndex : delta > 0 ? -1 : 0;
+    this.keyboardSymbolIndex = (startIndex + delta + this.symbols.length) % this.symbols.length;
+    const symbol = this.symbols[this.keyboardSymbolIndex];
+    this.focusSymbol(symbol.id);
+    this.onSymbolSelected(symbol);
     return true;
   }
 
@@ -278,6 +311,20 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
   }
 
   handleKeydown(event) {
+    if (event.key === "[" || event.key === "]") {
+      event.preventDefault();
+      this.selectAdjacentSymbol(event.key === "]" ? 1 : -1);
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      const symbol = this.symbols.find(item => item.id === this.selectedSymbolId)
+        || this.symbols[this.keyboardSymbolIndex];
+      if (!symbol) return;
+      event.preventDefault();
+      this.focusSymbol(symbol.id);
+      this.onSymbolSelected(symbol);
+      return;
+    }
     const panKeys = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
     if (panKeys.has(event.key)) {
       event.preventDefault();
