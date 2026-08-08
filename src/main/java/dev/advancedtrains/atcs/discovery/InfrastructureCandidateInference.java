@@ -194,8 +194,7 @@ public final class InfrastructureCandidateInference {
 
     private boolean isPassengerPlatformCandidate(StationSite site) {
         var classification = configuration.stationClassification();
-        if (classification.reverseInstructionImpliesTrackControl()
-                && instructionMatches(site.sign(), classification.reverseInstructions())) {
+        if (explicitTrackControlRole(site.sign()).isPresent()) {
             return false;
         }
         return site.nameEvidence().isPresent()
@@ -203,14 +202,19 @@ public final class InfrastructureCandidateInference {
     }
 
     private TrackControlRole suggestedControlRole(InfrastructureSourceSign sign) {
+        return explicitTrackControlRole(sign)
+                .orElse(TrackControlRole.UNCLASSIFIED_STATION_CONTROL);
+    }
+
+    private Optional<TrackControlRole> explicitTrackControlRole(InfrastructureSourceSign sign) {
         var classification = configuration.stationClassification();
         if (instructionMatches(sign, classification.reverseInstructions())) {
-            return TrackControlRole.REVERSING_CONTROL;
+            return Optional.of(TrackControlRole.REVERSING_CONTROL);
         }
         if (instructionMatches(sign, classification.throughInstructions())) {
-            return TrackControlRole.THROUGH_MOTION_CONTROL;
+            return Optional.of(TrackControlRole.THROUGH_MOTION_CONTROL);
         }
-        return TrackControlRole.UNCLASSIFIED_STATION_CONTROL;
+        return Optional.empty();
     }
 
     private static boolean instructionMatches(InfrastructureSourceSign sign, java.util.Set<String> values) {

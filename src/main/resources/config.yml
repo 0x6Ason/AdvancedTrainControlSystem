@@ -43,7 +43,8 @@ infrastructure-discovery:
     # When true, a legacy station sign without nearby passenger arrival evidence
     # is treated as track motion control, not as a passenger platform.
     platform-requires-arrival-evidence: true
-    reverse-instruction-implies-track-control: true
+    # These instructions always produce track-control candidates, even when a
+    # nearby announcement looks like passenger arrival evidence.
     reverse-instructions:
       - reverse
     through-instructions:

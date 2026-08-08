@@ -94,9 +94,6 @@ public record PluginConfiguration(
                         config.getBoolean(
                                 "infrastructure-discovery.station-classification.platform-requires-arrival-evidence",
                                 true),
-                        config.getBoolean(
-                                "infrastructure-discovery.station-classification.reverse-instruction-implies-track-control",
-                                true),
                         normalizeWords(config.getStringList(
                                 "infrastructure-discovery.station-classification.reverse-instructions"),
                                 List.of("reverse")),

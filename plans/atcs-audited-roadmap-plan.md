@@ -1,6 +1,6 @@
 # AdvancedTrainControlSystem Audited Architecture and Delivery Roadmap
 
-**Status:** Audit reference; the clean-development update below supersedes its migration assumptions  
+**Status:** Current clean-development direction followed by an explicitly marked historical audit roadmap<br>
 **Audit date:** 2026-08-08  
 **Workspace:** `C:\Users\jason\Documents\AdvancedTrainSys`  
 **Target runtime:** Paper 1.21.11, Java 21, TrainCarts 2.0.0, BKCommonLib 2.0.1, SignLink 1.21.5-v1  
@@ -18,7 +18,7 @@ The user confirmed that ATCS is still pre-production and staging data is disposa
 - keep inactive/unloaded-world records filtered and unchanged rather than converting them to `ARCHIVED`;
 - continue through tested implementation slices without stopping automatically at Phase 0.
 
-Sections below that require V008 backfill, retention of the old staging database, or an ATCS-specific active/archive world policy are retained only as audit history and are not current implementation requirements.
+Any section below that discusses V008 backfill or retention of the discarded staging database is explicitly marked as a superseded, non-operational audit proposal. No ATCS-specific active/archive world policy remains in the current requirements.
 
 ## 1. Executive decision
 
@@ -33,9 +33,9 @@ The correct starting point is:
 
 Do **not** start by extending the current fare forms, drawing approved lines over the current physical map, or enabling TrainCarts/SignLink writes. Those depend on trustworthy evidence, a validated Network model, and immutable Operational Releases.
 
-### Recommended first implementation slice
+### Superseded original implementation recommendation (non-operational)
 
-After Phase 0 approval, implement Phase 1A–1B only:
+The original audit recommended the following migration-first slice. It is retained only to explain the audit findings and must not be implemented against the current disposable development state:
 
 - add the V008 evidence-revision schema without changing V001–V007;
 - capture immutable sign observations;
@@ -43,7 +43,7 @@ After Phase 0 approval, implement Phase 1A–1B only:
 - mark a decision stale when the observed sign content changes;
 - prove the behavior with migration, repository, and staging reconciliation tests.
 
-Stop at that acceptance gate before beginning the parser rewrite.
+This stop gate was also superseded when the user authorized continued implementation beyond Phase 0.
 
 ## 2. Planning-readiness assessment
 
@@ -54,7 +54,7 @@ This score measures whether the handover is defined well enough to make an audit
 | Problem definition | 27 | 30 | Safety intent and current failure modes are explicit. |
 | Scope and boundaries | 18 | 25 | Major modules and exclusions are known; detailed operational policy is not. |
 | Success criteria | 18 | 20 | Strong discovery and safety constraints; later service/fare policy is incomplete. |
-| Technical constraints | 14 | 15 | Runtime versions, archive behavior, portability, and language are fixed. |
+| Technical constraints | 14 | 15 | Runtime versions, TrainCarts world-scope behavior, portability, and language are fixed. |
 | Phase decision | 9 | 10 | Architecture approval is explicitly required before implementation. |
 | **Total** | **86** | **100** | Above the 80-point threshold for planning without blocking clarification. |
 
@@ -65,7 +65,7 @@ This score measures whether the handover is defined well enough to make an audit
 - Keep all code comments, UI text, announcements, and documentation in English.
 - Keep the default theme light.
 - Keep paths, world names, currency, ports, and operational identifiers configurable and portable.
-- Keep `old_world` archive-only and disabled.
+- Treat TrainCarts as the sole authority for enabled loaded worlds; never special-case a world name in ATCS.
 - Never turn a sign into a station automatically.
 - Every newly observed sign begins pending. Only an explicit operator decision can include or ignore it.
 - Reverse and re-acceleration/continue signs are Control Markers, not passenger stations.
@@ -78,22 +78,21 @@ This score measures whether the handover is defined well enough to make an audit
 
 ## 4. Verified baseline
 
-The following was checked read-only against the workspace and staging server.
+The following baseline was refreshed after the clean ATCS data reset and staging restart.
 
 | Area | Verified state |
 |---|---|
-| Build | Workspace JAR SHA-256 is `A583B92642FC2D69898DE6E6AFDF2B93395D9C7727809F5C7EA9E800A8122C0F`, matching the deployed artifact. |
-| Tests | A fresh `test --rerun-tasks` run passed 41 tests in 22 suites with no failures, errors, or skips. |
-| Java | Source/bytecode targets Java 21. The available development runtime appeared to be Java 24 and staging runs Java 25, so an actual Java 21 execution gate is still missing. |
+| Build | The current staged JAR SHA-256 is `151A1A8CCB3D268D799B00F93C29EC1842E1003E3BAC2660D3481FC0DE6A0EEC`, matching the workspace artifact. |
+| Tests | The Java 21 `check shadowJar` gate passed 41 tests with no failures, errors, or skips. |
+| Java | Source/bytecode targets Java 21 and the build/test gate ran on Temurin 21.0.9. Staging runs Java 25 because of its installed server/plugin set. |
 | Runtime | Paper 1.21.11, TrainCarts 2.0.0, BKCommonLib 2.0.1, and SignLink 1.21.5-v1 are present; ATCS starts cleanly in READ_ONLY mode. |
-| Web | Bound to `127.0.0.1:8765`; authenticated UI loads with no observed browser-console error. |
-| Database | SQLite schema V007; `quick_check` is `ok`. |
-| Rail evidence | Latest run completed 3,222/3,222 saved rail chunks, 116,584,448 block checks, 48,936 nodes, 39,718 edges, and 160 boundaries; no node cap. |
-| Sign evidence | 221 inventory rows: 203 in active `world`, 18 in archived `old_world`; all 203 active signs are pending and there are no infrastructure decisions. |
+| Web | Bound to `127.0.0.1:8765`; authenticated API login succeeds and `/api/v1/worlds` returns the TrainCarts-enabled loaded-world set. |
+| Database | Fresh SQLite schema V007 after deletion of the disposable prior ATCS data directory. |
+| Rail evidence | Latest clean-reset run completed 3,222/3,222 saved rail chunks with 48,936 nodes and 39,718 edges. |
+| Sign evidence | The clean scan observed 203 signs in `world`; no prior inventory rows or infrastructure decisions were retained. |
+| Candidate evidence | Inference produced 0 passenger stations, 0 platforms, 15 departure points, and 61 track motion controls; none were promoted automatically. |
 | Approved domain | 0 stations, platforms, lines, route plans, gates, zones, rules, track nodes/segments, service patterns, trips, or receivers. |
-| Archive isolation | `old_world` is configured as archive-only and absent from active staging discovery. |
-| Audit/operations | 33 operational events and 1 audit record exist. |
-| Source size | Approximately 14,733 relevant source/test/resource lines. `AdminDataRepository.java` is 1,835 lines and `app.js` is 1,008 lines. |
+| World scope | TrainCarts reported enabled loaded worlds `world`, `world_nether`, and `world_the_end`. `old_world` remained unloaded and untouched; ATCS assigned it no special state. |
 
 The handover's last TPS observation was 20.0/20.0/19.9. This was not treated as a sufficient performance benchmark; later phases require repeatable load evidence.
 
@@ -207,16 +206,16 @@ Application services own authorization, validation, transactions, audit records,
 ### 7.3 Operational glossary
 
 - **Stable physical identity:** a generated ATCS ID whose initial key uses world UUID, block coordinate, and sign face/rail anchor. Relocation creates a new identity; an explicit IdentityResolver action may link continuity. Proximity never merges assets automatically.
-- **Active current sign:** the latest non-tombstone sign observation in a configured active world from a capture run whose chunk result is complete.
+- **Current railway sign:** the latest non-tombstone sign observation in a loaded world enabled by TrainCarts, from a capture run whose chunk result is complete.
 - **Exact dependency match:** the normalized runtime-reported Paper/plugin version equals its configured supported version. Unknown, missing, or mismatched versions disable the affected capability.
 - **Healthy database:** expected schema range, successful `quick_check` and `foreign_key_check`, no incomplete migration lock, writable capacity above threshold, and successful required WAL checkpoint/recovery checks.
 - **Useful local map:** the operator can select a component/corridor, view a bounded geographic region plus synchronized linear strip, and inspect every underlying observation without relying on a whole-world fit.
 
 ## 8. Data, event, and compatibility contracts
 
-### 8.1 V008+ schema outline
+### 8.1 Superseded V008+ schema outline (non-operational)
 
-The exact DDL is a Phase 1A deliverable, but ownership and relationships are fixed:
+This was the original audit's schema proposal. The current pre-production workflow starts from a clean V007 database and does not implement this V008 backfill. The model ideas remain research notes only:
 
 - `evidence_capture_run`: source, world UUID, parser/inference version, start/end UTC, source fingerprint, COMPLETE/PARTIAL/FAILED status, counts, and failure summary.
 - `rail_chunk_observation`: run/world/chunk key, acquisition source (`SAVED_REGION` or `LIVE_SNAPSHOT`), source fingerprint, status, error/quarantine reference, and counts.
@@ -261,6 +260,8 @@ Until a signed policy replaces it, automatic deletion is disabled.
 
 Relative size is `S` (one bounded change), `M` (several coordinated changes), or `L` (multiple vertical slices). Calendar estimates should be made only after Phase 0 produces a reproducible build and test-duration baseline.
 
+> **Historical-roadmap warning:** Phase 0's database-clone work and Phase 1's V008 migration steps below are superseded and non-operational. Current development resets disposable ATCS state, bootstraps V001–V007 cleanly, and continues through tested slices. Later architecture and safety gates remain directional guidance.
+
 ### Phase 0 — Governed baseline and recovery (`M`)
 
 **Ordered slices**
@@ -275,7 +276,7 @@ Relative size is `S` (one bounded change), `M` (several coordinated changes), or
 - Java 21 build and all 41 existing tests pass reproducibly.
 - Deployed/workspace hashes and exact runtime dependency versions are recorded.
 - `quick_check`, `foreign_key_check`, table counts, and evidence hashes are recorded before and after a successful isolated restore.
-- Active staging and `old_world` remain unchanged; secret scans find no credential in tracked/planned artifacts.
+- ATCS leaves all world files unchanged, including the unloaded `old_world`; secret scans find no credential in tracked/planned artifacts.
 - Threat model covers HTTP exposure, privilege escalation, audit tampering, supply chain, backups, Paper thread affinity, disk pressure, time anomalies, and partial publish.
 - Product/Safety Approver accepts the Phase 0 evidence package and residual risks.
 
@@ -291,7 +292,7 @@ Relative size is `S` (one bounded change), `M` (several coordinated changes), or
 
 **Acceptance gate**
 
-- All 203 active signs migrate as pending and reconcile exactly; 18 archived rows remain archived.
+- A clean scan records all 203 current signs as pending evidence; inactive or unloaded worlds produce no synthetic rows and no record mutation.
 - A changed, moved, deleted, or reparsed sign cannot reuse an old decision.
 - Reverse and re-acceleration/continue signs can only become Control Marker candidates.
 - Unknown rail shapes and malformed/oversized NBT never become topology, exhaust memory, or crash the server.
@@ -329,7 +330,7 @@ Relative size is `S` (one bounded change), `M` (several coordinated changes), or
 
 **Acceptance gate**
 
-- Every latest node/edge is addressable without truncation; signless rails render and `old_world` does not.
+- Every latest node/edge is addressable without truncation; signless rails render for every loaded world enabled by TrainCarts, and unloaded worlds are absent without name-specific filtering.
 - Initial useful local map is interactive within 2 seconds and p95 tile/query response is at most 200 ms on a documented reference machine; 500,000-node synthetic behavior remains within the approved memory/TPS budget.
 - Exact observation text, source, revision, capture status, and decision history are reachable from map and table.
 - No bulk or inferred action creates a Station/Platform/Line/Route.
@@ -419,7 +420,9 @@ Relative size is `S` (one bounded change), `M` (several coordinated changes), or
 - Recovery drills meet approved RTO/RPO; every partial failure leaves one identifiable current release and reconciles idempotently.
 - Product/Safety Approver explicitly accepts residual risk before broad ACTIVE rollout.
 
-## 10. Safe migration and three rollback layers
+## 10. Superseded migration proposal (non-operational) and future rollback layers
+
+The V008/backfill procedure in section 10.1 is retained as historical audit material only. It does not apply to the current clean-reset development state. Sections 10.2–10.5 describe future recovery principles for the point at which ATCS holds production data.
 
 ### 10.1 Additive migration procedure
 
@@ -505,7 +508,7 @@ Each package contains:
 2. requirement-to-test traceability and complete test report;
 3. schema/config/event/API diffs and compatibility declaration;
 4. migration/backup/recovery or release-rollback evidence where applicable;
-5. staging runtime/dependency record, DB checks/counts/reconciliation, and proof that `old_world` and world blocks were untouched;
+5. staging runtime/dependency record, DB checks/counts/reconciliation, proof that world blocks were untouched, and proof that ATCS's effective world set matched TrainCarts;
 6. performance, accessibility, security, and visual evidence required by that phase;
 7. open defects, triggered risks, residual score/owner, and explicit deviations;
 8. operator demo script and concise go/no-go recommendation.
@@ -562,6 +565,6 @@ Reviewer cautions were incorporated by:
 - adding an explicit threat model, scored risks, owners, triggers, and residual targets;
 - adding portability, light-theme visual regression, and English-only gates.
 
-## 17. Approval requested
+## 17. Superseded original approval request (non-operational)
 
-Approve the roadmap and authorize **Phase 0 only**. After Phase 0's evidence package is accepted, authorize **Phase 1A–1B only**. Every later slice remains out of scope until its preceding gate is accepted.
+The original audit requested authorization for **Phase 0 only** and then **Phase 1A–1B only**. The user subsequently authorized continued implementation beyond Phase 0, so this stop request is retained only as audit history.

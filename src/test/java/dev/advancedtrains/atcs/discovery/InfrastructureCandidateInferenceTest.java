@@ -23,7 +23,7 @@ class InfrastructureCandidateInferenceTest {
     @Test
     void separatesPassengerPlatformsFromBoostersAndReverseControls() {
         InfrastructureSourceSign passenger = sign(
-                LegacySignType.STATION, 0, 64, 0, Map.of("instruction", "continue", "delay", "5"));
+                LegacySignType.STATION, 0, 64, 0, Map.of("instruction", "wait", "delay", "5"));
         InfrastructureSourceSign arrival = sign(
                 LegacySignType.ANNOUNCE, 1, 64, 0,
                 Map.of("announcement_text", "Arrived: Central Station"));
@@ -59,11 +59,34 @@ class InfrastructureCandidateInferenceTest {
     }
 
     @Test
+    void continueInstructionIsTrackControlEvenWithNearbyArrivalEvidence() {
+        InfrastructureSourceSign continueControl = sign(
+                LegacySignType.STATION, 0, 64, 0,
+                Map.of("instruction", "continue", "delay", "2"));
+        InfrastructureSourceSign arrival = sign(
+                LegacySignType.ANNOUNCE, 1, 64, 0,
+                Map.of("announcement_text", "Arrived: False Passenger Station"));
+
+        InfrastructureCandidateSnapshot snapshot = inference.infer(
+                UUID.randomUUID(),
+                Optional.empty(),
+                Instant.EPOCH,
+                Instant.EPOCH.plusSeconds(1),
+                List.of(continueControl, arrival));
+
+        assertEquals(0, snapshot.stations().size());
+        assertEquals(0, snapshot.platforms().size());
+        assertEquals(1, snapshot.trackControls().size());
+        assertEquals(THROUGH_MOTION_CONTROL,
+                snapshot.trackControls().getFirst().suggestedRole());
+    }
+
+    @Test
     void canBeConfiguredToSuggestUnnamedPlatforms() {
         InfrastructureCandidateInference permissive =
                 new InfrastructureCandidateInference(configuration(false));
         InfrastructureSourceSign station = sign(
-                LegacySignType.STATION, 0, 64, 0, Map.of("instruction", "continue"));
+                LegacySignType.STATION, 0, 64, 0, Map.of("instruction", "wait"));
 
         InfrastructureCandidateSnapshot snapshot = permissive.infer(
                 UUID.randomUUID(), Optional.empty(), Instant.EPOCH, Instant.EPOCH, List.of(station));
@@ -78,7 +101,7 @@ class InfrastructureCandidateInferenceTest {
                 new InfrastructureDiscoveryConfiguration.StationEvidence(
                         List.of("Arrived:", "Arrive:"), 16, 4),
                 new InfrastructureDiscoveryConfiguration.StationClassification(
-                        requireEvidence, true, Set.of("reverse"), Set.of("continue")),
+                        requireEvidence, Set.of("reverse"), Set.of("continue")),
                 new InfrastructureDiscoveryConfiguration.StationGrouping(48, 12),
                 new InfrastructureDiscoveryConfiguration.Confidence(0.9, 0.4, 0.85, 0.7),
                 new InfrastructureDiscoveryConfiguration.Rail(

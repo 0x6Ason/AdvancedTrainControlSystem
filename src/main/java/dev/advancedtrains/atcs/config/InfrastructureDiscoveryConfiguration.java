@@ -25,7 +25,6 @@ public record InfrastructureDiscoveryConfiguration(
 
     public record StationClassification(
             boolean platformRequiresArrivalEvidence,
-            boolean reverseInstructionImpliesTrackControl,
             Set<String> reverseInstructions,
             Set<String> throughInstructions) {
         public StationClassification {

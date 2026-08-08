@@ -135,12 +135,16 @@ For the second example, the stored values are `launch_force=9999`, `spawn_patter
 
 ## TrainCarts world scope and review policy
 
-ATCS does not maintain an active/archive world list. It uses TrainCarts' public world predicate and considers only currently loaded worlds enabled by TrainCarts. Configure the authoritative scope in `plugins/Train_Carts/config.yml`:
+ATCS does not maintain an active, disabled, or archive world list. It uses TrainCarts' public world predicate and considers only currently loaded worlds enabled by TrainCarts. Configure the authoritative scope in `plugins/Train_Carts/config.yml`:
 
 ```yaml
 enabledWorlds: []
 disabledWorlds: []
+```
 
+Inventory review settings remain in ATCS's own `plugins/AdvancedTrainControlSystem/config.yml`; they do not define world scope:
+
+```yaml
 inventory-review:
   # Aliases create warnings only; ATCS never rewrites legacy signs automatically.
   action-aliases:
@@ -153,7 +157,7 @@ inventory-review:
   page-size: 8
 ```
 
-When `enabledWorlds` is nonempty, TrainCarts treats it as the allow-list. Otherwise all loaded worlds except `disabledWorlds` are enabled. ATCS snapshots that effective set on the Paper main thread and filters discovery, review, administration, and future control through it. Unloaded or TrainCarts-disabled worlds are ignored without ATCS modifying their files or records.
+When `enabledWorlds` is nonempty, TrainCarts treats it as the allow-list. Otherwise all loaded worlds except `disabledWorlds` are enabled. ATCS snapshots that effective set on the Paper main thread and filters discovery, review, administration, and future control through it. Unloaded or TrainCarts-disabled worlds are ignored without ATCS modifying their files or records. ATCS never applies a special rule to a world name; if a world is later loaded or its TrainCarts setting changes, ATCS follows TrainCarts' resulting decision.
 
 Review decisions are stored in `audit_record`. `APPROVED` and `REJECTED` signs leave the open issue queue while preserving their detected evidence; `NEEDS_CORRECTION` remains open. If any preserved sign line or parsed action changes in a later scan, the previous decision is invalidated and the sign returns to `UNREVIEWED`.
 
