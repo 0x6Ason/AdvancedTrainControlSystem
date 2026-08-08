@@ -22,6 +22,8 @@ import dev.advancedtrains.atcs.integration.traincarts.TrainCartsWorldPolicy;
 import dev.advancedtrains.atcs.hud.NoOpPassengerHudService;
 import dev.advancedtrains.atcs.hud.PassengerHudService;
 import dev.advancedtrains.atcs.hud.TrainHudStateRegistry;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateReconciliationCoordinator;
+import dev.advancedtrains.atcs.infrastructure.review.InfrastructureCandidateReviewService;
 import dev.advancedtrains.atcs.legacy.LegacyInventorySummary;
 import dev.advancedtrains.atcs.legacy.LegacyReviewRepository;
 import dev.advancedtrains.atcs.legacy.LegacyReviewSummary;
@@ -35,7 +37,6 @@ import dev.advancedtrains.atcs.receiver.ReceiverStateTracker;
 import dev.advancedtrains.atcs.runtime.SystemRuntimeState;
 import dev.advancedtrains.atcs.web.AdminDataRepository;
 import dev.advancedtrains.atcs.web.EmbeddedWebServer;
-import dev.advancedtrains.atcs.world.RailwayWorldPolicy;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -56,6 +57,7 @@ public final class AdvancedTrainControlSystemPlugin extends JavaPlugin {
     private LegacySignScanService signScanService;
     private InfrastructureDiscoveryService infrastructureDiscoveryService;
     private RailDiscoveryService railDiscoveryService;
+    private CandidateReconciliationCoordinator candidateReconciliationCoordinator;
     private EmbeddedWebServer webServer;
     private UUID startupId;
 
@@ -86,7 +88,8 @@ public final class AdvancedTrainControlSystemPlugin extends JavaPlugin {
                 throw new IllegalStateException("ATCS requires TrainCarts 2.0.0 exactly; found "
                         + trainCartsApi.getPluginMeta().getVersion());
             }
-            RailwayWorldPolicy worldPolicy = new TrainCartsWorldPolicy(this, trainCartsApi, getLogger());
+            TrainCartsWorldPolicy worldPolicy = new TrainCartsWorldPolicy(
+                    this, trainCartsApi, getLogger());
 
             eventPublisher = new AsyncOperationalEventPublisher(
                     new JdbcOperationalEventStore(database, clock), getLogger());
@@ -117,10 +120,18 @@ public final class AdvancedTrainControlSystemPlugin extends JavaPlugin {
                     clock);
             LegacyReviewSummary reviewSummary = reviewRepository.refresh();
             LegacyInventorySummary inventorySummary = legacyRepository.loadSummary();
+            InfrastructureCandidateReviewService candidateReviewService =
+                    new InfrastructureCandidateReviewService(database, worldPolicy, clock);
+            candidateReviewService.invalidateStaleDecisions();
+            candidateReconciliationCoordinator = new CandidateReconciliationCoordinator(
+                    candidateReviewService::invalidateStaleDecisions,
+                    getLogger());
+            worldPolicy.setSnapshotChangeListener(candidateReconciliationCoordinator::reconcile);
             signScanService = new LegacySignScanService(
                     this,
                     legacyRepository,
                     reviewRepository,
+                    candidateReconciliationCoordinator,
                     clock,
                     getLogger(),
                     configuration.inventoryScan().chunksPerTick(),
@@ -137,6 +148,7 @@ public final class AdvancedTrainControlSystemPlugin extends JavaPlugin {
             infrastructureDiscoveryService = new InfrastructureDiscoveryService(
                     this,
                     infrastructureRepository,
+                    candidateReconciliationCoordinator,
                     infrastructureSummary,
                     getLogger());
             RailCandidateRepository railRepository = new RailCandidateRepository(database);
@@ -154,6 +166,7 @@ public final class AdvancedTrainControlSystemPlugin extends JavaPlugin {
                 webServer = new EmbeddedWebServer(
                         configuration.web(),
                         new AdminDataRepository(database, worldPolicy, clock),
+                        candidateReviewService,
                         clock,
                         getLogger());
                 webServer.start();
@@ -233,6 +246,10 @@ public final class AdvancedTrainControlSystemPlugin extends JavaPlugin {
                 webServer.close();
                 webServer = null;
             }
+            if (candidateReconciliationCoordinator != null) {
+                candidateReconciliationCoordinator.close();
+                candidateReconciliationCoordinator = null;
+            }
             if (eventPublisher != null) {
                 eventPublisher.close(Duration.ofSeconds(2));
                 eventPublisher = null;
@@ -258,6 +275,10 @@ public final class AdvancedTrainControlSystemPlugin extends JavaPlugin {
         if (signScanService != null) {
             signScanService.close();
             signScanService = null;
+        }
+        if (candidateReconciliationCoordinator != null) {
+            candidateReconciliationCoordinator.close();
+            candidateReconciliationCoordinator = null;
         }
         passengerHudService.close();
         receiverRegistrar.close();

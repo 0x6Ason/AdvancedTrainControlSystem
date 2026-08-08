@@ -3,10 +3,23 @@ package dev.advancedtrains.atcs.web;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSerializer;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import dev.advancedtrains.atcs.config.WebConfiguration;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateAdoptionException;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateAuthorityInput;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateAuthorityRole;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateConflictException;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateDecisionAction;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateDecisionCommand;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateDecisionStatus;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateKind;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateNotFoundException;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateReviewItem;
+import dev.advancedtrains.atcs.infrastructure.review.InfrastructureCandidateReviewService;
 import dev.advancedtrains.atcs.web.AdminDataRepository.OptimisticLockException;
 
 import java.io.IOException;
@@ -17,7 +30,9 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -37,11 +52,18 @@ import java.util.logging.Logger;
 public final class EmbeddedWebServer implements AutoCloseable {
     private static final int MAXIMUM_REQUEST_BYTES = 65536;
     private static final String SESSION_COOKIE = "ATCS_SESSION";
+    private static final String CANDIDATE_PATH_PREFIX = "/api/v1/infrastructure-candidates/";
+    private static final String DECISION_PATH_SUFFIX = "/decision";
     private final WebConfiguration configuration;
     private final AdminDataRepository repository;
+    private final InfrastructureCandidateReviewService candidateReviewService;
     private final Logger logger;
     private final Gson gson = new GsonBuilder()
             .registerTypeAdapterFactory(new OptionalTypeAdapterFactory())
+            .registerTypeAdapter(
+                    Instant.class,
+                    (JsonSerializer<Instant>) (value, type, context) ->
+                            new JsonPrimitive(value.toString()))
             .disableHtmlEscaping()
             .create();
     private final WebSessionManager sessionManager;
@@ -51,10 +73,13 @@ public final class EmbeddedWebServer implements AutoCloseable {
     public EmbeddedWebServer(
             WebConfiguration configuration,
             AdminDataRepository repository,
+            InfrastructureCandidateReviewService candidateReviewService,
             Clock clock,
             Logger logger) throws IOException {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.candidateReviewService = Objects.requireNonNull(
+                candidateReviewService, "candidateReviewService");
         this.logger = Objects.requireNonNull(logger, "logger");
         this.sessionManager = new WebSessionManager(configuration, clock);
         this.server = HttpServer.create(
@@ -82,6 +107,10 @@ public final class EmbeddedWebServer implements AutoCloseable {
             } else {
                 handleStatic(exchange, path);
             }
+        } catch (CandidateNotFoundException exception) {
+            sendJson(exchange, 404, Map.of("error", "CANDIDATE_NOT_FOUND", "message", exception.getMessage()));
+        } catch (CandidateConflictException | CandidateAdoptionException exception) {
+            sendJson(exchange, 409, Map.of("error", "CANDIDATE_CONFLICT", "message", exception.getMessage()));
         } catch (OptimisticLockException exception) {
             sendJson(exchange, 409, Map.of("error", "VERSION_CONFLICT", "message", exception.getMessage()));
         } catch (IllegalArgumentException | JsonParseException exception) {
@@ -140,6 +169,18 @@ public final class EmbeddedWebServer implements AutoCloseable {
         if (path.startsWith("/api/v1/symbols/") && path.endsWith("/decision")
                 && "PUT".equals(method)) {
             handleSymbolDecision(exchange, path, session);
+            return;
+        }
+        if ("/api/v1/infrastructure-candidates".equals(path) && "GET".equals(method)) {
+            handleCandidateList(exchange);
+            return;
+        }
+        if (isCandidateDecisionPath(path) && "PUT".equals(method)) {
+            handleCandidateDecision(exchange, path, session);
+            return;
+        }
+        if (isCandidateDetailPath(path) && "GET".equals(method)) {
+            handleCandidateDetail(exchange, path);
             return;
         }
         if ("/api/v1/stations".equals(path) && "GET".equals(method)) {
@@ -374,6 +415,89 @@ public final class EmbeddedWebServer implements AutoCloseable {
                 actorId(session)));
     }
 
+    private void handleCandidateList(HttpExchange exchange) throws SQLException {
+        Map<String, String> query = parseQuery(exchange.getRequestURI());
+        String world = query.getOrDefault("world", "").strip();
+        Optional<CandidateKind> kind = parseOptionalEnum(
+                query.get("type"), CandidateKind.class, "type");
+        Optional<CandidateDecisionStatus> decision = parseOptionalEnum(
+                query.get("decision"), CandidateDecisionStatus.class, "decision");
+        Optional<CandidateAuthorityRole> role = parseOptionalEnum(
+                query.get("role"), CandidateAuthorityRole.class, "role");
+        String search = query.getOrDefault("search", "").strip().toLowerCase(Locale.ROOT);
+        int offset = parseNonNegative(query.getOrDefault("offset", "0"), "offset");
+        int limit = Math.min(
+                parsePositive(query.getOrDefault(
+                        "limit", Integer.toString(configuration.apiPageSize())), "limit"),
+                configuration.apiPageSize());
+
+        List<CandidateReviewItem> filtered = candidateReviewService
+                .listLatestCandidates(kind, decision)
+                .stream()
+                .filter(item -> world.isEmpty() || item.worldName().equalsIgnoreCase(world))
+                .filter(item -> role.isEmpty() || candidateHasRole(item, role.orElseThrow()))
+                .filter(item -> search.isEmpty() || candidateSearchText(item).contains(search))
+                .sorted(candidateOrder())
+                .toList();
+        int from = Math.min(offset, filtered.size());
+        int to = Math.min(from + limit, filtered.size());
+        sendJson(exchange, 200, new PageResponse<>(
+                filtered.subList(from, to), filtered.size(), offset, limit));
+    }
+
+    private void handleCandidateDetail(HttpExchange exchange, String path) throws SQLException {
+        UUID candidateId = candidateIdFromDetailPath(path);
+        Optional<CandidateReviewItem> candidate = candidateReviewService.findLatestCandidate(candidateId);
+        if (candidate.isEmpty()) {
+            sendJson(exchange, 404, Map.of(
+                    "error", "CANDIDATE_NOT_FOUND",
+                    "message", "Infrastructure candidate was not found in the latest discovery run"));
+            return;
+        }
+        sendJson(exchange, 200, candidate.orElseThrow());
+    }
+
+    private void handleCandidateDecision(
+            HttpExchange exchange,
+            String path,
+            WebSessionManager.Session session) throws IOException, SQLException {
+        UUID candidateId = candidateIdFromDecisionPath(path);
+        CandidateDecisionRequest request = readJson(exchange, CandidateDecisionRequest.class);
+        if (request.expectedRunId() == null) {
+            throw new IllegalArgumentException("expectedRunId is required");
+        }
+        if (request.expectedDecisionVersion() == null) {
+            throw new IllegalArgumentException("expectedDecisionVersion is required");
+        }
+        if (request.expectedDecisionVersion() < 0) {
+            throw new IllegalArgumentException("expectedDecisionVersion must not be negative");
+        }
+        CandidateDecisionAction action = parseDecisionAction(request.decision());
+        Optional<CandidateAuthorityInput> authority = Optional.ofNullable(request.authority())
+                .map(value -> new CandidateAuthorityInput(
+                        optionalText(value.targetId()),
+                        optionalText(value.displayName())));
+        if (action == CandidateDecisionAction.INCLUDE
+                && (authority.isEmpty()
+                || authority.orElseThrow().targetId().isEmpty()
+                || authority.orElseThrow().displayName().isEmpty())) {
+            throw new IllegalArgumentException(
+                    "authority.targetId and authority.displayName are required when decision is INCLUDED");
+        }
+        if (action != CandidateDecisionAction.INCLUDE && authority.isPresent()) {
+            throw new IllegalArgumentException(
+                    "authority must be omitted when decision is IGNORED or PENDING");
+        }
+        CandidateDecisionCommand command = new CandidateDecisionCommand(
+                request.expectedRunId(),
+                action,
+                request.expectedDecisionVersion(),
+                optionalText(request.note()),
+                authority,
+                actorId(session));
+        sendJson(exchange, 200, candidateReviewService.decide(candidateId, command));
+    }
+
     private void handleStatic(HttpExchange exchange, String path) throws IOException {
         if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())
                 && !"HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -527,6 +651,42 @@ public final class EmbeddedWebServer implements AutoCloseable {
         return Set.of("POST", "PUT", "PATCH", "DELETE").contains(method);
     }
 
+    private static boolean isCandidateDetailPath(String path) {
+        if (!path.startsWith(CANDIDATE_PATH_PREFIX)) {
+            return false;
+        }
+        String remainder = path.substring(CANDIDATE_PATH_PREFIX.length());
+        return !remainder.isBlank() && !remainder.contains("/");
+    }
+
+    private static boolean isCandidateDecisionPath(String path) {
+        if (!path.startsWith(CANDIDATE_PATH_PREFIX) || !path.endsWith(DECISION_PATH_SUFFIX)) {
+            return false;
+        }
+        String remainder = path.substring(
+                CANDIDATE_PATH_PREFIX.length(),
+                path.length() - DECISION_PATH_SUFFIX.length());
+        return !remainder.isBlank() && !remainder.contains("/");
+    }
+
+    private static UUID candidateIdFromDetailPath(String path) {
+        return parseCandidateId(path.substring(CANDIDATE_PATH_PREFIX.length()));
+    }
+
+    private static UUID candidateIdFromDecisionPath(String path) {
+        return parseCandidateId(path.substring(
+                CANDIDATE_PATH_PREFIX.length(),
+                path.length() - DECISION_PATH_SUFFIX.length()));
+    }
+
+    private static UUID parseCandidateId(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("candidateId must be a UUID", exception);
+        }
+    }
+
     private static int parseNonNegative(String value, String label) {
         try {
             int parsed = Integer.parseInt(value);
@@ -545,6 +705,85 @@ public final class EmbeddedWebServer implements AutoCloseable {
             throw new IllegalArgumentException(label + " must be positive");
         }
         return parsed;
+    }
+
+    private static <E extends Enum<E>> Optional<E> parseOptionalEnum(
+            String value,
+            Class<E> type,
+            String label) {
+        if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(Enum.valueOf(type, value.strip().toUpperCase(Locale.ROOT)));
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException(label + " has an unsupported value", exception);
+        }
+    }
+
+    private static CandidateDecisionAction parseDecisionAction(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("decision is required");
+        }
+        return switch (value.strip().toUpperCase(Locale.ROOT)) {
+            case "INCLUDED" -> CandidateDecisionAction.INCLUDE;
+            case "IGNORED" -> CandidateDecisionAction.IGNORE;
+            case "PENDING" -> CandidateDecisionAction.CLEAR;
+            default -> throw new IllegalArgumentException(
+                    "decision must be INCLUDED, IGNORED, or PENDING");
+        };
+    }
+
+    private static Optional<String> optionalText(String value) {
+        if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(value.strip());
+    }
+
+    private static Comparator<CandidateReviewItem> candidateOrder() {
+        return Comparator
+                .comparing((CandidateReviewItem item) -> item.worldName().toLowerCase(Locale.ROOT))
+                .thenComparingInt(CandidateReviewItem::blockX)
+                .thenComparingInt(CandidateReviewItem::blockY)
+                .thenComparingInt(CandidateReviewItem::blockZ)
+                .thenComparing(item -> item.kind().name())
+                .thenComparing(item -> item.candidateId().toString());
+    }
+
+    private static boolean candidateHasRole(
+            CandidateReviewItem item,
+            CandidateAuthorityRole expectedRole) {
+        return item.decision().authorityRole()
+                .filter(expectedRole::equals)
+                .isPresent()
+                || item.suggestedRole().filter(expectedRole::equals).isPresent();
+    }
+
+    private static String candidateSearchText(CandidateReviewItem item) {
+        List<String> parts = new ArrayList<>();
+        parts.add(item.discoveryRunId().toString());
+        parts.add(item.candidateId().toString());
+        parts.add(item.sourceSignId().toString());
+        parts.add(item.kind().name());
+        parts.add(item.worldName());
+        parts.add(item.blockX() + " " + item.blockY() + " " + item.blockZ());
+        parts.add(item.signSide());
+        parts.add(item.actionType());
+        parts.addAll(item.rawLines());
+        item.attributes().forEach((key, value) -> parts.add(key + " " + value));
+        item.candidateProperties().forEach((key, value) -> parts.add(key + " " + value));
+        item.evidence().forEach(evidence -> {
+            parts.add(evidence.kind());
+            evidence.evidenceText().ifPresent(parts::add);
+        });
+        item.suggestedRole().ifPresent(value -> parts.add(value.name()));
+        item.decision().authorityRole().ifPresent(value -> parts.add(value.name()));
+        item.decision().targetId().ifPresent(parts::add);
+        item.decision().authorityDisplayName().ifPresent(parts::add);
+        item.decision().note().ifPresent(parts::add);
+        item.decision().staleReason().ifPresent(parts::add);
+        return String.join(" ", parts).toLowerCase(Locale.ROOT);
     }
 
     private static String symbolSearchText(AdminDataRepository.SymbolRow row) {
@@ -591,6 +830,17 @@ public final class EmbeddedWebServer implements AutoCloseable {
             String targetId,
             String note,
             int expectedVersion) {
+    }
+
+    private record CandidateDecisionRequest(
+            UUID expectedRunId,
+            Integer expectedDecisionVersion,
+            String decision,
+            String note,
+            CandidateAuthorityRequest authority) {
+    }
+
+    private record CandidateAuthorityRequest(String targetId, String displayName) {
     }
 
     private record StationRequest(String id, String displayName, String worldName) {

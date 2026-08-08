@@ -1,6 +1,7 @@
 package dev.advancedtrains.atcs.legacy;
 
 import dev.advancedtrains.atcs.domain.BlockPosition;
+import dev.advancedtrains.atcs.infrastructure.review.CandidateDecisionReconciler;
 import dev.advancedtrains.atcs.world.RailwayWorldPolicy;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
@@ -38,6 +39,7 @@ public final class LegacySignScanService implements AutoCloseable {
     private final JavaPlugin plugin;
     private final LegacySignInventoryRepository repository;
     private final LegacyReviewRepository reviewRepository;
+    private final CandidateDecisionReconciler candidateDecisionReconciler;
     private final LegacySignClassifier classifier;
     private final Clock clock;
     private final Logger logger;
@@ -52,6 +54,7 @@ public final class LegacySignScanService implements AutoCloseable {
             JavaPlugin plugin,
             LegacySignInventoryRepository repository,
             LegacyReviewRepository reviewRepository,
+            CandidateDecisionReconciler candidateDecisionReconciler,
             Clock clock,
             Logger logger,
             int chunksPerTick,
@@ -60,6 +63,8 @@ public final class LegacySignScanService implements AutoCloseable {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.repository = Objects.requireNonNull(repository, "repository");
         this.reviewRepository = Objects.requireNonNull(reviewRepository, "reviewRepository");
+        this.candidateDecisionReconciler = Objects.requireNonNull(
+                candidateDecisionReconciler, "candidateDecisionReconciler");
         this.classifier = new LegacySignClassifier();
         this.clock = Objects.requireNonNull(clock, "clock");
         this.logger = Objects.requireNonNull(logger, "logger");
@@ -164,6 +169,7 @@ public final class LegacySignScanService implements AutoCloseable {
                     try {
                         repository.storeCompletedScan(result);
                         reviewRepository.refresh();
+                        candidateDecisionReconciler.reconcile();
                         return repository.loadSummary();
                     } catch (SQLException exception) {
                         throw new ScanPersistenceException(exception);

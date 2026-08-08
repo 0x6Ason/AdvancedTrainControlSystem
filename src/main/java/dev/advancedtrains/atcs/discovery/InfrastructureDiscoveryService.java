@@ -1,5 +1,6 @@
 package dev.advancedtrains.atcs.discovery;
 
+import dev.advancedtrains.atcs.infrastructure.review.CandidateDecisionReconciler;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -18,6 +19,7 @@ import java.util.logging.Logger;
 public final class InfrastructureDiscoveryService implements AutoCloseable {
     private final JavaPlugin plugin;
     private final InfrastructureCandidateRepository repository;
+    private final CandidateDecisionReconciler candidateDecisionReconciler;
     private final Logger logger;
     private final ExecutorService executor;
     private final AtomicBoolean running = new AtomicBoolean();
@@ -26,10 +28,13 @@ public final class InfrastructureDiscoveryService implements AutoCloseable {
     public InfrastructureDiscoveryService(
             JavaPlugin plugin,
             InfrastructureCandidateRepository repository,
+            CandidateDecisionReconciler candidateDecisionReconciler,
             InfrastructureDiscoverySummary initialSummary,
             Logger logger) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.repository = Objects.requireNonNull(repository, "repository");
+        this.candidateDecisionReconciler = Objects.requireNonNull(
+                candidateDecisionReconciler, "candidateDecisionReconciler");
         this.lastSummary = Objects.requireNonNull(initialSummary, "initialSummary");
         this.logger = Objects.requireNonNull(logger, "logger");
         ThreadFactory threadFactory = runnable -> {
@@ -51,7 +56,9 @@ public final class InfrastructureDiscoveryService implements AutoCloseable {
         CompletableFuture
                 .supplyAsync(() -> {
                     try {
-                        return repository.discover();
+                        InfrastructureDiscoverySummary summary = repository.discover();
+                        candidateDecisionReconciler.reconcile();
+                        return summary;
                     } catch (SQLException exception) {
                         throw new DiscoveryPersistenceException(exception);
                     }

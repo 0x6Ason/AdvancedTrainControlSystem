@@ -11,7 +11,7 @@ This report records the current clean-reset verification of ATCS on the disposab
 - ATCS operating mode: `READ_ONLY`
 - Database: fresh schema V7
 - Administration site: loopback only on `127.0.0.1:8765`
-- Deployed JAR SHA-256: `151A1A8CCB3D268D799B00F93C29EC1842E1003E3BAC2660D3481FC0DE6A0EEC`
+- Deployed JAR SHA-256: `002BAFE7B469A149192D752B61E396DE32978BF67AE54DD95F25F968D77D0E72`
 
 The staged plugin enabled cleanly, registered the `railrcv` sign action, started the passenger HUD task, and reported healthy required integrations. Full stops use the local staging RCON interface instead of plugin hot reload.
 
@@ -42,7 +42,9 @@ The administration API returned the same three-world set. Rail-map requests requ
 
 The clean reset retained no prior ATCS infrastructure decisions. Discovered signs are evidence for operator review; they do not create stations, platforms, routes, or control points automatically. Original sign text is preserved. The known misspelled `annnounce` action at `world -822 58 779` remains evidence for review and was not rewritten in Minecraft.
 
-Candidate inference produced zero passenger stations, zero platforms, 15 departure points, and 61 track motion controls. In particular, `reverse` and `continue`/re-acceleration instructions are classified as control evidence before passenger inference, even when nearby arrival text exists. These remain reviewable candidates and were not promoted into authoritative topology.
+Candidate inference produced zero passenger stations, zero platforms, 15 departure candidates, and 61 track-control candidates. In particular, `reverse` and `continue`/re-acceleration instructions are classified as control evidence before passenger inference, even when nearby arrival text exists.
+
+The Candidate Review API and browser workbench exposed all 76 records as `PENDING`. Each record retained its discovery run, source-sign identity and side, original four lines, parsed attributes, inference evidence, deterministic `sha256-v1` fingerprint, and evidence revision. Type, role, and paging filters were exercised against the live loopback site. The database contained zero infrastructure decision rows, zero departure authorities, and zero track-control authorities after verification; no browser decision was submitted and no candidate was promoted automatically.
 
 ## Physical rail inventory
 
@@ -50,15 +52,19 @@ Candidate inference produced zero passenger stations, zero platforms, 15 departu
 
 - 3,222 rail-bearing saved chunks considered and scanned;
 - 48,936 rail nodes;
-- 39,718 shape-aware rail edges.
+- 39,718 shape-aware rail edges;
+- 116,584,448 block checks;
+- 160 unloaded-chunk boundaries;
+- no node-limit truncation.
 
 Saved-world discovery indexes existing Anvil data and does not generate terrain. Station, spawn, announcement, and control signs are independent evidence overlays and never seed or limit physical rail discovery.
 
 ## Review and safety notes
 
 - No legacy sign, rail, or world block was modified.
-- The Java 21 build gate passed all 41 tests and the English-text policy with no failure, error, or skip.
+- The Java 21 build gate passed all 53 tests and the English-text policy with no failure, error, or skip.
 - `old_world` remained unloaded and untouched; its status is a consequence of current server loading and TrainCarts scope, not an ATCS archive policy.
+- A sorted SHA-256 manifest of all 177 `old_world` files remained exactly `F2FF735D3D5473D2D8A9206CD4C321B063F3179D2C188BB6FF23FFF3951F947A` before and after the reset, scans, browser verification, and restart cycle. The files totalled 104,141,638 bytes; ATCS neither loaded nor wrote that world.
 - The original `D:\StagingSv\full.zip` remains the immutable source for future clean extraction.
 - The staging server stayed healthy and responsive during discovery.
-- Adoption into authoritative station, platform, route, control-point, gate, or train records still requires an explicit operator decision.
+- Adoption into authoritative departure or track-control records now requires an exact-evidence, audited Candidate Review decision. Station, platform, route, gate, fare, and train authority remains separate and explicit.

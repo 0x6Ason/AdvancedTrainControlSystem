@@ -11,7 +11,7 @@
 The user confirmed that ATCS is still pre-production and staging data is disposable. The implementation therefore uses a clean reset instead of building V008 data-preservation migrations or legacy backfills:
 
 - delete only the disposable ATCS plugin data directory, deploy the new JAR, and restart;
-- let the existing V001–V007 bootstrap create a fresh database, without adding a new migration for old prototype data;
+- let the V001–V007 pre-release bootstrap create a fresh database, refining clean-schema definitions in place when required instead of adding migrations for disposable prototype data;
 - use TrainCarts' `enabledWorlds`/`disabledWorlds` behavior as the sole runtime world boundary;
 - consider only loaded worlds for which `TrainCarts.isWorldDisabled(world)` is false;
 - do not give `old_world` or any other world special ATCS configuration or mutation behavior;
@@ -19,6 +19,19 @@ The user confirmed that ATCS is still pre-production and staging data is disposa
 - continue through tested implementation slices without stopping automatically at Phase 0.
 
 Any section below that discusses V008 backfill or retention of the discarded staging database is explicitly marked as a superseded, non-operational audit proposal. No ATCS-specific active/archive world policy remains in the current requirements.
+
+### Completed evidence-adoption slice
+
+The first safety-critical evidence slice is now implemented and staging-verified:
+
+- immutable per-run source-sign snapshots and deterministic `sha256-v1` evidence fingerprints;
+- typed departure and track-control candidate identities with exact candidate/evidence foreign-key binding;
+- one-record-at-a-time Candidate Review API and UI with `PENDING`, `INCLUDED`, `IGNORED`, and `STALE` states;
+- explicit target identity, server-derived authority role, exact-run optimistic concurrency, audited monotonic decisions, and exact-bound authority disable;
+- proactive stale reconciliation with a retrying generation drain, active TrainCarts-world filtering, and no automatic authority promotion;
+- live clean-reset evidence of 76 pending candidates, zero decisions, and zero derived authorities.
+
+This closes the candidate decision/evidence mismatch and Control Marker classification defects for the new authority path. The older manual symbol workbench remains a non-authoritative prototype and must be retired or routed through the same application boundary before production use.
 
 ## 1. Executive decision
 
@@ -71,7 +84,7 @@ This score measures whether the handover is defined well enough to make an audit
 - Reverse and re-acceleration/continue signs are Control Markers, not passenger stations.
 - Rails without signs remain discoverable, queryable, and visible.
 - Discovery must not generate chunks, complete chunks, or modify world blocks.
-- V001–V007 migrations are historical artifacts and must never be edited.
+- V001–V007 are the current pre-release clean-bootstrap schema. Until a production compatibility promise exists, schema refinements require a disposable-data reset and full verification rather than compatibility migrations or backfills.
 - Evidence is never overwritten by inference or approval.
 - READ_ONLY and SHADOW modes perform no TrainCarts, SignLink, block, or world-control writes.
 - No new feature phase begins until the preceding evidence package is approved.
@@ -82,15 +95,15 @@ The following baseline was refreshed after the clean ATCS data reset and staging
 
 | Area | Verified state |
 |---|---|
-| Build | The current staged JAR SHA-256 is `151A1A8CCB3D268D799B00F93C29EC1842E1003E3BAC2660D3481FC0DE6A0EEC`, matching the workspace artifact. |
-| Tests | The Java 21 `check shadowJar` gate passed 41 tests with no failures, errors, or skips. |
+| Build | The current staged JAR is rebuilt from this workspace and its final SHA-256 is recorded in `STAGING_INVENTORY.md`. |
+| Tests | The Java 21 `check shadowJar` gate passed 53 tests with no failures, errors, or skips. |
 | Java | Source/bytecode targets Java 21 and the build/test gate ran on Temurin 21.0.9. Staging runs Java 25 because of its installed server/plugin set. |
 | Runtime | Paper 1.21.11, TrainCarts 2.0.0, BKCommonLib 2.0.1, and SignLink 1.21.5-v1 are present; ATCS starts cleanly in READ_ONLY mode. |
 | Web | Bound to `127.0.0.1:8765`; authenticated API login succeeds and `/api/v1/worlds` returns the TrainCarts-enabled loaded-world set. |
 | Database | Fresh SQLite schema V007 after deletion of the disposable prior ATCS data directory. |
 | Rail evidence | Latest clean-reset run completed 3,222/3,222 saved rail chunks with 48,936 nodes and 39,718 edges. |
 | Sign evidence | The clean scan observed 203 signs in `world`; no prior inventory rows or infrastructure decisions were retained. |
-| Candidate evidence | Inference produced 0 passenger stations, 0 platforms, 15 departure points, and 61 track motion controls; none were promoted automatically. |
+| Candidate evidence | Inference produced 0 passenger stations, 0 platforms, 15 departure candidates, and 61 track-control candidates. All 76 were `PENDING`; the database contained zero decisions and zero derived authorities. |
 | Approved domain | 0 stations, platforms, lines, route plans, gates, zones, rules, track nodes/segments, service patterns, trips, or receivers. |
 | World scope | TrainCarts reported enabled loaded worlds `world`, `world_nether`, and `world_the_end`. `old_world` remained unloaded and untouched; ATCS assigned it no special state. |
 
@@ -100,13 +113,13 @@ The handover's last TPS observation was 20.0/20.0/19.9. This was not treated as 
 
 ### 5.1 Blockers before feature expansion
 
+Two originally listed blockers are closed for the new candidate-authority path: evidence decisions are bound to exact run/sign/fingerprint/revision identities and stale reconciliation disables only the exactly linked authority; control-marker classification now runs before passenger inference. The remaining blockers below still gate operational expansion.
+
 | Finding | Evidence | Consequence | Required disposition |
 |---|---|---|---|
-| A changed sign can retain an old infrastructure decision. | `LegacySignInventoryRepository.java:112-176` resets legacy review fields when text changes but does not invalidate `infrastructure_symbol_decision`. | An approval can silently apply to evidence the operator never reviewed. | Replace with immutable observation revisions and revision-bound decisions in Phase 1. |
 | The Anvil parser does not impose adequate file/sector/decompression/allocation bounds. | `SavedRailChunkLocator.java:81-144`; `AnvilRailExtractor.java:69-80`. | Corrupt or hostile region data can exhaust memory or be silently skipped. | Rewrite as a bounded streaming parser with quarantine and per-chunk results. |
 | Unknown rail shapes are coerced to `NORTH_SOUTH`. | `AnvilRailExtractor.java:108-116`. | Unknown evidence becomes false topology. | Reject/quarantine unknown values; never coerce. |
 | Direct web repository writes bypass domain invariants. | `ServiceCall.java:14` rejects zero dwell for PASS/NON_SERVICE, while `AdminDataRepository.java:1317` and V006 permit it. | API behavior can contradict the domain and preserve invalid derived state. | Route all mutations through application services and aggregates. |
-| `continue`/re-acceleration signs can be inferred as passenger candidates. | `InfrastructureCandidateInference.java:195-213` excludes reverse early but matches continue later. | A track-control instruction can appear as a station candidate. | Classify Control Markers before any passenger-station inference. |
 
 ### 5.2 Architectural and operational findings
 

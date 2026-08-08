@@ -5,6 +5,11 @@ const state = {
   role: "",
   overview: null,
   worlds: [],
+  candidates: [],
+  candidatePage: { total: 0, offset: 0, limit: 50 },
+  candidateFocusId: null,
+  selectedCandidate: null,
+  candidateLoading: false,
   symbols: [],
   filteredSymbols: [],
   stations: [],
@@ -61,6 +66,25 @@ function bindEvents() {
     if (event.key === "Enter") applyFilters();
   });
   $("#refresh-symbols").addEventListener("click", refreshSymbols);
+  $("#refresh-candidates").addEventListener("click", () => refreshCandidates());
+  $("#apply-candidate-filter").addEventListener("click", applyCandidateFilters);
+  $("#clear-candidate-filter").addEventListener("click", clearCandidateFilters);
+  $("#candidate-search-filter").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") applyCandidateFilters();
+  });
+  $("#candidate-previous").addEventListener("click", () => changeCandidatePage(-1));
+  $("#candidate-next").addEventListener("click", () => changeCandidatePage(1));
+  $("#candidate-decision-form").addEventListener("submit", saveCandidateDecision);
+  $("#candidate-decision-form select[name=decision]").addEventListener("change", updateCandidateDecisionFields);
+  $("#candidate-decision-form input[name=targetId]").addEventListener("input", renderCandidateAuthorityPreview);
+  $("#candidate-decision-form input[name=displayName]").addEventListener("input", renderCandidateAuthorityPreview);
+  $("#show-candidate-source").addEventListener("click", showCandidateSourceOnMap);
+  $("#candidate-inspector").addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft" && event.target === event.currentTarget) {
+      event.preventDefault();
+      focusCandidateRow(state.selectedCandidate?.candidateId);
+    }
+  });
   $("#refresh-stations").addEventListener("click", refreshStations);
   $("#decision-form").addEventListener("submit", saveDecision);
   $("#decision-form select[name=decision]").addEventListener("change", updateDecisionFields);
@@ -158,7 +182,7 @@ function showLogin(message = "") {
 async function loadApplication() {
   await Promise.all([
     refreshOverview(), refreshWorlds(), refreshSymbols(), refreshStations(),
-    refreshLines(), refreshFares()
+    refreshLines(), refreshFares(), refreshCandidates()
   ]);
   rebuildFilters();
   await loadMap();
@@ -220,6 +244,232 @@ async function refreshSymbols() {
   updateNetworkMapScene();
 }
 
+async function refreshCandidates(options = {}) {
+  const preserveSelection = options.preserveSelection !== false;
+  state.candidateLoading = true;
+  $("#candidate-list-message").textContent = "LOADING CANDIDATES...";
+  renderCandidateTable();
+  try {
+    const query = candidateQuery();
+    query.set("offset", String(state.candidatePage.offset));
+    query.set("limit", String(state.candidatePage.limit));
+    const page = await request(`/api/v1/infrastructure-candidates?${query.toString()}`);
+    const pageTotal = Number(page.total || 0);
+    const pageLimit = Number(page.limit || state.candidatePage.limit);
+    if (pageTotal > 0 && state.candidatePage.offset >= pageTotal) {
+      state.candidatePage.offset = Math.floor((pageTotal - 1) / pageLimit) * pageLimit;
+      return await refreshCandidates(options);
+    }
+    state.candidates = page.items || [];
+    state.candidatePage = {
+      total: pageTotal,
+      offset: Number(page.offset || 0),
+      limit: pageLimit
+    };
+    if (preserveSelection && state.selectedCandidate) {
+      const current = state.candidates.find((item) => item.candidateId === state.selectedCandidate.candidateId);
+      state.selectedCandidate = current || null;
+    } else if (!preserveSelection) {
+      state.selectedCandidate = null;
+    }
+    if (!state.candidates.some((item) => item.candidateId === state.candidateFocusId)) {
+      state.candidateFocusId = state.selectedCandidate?.candidateId || state.candidates[0]?.candidateId || null;
+    }
+    $("#candidate-list-message").textContent = "";
+    rebuildFilters();
+  } catch (error) {
+    state.candidates = [];
+    state.candidatePage.total = 0;
+    state.candidateFocusId = null;
+    state.selectedCandidate = null;
+    $("#candidate-list-message").textContent = `${error.message} Reload the candidate register to try again.`;
+  } finally {
+    state.candidateLoading = false;
+    renderCandidateTable();
+    renderInspector();
+  }
+}
+
+function candidateQuery() {
+  const query = new URLSearchParams();
+  const filters = [
+    ["world", $("#candidate-world-filter").value],
+    ["type", $("#candidate-type-filter").value],
+    ["decision", $("#candidate-decision-filter").value],
+    ["role", $("#candidate-role-filter").value],
+    ["search", $("#candidate-search-filter").value.trim()]
+  ];
+  filters.forEach(([key, value]) => { if (value) query.set(key, value); });
+  return query;
+}
+
+function applyCandidateFilters() {
+  state.candidatePage.offset = 0;
+  refreshCandidates({ preserveSelection: false });
+}
+
+function clearCandidateFilters() {
+  $("#candidate-world-filter").value = "";
+  $("#candidate-type-filter").value = "";
+  $("#candidate-decision-filter").value = "";
+  $("#candidate-role-filter").value = "";
+  $("#candidate-search-filter").value = "";
+  applyCandidateFilters();
+}
+
+function changeCandidatePage(direction) {
+  if (state.candidateLoading) return;
+  const nextOffset = state.candidatePage.offset + direction * state.candidatePage.limit;
+  if (nextOffset < 0 || nextOffset >= state.candidatePage.total) return;
+  state.candidatePage.offset = nextOffset;
+  refreshCandidates({ preserveSelection: false });
+}
+
+function renderCandidateTable() {
+  const body = $("#candidate-table-body");
+  if (state.candidateLoading) {
+    body.replaceChildren(candidateStateRow("Loading the latest completed discovery run..."));
+  } else if (state.candidates.length === 0) {
+    body.replaceChildren(candidateStateRow("No candidates match the current filters."));
+  } else {
+    const focusCandidateId = state.candidates.some((item) => item.candidateId === state.candidateFocusId)
+      ? state.candidateFocusId
+      : state.selectedCandidate?.candidateId || state.candidates[0].candidateId;
+    state.candidateFocusId = focusCandidateId;
+    body.replaceChildren(...state.candidates.map((item) => {
+      const row = document.createElement("tr");
+      const selected = state.selectedCandidate?.candidateId === item.candidateId;
+      row.classList.toggle("selected", selected);
+      row.dataset.candidateId = item.candidateId;
+      row.tabIndex = item.candidateId === focusCandidateId ? 0 : -1;
+      row.setAttribute("aria-selected", String(selected));
+      row.setAttribute("aria-label", `${candidateTypeLabel(item.kind)} ${candidateRoleLabel(item.suggestedRole)} at ${item.worldName} ${item.blockX} ${item.blockY} ${item.blockZ}`);
+      const stateCell = document.createElement("td");
+      const pill = document.createElement("span");
+      pill.className = `state-pill ${item.decision.status.toLowerCase()}`;
+      pill.textContent = item.decision.status;
+      stateCell.append(pill);
+      const values = [
+        candidateTypeLabel(item.kind),
+        candidateRoleLabel(item.suggestedRole),
+        formatConfidence(item.confidence),
+        item.worldName,
+        item.blockX,
+        item.blockY,
+        item.blockZ,
+        item.sourceSignId.slice(0, 8)
+      ];
+      row.append(stateCell, ...values.map((value) => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        cell.title = String(value);
+        return cell;
+      }));
+      const choose = () => {
+        state.candidateFocusId = item.candidateId;
+        return selectCandidate(item.candidateId);
+      };
+      row.addEventListener("click", choose);
+      row.addEventListener("focus", () => { state.candidateFocusId = item.candidateId; });
+      row.addEventListener("keydown", (event) => {
+        switch (event.key) {
+          case "ArrowDown":
+            event.preventDefault();
+            moveCandidateRowFocus(row, 1);
+            break;
+          case "ArrowUp":
+            event.preventDefault();
+            moveCandidateRowFocus(row, -1);
+            break;
+          case "Home":
+            event.preventDefault();
+            moveCandidateRowFocus(row, -Infinity);
+            break;
+          case "End":
+            event.preventDefault();
+            moveCandidateRowFocus(row, Infinity);
+            break;
+          case "ArrowRight":
+            event.preventDefault();
+            state.candidateFocusId = item.candidateId;
+            selectCandidate(item.candidateId, { focusInspector: true });
+            break;
+          case "Enter":
+          case " ":
+            event.preventDefault();
+            choose();
+            break;
+          default:
+            break;
+        }
+      });
+      return row;
+    }));
+  }
+  const { total, offset, limit } = state.candidatePage;
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(offset + state.candidates.length, total);
+  $("#candidate-count").textContent = `${total} CANDIDATES`;
+  $("#candidate-page-status").textContent = `${start}–${end} OF ${total}`;
+  $("#candidate-previous").disabled = state.candidateLoading || offset <= 0;
+  $("#candidate-next").disabled = state.candidateLoading || offset + limit >= total;
+}
+
+function moveCandidateRowFocus(currentRow, direction) {
+  const rows = $$("#candidate-table-body tr[data-candidate-id]");
+  if (rows.length === 0) return;
+  const currentIndex = Math.max(0, rows.indexOf(currentRow));
+  const nextIndex = direction === -Infinity
+    ? 0
+    : direction === Infinity
+      ? rows.length - 1
+      : Math.max(0, Math.min(rows.length - 1, currentIndex + direction));
+  const nextRow = rows[nextIndex];
+  rows.forEach((row) => { row.tabIndex = row === nextRow ? 0 : -1; });
+  state.candidateFocusId = nextRow.dataset.candidateId;
+  nextRow.focus();
+}
+
+function focusCandidateRow(candidateId) {
+  if (!candidateId) return;
+  const rows = $$("#candidate-table-body tr[data-candidate-id]");
+  const row = rows.find((candidateRow) => candidateRow.dataset.candidateId === candidateId);
+  if (!row) return;
+  rows.forEach((candidateRow) => { candidateRow.tabIndex = candidateRow === row ? 0 : -1; });
+  state.candidateFocusId = candidateId;
+  row.focus();
+}
+
+function candidateStateRow(message) {
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  cell.className = "empty-row";
+  cell.colSpan = 9;
+  cell.textContent = message;
+  row.append(cell);
+  return row;
+}
+
+async function selectCandidate(candidateId, options = {}) {
+  const existing = state.candidates.find((item) => item.candidateId === candidateId);
+  state.candidateFocusId = candidateId;
+  state.selectedCandidate = existing || null;
+  renderCandidateTable();
+  renderInspector();
+  $("#candidate-decision-message").textContent = existing ? "Loading complete candidate evidence..." : "";
+  let failureMessage = "";
+  try {
+    state.selectedCandidate = await request(`/api/v1/infrastructure-candidates/${encodeURIComponent(candidateId)}`);
+  } catch (error) {
+    failureMessage = `${error.message} Reload the candidate and try again.`;
+  }
+  renderCandidateTable();
+  renderInspector();
+  $("#candidate-decision-message").textContent = failureMessage;
+  if (options.focusInspector) $("#candidate-inspector").focus();
+  else focusCandidateRow(candidateId);
+}
+
 async function refreshStations() {
   const response = await request("/api/v1/stations");
   state.stations = response.items;
@@ -230,6 +480,7 @@ async function refreshStations() {
 function rebuildFilters() {
   replaceSelectOptions($("#world-filter"), "ALL ACTIVE", state.worlds);
   replaceSelectOptions($("#type-filter"), "ALL TYPES", unique(state.symbols.map((item) => item.type)));
+  replaceSelectOptions($("#candidate-world-filter"), "ALL ACTIVE", state.worlds);
   const worlds = state.worlds;
   const mapWorld = $("#map-world");
   const previous = mapWorld.value || state.graph.worldName;
@@ -304,7 +555,12 @@ function selectSymbol(symbol) {
 }
 
 function renderInspector() {
+  if ($("#view-candidates").classList.contains("active")) {
+    renderCandidateInspector();
+    return;
+  }
   const item = state.selectedSymbol;
+  $("#candidate-inspector").hidden = true;
   $("#inspector-empty").hidden = Boolean(item);
   $("#symbol-inspector").hidden = !item;
   if (!item) return;
@@ -341,6 +597,208 @@ function renderInspector() {
   form.elements.targetId.value = item.targetId || "";
   form.elements.note.value = item.note || "";
   updateDecisionFields();
+}
+
+function renderCandidateInspector() {
+  const item = state.selectedCandidate;
+  $("#symbol-inspector").hidden = true;
+  $("#inspector-empty").hidden = Boolean(item);
+  $("#candidate-inspector").hidden = !item;
+  if (!item) {
+    $("#inspector-empty b").textContent = "NO CANDIDATE SELECTED";
+    $("#inspector-empty span").textContent = "Select a candidate to inspect its preserved evidence.";
+    return;
+  }
+
+  const decision = item.decision;
+  const stateTag = $("#candidate-object-state");
+  stateTag.textContent = decision.status;
+  stateTag.className = `state-tag ${decision.status.toLowerCase()}`;
+  $("#candidate-object-type").textContent = candidateRoleLabel(item.suggestedRole);
+  $("#candidate-properties").replaceChildren(...definitionRows([
+    ["Candidate", item.candidateId],
+    ["Run", item.discoveryRunId],
+    ["Discovered", item.discoveredAt],
+    ["Type", candidateTypeLabel(item.kind)],
+    ["Suggested role", candidateRoleLabel(item.suggestedRole)],
+    ["Confidence", formatConfidence(item.confidence)],
+    ["Location", `${item.worldName} ${item.blockX} ${item.blockY} ${item.blockZ}`],
+    ["Source sign", item.sourceSignId],
+    ["Sign side", item.signSide],
+    ["Action type", item.actionType],
+    ["Evidence revision", item.evidenceRevision],
+    ["Fingerprint", item.evidenceFingerprint],
+    ["Decision version", decision.version]
+  ]));
+
+  $("#candidate-sign-lines").replaceChildren(...item.rawLines.map((line) => {
+    const element = document.createElement("li");
+    element.textContent = line || " ";
+    return element;
+  }));
+
+  const attributes = Object.entries(item.attributes || {}).sort(([left], [right]) => left.localeCompare(right));
+  $("#candidate-attributes").replaceChildren(...definitionRows(
+    attributes.length > 0 ? attributes : [["Attributes", "None preserved"]]
+  ));
+
+  const candidateProperties = Object.entries(item.candidateProperties || {})
+    .sort(([left], [right]) => left.localeCompare(right));
+  $("#candidate-properties-detail").replaceChildren(...definitionRows(
+    candidateProperties.length > 0 ? candidateProperties : [["Properties", "None recorded"]]
+  ));
+
+  const evidence = item.evidence || [];
+  $("#candidate-evidence").replaceChildren(...(evidence.length > 0 ? evidence.map((entry) => {
+    const row = document.createElement("li");
+    const heading = document.createElement("b");
+    heading.textContent = candidateTypeLabel(entry.kind);
+    const detail = document.createElement("span");
+    const parts = [entry.evidenceText, entry.distanceBlocks == null ? null : `${Number(entry.distanceBlocks).toFixed(2)} blocks`, entry.sourceSignId]
+      .filter(Boolean);
+    detail.textContent = parts.join(" / ");
+    row.append(heading, detail);
+    return row;
+  }) : [Object.assign(document.createElement("li"), { textContent: "No additional evidence was recorded." })]));
+
+  const form = $("#candidate-decision-form");
+  const stale = decision.status === "STALE";
+  form.elements.decision.value = stale ? "PENDING" : decision.status;
+  form.elements.targetId.value = decision.targetId || "";
+  form.elements.displayName.value = decision.authorityDisplayName || "";
+  form.elements.note.value = decision.note || "";
+  form.elements.evidenceReviewed.checked = false;
+  Array.from(form.elements).forEach((control) => { control.disabled = stale; });
+  $("#save-candidate-decision").disabled = stale;
+  if (stale) {
+    $("#candidate-authority-fields").disabled = true;
+    $("#candidate-review-confirmation").hidden = true;
+  }
+  $("#candidate-decision-message").textContent = stale
+    ? decision.staleReason || "This decision is stale. Run discovery again and review the new candidate."
+    : "";
+  $("#candidate-decision-message").classList.remove("success");
+  updateCandidateDecisionFields();
+  renderCandidateAuthorityPreview();
+}
+
+function definitionRows(entries) {
+  return entries.map(([key, value]) => {
+    const wrapper = document.createElement("div");
+    const term = document.createElement("dt");
+    const definition = document.createElement("dd");
+    term.textContent = key;
+    definition.textContent = value == null || value === "" ? "—" : String(value);
+    wrapper.append(term, definition);
+    return wrapper;
+  });
+}
+
+function updateCandidateDecisionFields() {
+  const form = $("#candidate-decision-form");
+  if (!state.selectedCandidate || state.selectedCandidate.decision.status === "STALE") return;
+  const included = form.elements.decision.value === "INCLUDED";
+  $("#candidate-authority-fields").disabled = !included;
+  $("#candidate-review-confirmation").hidden = !included;
+  form.elements.evidenceReviewed.required = included;
+  if (!included) form.elements.evidenceReviewed.checked = false;
+  renderCandidateAuthorityPreview();
+}
+
+function renderCandidateAuthorityPreview() {
+  const item = state.selectedCandidate;
+  if (!item) return;
+  const form = $("#candidate-decision-form");
+  const decision = form.elements.decision.value;
+  const rows = decision === "INCLUDED"
+    ? [
+      ["Record type", item.kind === "DEPARTURE" ? "DeparturePoint" : "TrackControlPoint"],
+      ["Target ID", form.elements.targetId.value.trim() || "Required before inclusion"],
+      ["Display name", form.elements.displayName.value.trim() || "Required before inclusion"],
+      ["Authority role", candidateRoleLabel(item.suggestedRole)],
+      ["Location", `${item.worldName} ${item.blockX} ${item.blockY} ${item.blockZ}`],
+      ["External writes", "None — digital network record only"]
+    ]
+    : [["Result", decision === "IGNORED" ? "Candidate remains evidence and creates no authority record." : "No authority decision is stored."]];
+  $("#candidate-authority-preview").replaceChildren(...definitionRows(rows));
+}
+
+async function saveCandidateDecision(event) {
+  event.preventDefault();
+  const item = state.selectedCandidate;
+  if (!item || item.decision.status === "STALE") return;
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
+  const decision = form.get("decision");
+  const message = $("#candidate-decision-message");
+  message.classList.remove("success");
+  if (decision === "INCLUDED" && !formElement.elements.evidenceReviewed.checked) {
+    message.textContent = "Review the preserved evidence and authority preview before inclusion.";
+    formElement.elements.evidenceReviewed.focus();
+    return;
+  }
+  const authority = decision === "INCLUDED" ? {
+    targetId: String(form.get("targetId") || "").trim(),
+    displayName: String(form.get("displayName") || "").trim()
+  } : null;
+  if (decision === "INCLUDED" && (!authority.targetId || !authority.displayName)) {
+    message.textContent = "Target ID and display name are required for inclusion.";
+    return;
+  }
+
+  $("#save-candidate-decision").disabled = true;
+  message.textContent = "Saving one audited candidate decision...";
+  try {
+    const result = await request(`/api/v1/infrastructure-candidates/${encodeURIComponent(item.candidateId)}/decision`, {
+      method: "PUT",
+      body: {
+        expectedRunId: item.discoveryRunId,
+        expectedDecisionVersion: item.decision.version,
+        decision,
+        note: String(form.get("note") || "").trim() || null,
+        authority
+      }
+    });
+    const savedCandidate = result.candidate || result;
+    state.selectedCandidate = savedCandidate;
+    showToast("CANDIDATE DECISION SAVED");
+    await Promise.all([
+      refreshOverview(),
+      refreshCandidates({ preserveSelection: false })
+    ]);
+    state.selectedCandidate = state.candidates.find((candidate) =>
+      candidate.candidateId === savedCandidate.candidateId
+    ) || savedCandidate;
+    renderCandidateTable();
+    renderCandidateInspector();
+    message.textContent = result.authorityChanged
+      ? "Decision saved. The linked digital authority record was updated."
+      : "Decision saved. No authority record was created.";
+    message.classList.add("success");
+  } catch (error) {
+    message.textContent = error.status === 409
+      ? `${error.message} Reload this candidate before deciding again.`
+      : `${error.message} Correct the decision and try again.`;
+    showToast(error.message, true);
+  } finally {
+    $("#save-candidate-decision").disabled = state.selectedCandidate?.decision.status === "STALE";
+  }
+}
+
+function showCandidateSourceOnMap() {
+  const item = state.selectedCandidate;
+  if (!item) return;
+  const source = state.symbols.find((symbol) => symbol.id === item.sourceSignId);
+  if (!source) {
+    $("#candidate-decision-message").textContent = "The source sign is not present in the current active-world symbol register.";
+    return;
+  }
+  selectSymbol(source);
+  if ($("#map-world").value !== source.worldName) {
+    $("#map-world").value = source.worldName;
+    loadMap();
+  }
+  activateView("network");
 }
 
 function updateDecisionFields() {
@@ -939,6 +1397,9 @@ async function loadMap() {
   }
   try {
     state.graph = await request(`/api/v1/network/rails?world=${encodeURIComponent(world)}`);
+    const overviewRunId = state.overview?.railRun?.runId || null;
+    const graphRunId = state.graph.runId || null;
+    if (overviewRunId !== graphRunId) await refreshOverview();
     $("#map-empty").hidden = Boolean(state.graph.runId);
     updateNetworkMapScene();
     fitMap();
@@ -974,8 +1435,15 @@ function setMapView(top) {
 function activateView(name) {
   $$(".module-strip button[data-view]").forEach((button) => button.classList.toggle("active", button.dataset.view === name));
   $$(".workspace .view").forEach((view) => view.classList.toggle("active", view.id === `view-${name}`));
+  $("#candidate-filter-panel").hidden = name !== "candidates";
+  $("#symbol-filter-panel").hidden = name === "candidates";
   if (name === "network") setTimeout(resizeCanvas, 0);
   if (name === "audit") refreshAudit();
+  if (name !== "candidates" && !state.selectedSymbol) {
+    $("#inspector-empty b").textContent = "NO SYMBOL SELECTED";
+    $("#inspector-empty span").textContent = "Select a map marker or table row.";
+  }
+  renderInspector();
 }
 
 async function request(path, options = {}) {
@@ -1012,14 +1480,23 @@ function updateClock() {
 function showToast(message, failure = false) {
   const toast = $("#toast");
   toast.textContent = message ? String(message).toUpperCase() : "";
-  toast.style.color = failure ? "#ff7567" : "#72e480";
+  toast.classList.toggle("failure", failure);
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => { toast.textContent = ""; }, 5000);
+  showToast.timer = setTimeout(() => {
+    toast.textContent = "";
+    toast.classList.remove("failure");
+  }, 5000);
 }
 
 function searchableSymbol(item) {
   return [item.id, item.worldName, item.type, item.x, item.y, item.z, ...item.lines, item.assignedRole || "", item.targetId || ""].join(" ").toLowerCase();
 }
+function candidateTypeLabel(value) {
+  return ({ DEPARTURE: "DEPARTURE POINT", TRACK_CONTROL: "TRACK CONTROL" })[value]
+    || String(value || "UNKNOWN").replaceAll("_", " ");
+}
+function candidateRoleLabel(value) { return String(value || "UNCLASSIFIED").replaceAll("_", " "); }
+function formatConfidence(value) { return `${Math.round(Number(value || 0) * 100)}%`; }
 function unique(values) { return [...new Set(values)].sort((a, b) => a.localeCompare(b)); }
 function rgbToHex(value) { return `#${Number(value).toString(16).padStart(6, "0")}`; }
 function hexToRgb(value) { return Number.parseInt(String(value).replace("#", ""), 16); }

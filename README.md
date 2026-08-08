@@ -24,6 +24,9 @@ The current `0.1.0-SNAPSHOT` is the Phase 0/1 foundation, the first Phase 2 pass
 - A persisted legacy review queue for action aliases, complex spawn patterns, and configurable launch-force boundaries
 - A continuously refreshed passenger action bar showing line, service, destination, next station, and status
 - Configurable saved- or loaded-chunk rail inventory, with a shape-aware physical network graph and persisted scan coverage
+- Immutable per-run source-sign snapshots, deterministic evidence fingerprints, and typed infrastructure candidate identities
+- An evidence-backed Candidate Review gate for departure and track-control candidates, with exact-run decisions and no automatic authority promotion
+- Atomic candidate adoption with explicit target identity, server-derived authority role, optimistic concurrency, audited clear/include/ignore transitions, and automatic stale reconciliation
 - An optional embedded administration site with local-token login, HttpOnly sessions, CSRF protection, rate limiting, security headers, and audited mutations
 - A manual symbol workbench in which every current sign remains `PENDING` until an operator explicitly includes or ignores it
 - Explicit symbol roles for passenger platforms, departure points, reversing controls, motion/re-acceleration controls, track markers, and other infrastructure
@@ -161,7 +164,7 @@ When `enabledWorlds` is nonempty, TrainCarts treats it as the allow-list. Otherw
 
 Review decisions are stored in `audit_record`. `APPROVED` and `REJECTED` signs leave the open issue queue while preserving their detected evidence; `NEEDS_CORRECTION` remains open. If any preserved sign line or parsed action changes in a later scan, the previous decision is invalidated and the sign returns to `UNREVIEWED`.
 
-The web editor adds a separate infrastructure decision layer. An absent decision is `PENDING`; the operator can explicitly choose `INCLUDED` with a role and optional target, or `IGNORED` with a note. Legacy action type, nearby announcements, and discovery confidence are evidence only. In particular, a station sign is not accepted or rejected merely because an announcement sign is present or absent. Reverse and re-acceleration station signs can be classified as track controls instead of passenger platforms.
+The web editor adds a separate evidence-backed infrastructure candidate layer. An absent decision is `PENDING`. `INCLUDE` requires an explicit target ID and display name while the server derives the only valid authority role from the candidate evidence; `IGNORE` records an audited rejection, and `CLEAR` returns a decided candidate to `PENDING` with a monotonically increasing decision version. Every decision is bound to the latest discovery run, source sign, evidence fingerprint, and revision. Changed evidence, a newer run, or an inactive TrainCarts world makes the decision stale and disables only the exactly linked derived authority. Legacy action type, nearby announcements, and discovery confidence are evidence only. In particular, a station sign is not accepted or rejected merely because an announcement sign is present or absent. Reverse and re-acceleration station signs are classified as track controls before passenger inference.
 
 ## Network administration workbench
 
@@ -169,6 +172,7 @@ When enabled, open the configured loopback address and log on with the generated
 
 - a WebGL2 overhead 3D physical rail map with perspective and top views, map-style grid, pan/zoom/orbit controls, material-aware rail colors, and all active legacy symbols overlaid independently;
 - preserved four-line sign evidence and manual `PENDING` / `INCLUDED` / `IGNORED` classification;
+- a separate Candidate Review ledger for departure and track-control suggestions, including preserved raw lines, parsed attributes, inference evidence, evidence fingerprints, stale state, and one-record-at-a-time authority adoption;
 - station and platform creation;
 - line identity creation/editing and directional route-plan drafts with ordered station calls;
 - fare gate creation/editing, fare zones, and fare rules;
@@ -203,10 +207,10 @@ Underscores are displayed as spaces. These are transitional import tags; final l
 
 ## Next implementation slice
 
-The next slice is the physical track-corridor editor: manually select rail topology for a route plan, split or join reusable track segments, validate continuity, and render line overlays on the physical map. Route plans intentionally remain disabled while their track assignment is `UNASSIGNED` or `PARTIAL`. After that, ATCS can compile approved plans into operational route variants, attach UUIDs to adopted trains, map receiver observations to scheduled trip visits, and implement the full platform state machine:
+The next slice hardens rail evidence before any route becomes operational authority: place Anvil/NBT ingestion behind explicit size, sector, decompression, allocation, and unknown-shape bounds; record per-chunk `COMPLETE` / `PARTIAL` / `FAILED` outcomes; and introduce stable physical rail-component and corridor identities that survive discovery-run IDs. The following corridor-editor slice can then select, split, join, and validate reusable directed track segments against exact rail evidence instead of transient scan rows. Route plans remain disabled while track assignment is `UNASSIGNED`, `PARTIAL`, stale, or discontinuous. After that, ATCS can compile approved plans into operational route variants, attach UUIDs to adopted trains, map receiver observations to scheduled trip visits, and implement the full platform state machine:
 
 ```text
 APPROACHING -> ENTERING -> BERTHED -> DWELLING -> DEPARTING -> PLATFORM_CLEARED
 ```
 
-The staging inventory and V5 manual-decision layer provide the exact server/plugin versions and real station, spawn, announcement, reversing-control, and motion-control evidence needed for this work. Complex spawn patterns, malformed legacy signs, and semantic station assignments must remain review-only until an operator explicitly approves their interpretation.
+The staging inventory and schema V7 evidence gate provide the exact server/plugin versions and real station, spawn, announcement, reversing-control, motion-control, and physical rail evidence needed for this work. Complex spawn patterns, malformed legacy signs, and semantic station assignments remain review-only until an operator explicitly approves their interpretation.

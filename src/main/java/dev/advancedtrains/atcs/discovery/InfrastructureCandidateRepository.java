@@ -52,7 +52,7 @@ public final class InfrastructureCandidateRepository {
                         startedAt,
                         Instant.now(clock),
                         sources);
-                storeSnapshot(connection, snapshot);
+                storeSnapshot(connection, snapshot, sources);
                 connection.commit();
                 return InfrastructureDiscoverySummary.from(snapshot);
             } catch (SQLException | RuntimeException exception) {
@@ -109,6 +109,10 @@ public final class InfrastructureCandidateRepository {
         try (PreparedStatement query = connection.prepareStatement("""
                 SELECT inventory.id, inventory.action_type,
                        inventory.world_name, inventory.block_x, inventory.block_y, inventory.block_z,
+                       inventory.sign_side, inventory.header_line,
+                       inventory.raw_line_1, inventory.raw_line_2,
+                       inventory.raw_line_3, inventory.raw_line_4,
+                       inventory.parser_version,
                        attribute.attribute_key, attribute.attribute_value
                 FROM legacy_sign_inventory inventory
                 LEFT JOIN legacy_sign_attribute attribute ON attribute.sign_id = inventory.id
@@ -130,24 +134,162 @@ public final class InfrastructureCandidateRepository {
                                 worldName,
                                 resultInt(result, 4),
                                 resultInt(result, 5),
-                                resultInt(result, 6))));
-                String key = result.getString(7);
+                                resultInt(result, 6)),
+                        resultValue(result, 7),
+                        resultValue(result, 8),
+                        List.of(
+                                resultValue(result, 9),
+                                resultValue(result, 10),
+                                resultValue(result, 11),
+                                resultValue(result, 12)),
+                        resultInt(result, 13)));
+                String key = result.getString(14);
                 if (key != null) {
-                    source.attributes.put(key, result.getString(8));
+                    source.attributes.put(key, result.getString(15));
                 }
             }
         }
         return sources.values().stream().map(MutableSource::freeze).toList();
     }
 
-    private void storeSnapshot(Connection connection, InfrastructureCandidateSnapshot snapshot)
+    private void storeSnapshot(
+            Connection connection,
+            InfrastructureCandidateSnapshot snapshot,
+            List<InfrastructureSourceSign> sources)
             throws SQLException {
         insertRun(connection, snapshot);
+        insertSourceSnapshots(connection, snapshot.runId(), sources);
         insertStations(connection, snapshot);
         insertPlatforms(connection, snapshot);
         insertDepartures(connection, snapshot);
         insertTrackControls(connection, snapshot);
+        insertCandidateIdentities(connection, snapshot.runId());
         insertEvidence(connection, snapshot);
+    }
+
+    private void insertCandidateIdentities(Connection connection, UUID runId) throws SQLException {
+        insertCandidateIdentities(connection, runId, """
+                INSERT INTO infrastructure_candidate_identity(
+                    discovery_run_id, candidate_type, candidate_id,
+                    station_candidate_id, platform_candidate_id,
+                    departure_candidate_id, track_control_candidate_id,
+                    source_sign_id, evidence_fingerprint, evidence_revision
+                )
+                SELECT candidate.discovery_run_id, 'STATION', candidate.id,
+                       candidate.id, NULL, NULL, NULL, NULL, NULL, NULL
+                FROM station_candidate candidate
+                WHERE candidate.discovery_run_id = ?
+                """);
+        insertCandidateIdentities(connection, runId, """
+                INSERT INTO infrastructure_candidate_identity(
+                    discovery_run_id, candidate_type, candidate_id,
+                    station_candidate_id, platform_candidate_id,
+                    departure_candidate_id, track_control_candidate_id,
+                    source_sign_id, evidence_fingerprint, evidence_revision
+                )
+                SELECT candidate.discovery_run_id, 'PLATFORM', candidate.id,
+                       NULL, candidate.id, NULL, NULL,
+                       candidate.source_sign_id,
+                       snapshot.evidence_fingerprint, snapshot.evidence_revision
+                FROM platform_candidate candidate
+                JOIN infrastructure_source_sign_snapshot snapshot
+                  ON snapshot.discovery_run_id = candidate.discovery_run_id
+                 AND snapshot.source_sign_id = candidate.source_sign_id
+                WHERE candidate.discovery_run_id = ?
+                """);
+        insertCandidateIdentities(connection, runId, """
+                INSERT INTO infrastructure_candidate_identity(
+                    discovery_run_id, candidate_type, candidate_id,
+                    station_candidate_id, platform_candidate_id,
+                    departure_candidate_id, track_control_candidate_id,
+                    source_sign_id, evidence_fingerprint, evidence_revision
+                )
+                SELECT candidate.discovery_run_id, 'DEPARTURE', candidate.id,
+                       NULL, NULL, candidate.id, NULL,
+                       candidate.source_sign_id,
+                       snapshot.evidence_fingerprint, snapshot.evidence_revision
+                FROM departure_candidate candidate
+                JOIN infrastructure_source_sign_snapshot snapshot
+                  ON snapshot.discovery_run_id = candidate.discovery_run_id
+                 AND snapshot.source_sign_id = candidate.source_sign_id
+                WHERE candidate.discovery_run_id = ?
+                """);
+        insertCandidateIdentities(connection, runId, """
+                INSERT INTO infrastructure_candidate_identity(
+                    discovery_run_id, candidate_type, candidate_id,
+                    station_candidate_id, platform_candidate_id,
+                    departure_candidate_id, track_control_candidate_id,
+                    source_sign_id, evidence_fingerprint, evidence_revision
+                )
+                SELECT candidate.discovery_run_id, 'TRACK_CONTROL', candidate.id,
+                       NULL, NULL, NULL, candidate.id,
+                       candidate.source_sign_id,
+                       snapshot.evidence_fingerprint, snapshot.evidence_revision
+                FROM track_control_candidate candidate
+                JOIN infrastructure_source_sign_snapshot snapshot
+                  ON snapshot.discovery_run_id = candidate.discovery_run_id
+                 AND snapshot.source_sign_id = candidate.source_sign_id
+                WHERE candidate.discovery_run_id = ?
+                """);
+    }
+
+    private static void insertCandidateIdentities(
+            Connection connection,
+            UUID runId,
+            String sql) throws SQLException {
+        try (PreparedStatement insert = connection.prepareStatement(sql)) {
+            insert.setString(1, runId.toString());
+            insert.executeUpdate();
+        }
+    }
+
+    private void insertSourceSnapshots(
+            Connection connection,
+            UUID runId,
+            List<InfrastructureSourceSign> sources) throws SQLException {
+        try (PreparedStatement insert = connection.prepareStatement("""
+                INSERT INTO infrastructure_source_sign_snapshot(
+                    discovery_run_id, source_sign_id,
+                    world_name, block_x, block_y, block_z,
+                    sign_side, header_line, action_type,
+                    raw_line_1, raw_line_2, raw_line_3, raw_line_4,
+                    parser_version, evidence_fingerprint, evidence_revision
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """)) {
+            for (InfrastructureSourceSign source : sources) {
+                insert.setString(1, runId.toString());
+                insert.setString(2, source.id().toString());
+                setPosition(insert, 3, source.position());
+                insert.setString(7, source.signSide());
+                insert.setString(8, source.headerLine());
+                insert.setString(9, source.type().name());
+                insert.setString(10, source.rawLines().get(0));
+                insert.setString(11, source.rawLines().get(1));
+                insert.setString(12, source.rawLines().get(2));
+                insert.setString(13, source.rawLines().get(3));
+                insert.setInt(14, source.parserVersion());
+                insert.setString(15, InfrastructureEvidenceFingerprint.fingerprint(source));
+                insert.setInt(16, InfrastructureEvidenceFingerprint.REVISION);
+                insert.addBatch();
+            }
+            insert.executeBatch();
+        }
+        try (PreparedStatement insert = connection.prepareStatement("""
+                INSERT INTO infrastructure_source_sign_snapshot_attribute(
+                    discovery_run_id, source_sign_id, attribute_key, attribute_value
+                ) VALUES (?, ?, ?, ?)
+                """)) {
+            for (InfrastructureSourceSign source : sources) {
+                for (Map.Entry<String, String> attribute : source.attributes().entrySet()) {
+                    insert.setString(1, runId.toString());
+                    insert.setString(2, source.id().toString());
+                    insert.setString(3, attribute.getKey());
+                    insert.setString(4, attribute.getValue());
+                    insert.addBatch();
+                }
+            }
+            insert.executeBatch();
+        }
     }
 
     private void insertRun(Connection connection, InfrastructureCandidateSnapshot snapshot)
@@ -262,10 +404,14 @@ public final class InfrastructureCandidateRepository {
     private void insertEvidence(Connection connection, InfrastructureCandidateSnapshot snapshot)
             throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement("""
-                INSERT OR IGNORE INTO infrastructure_candidate_evidence(
+                INSERT INTO infrastructure_candidate_evidence(
                     discovery_run_id, candidate_type, candidate_id, evidence_kind,
                     source_sign_id, distance_blocks, evidence_text
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    discovery_run_id, candidate_type, candidate_id,
+                    evidence_kind, source_sign_id
+                ) DO NOTHING
                 """)) {
             for (var evidence : snapshot.evidence()) {
                 insert.setString(1, snapshot.runId().toString());
@@ -352,16 +498,39 @@ public final class InfrastructureCandidateRepository {
         private final UUID id;
         private final LegacySignType type;
         private final BlockPosition position;
+        private final String signSide;
+        private final String headerLine;
+        private final List<String> rawLines;
+        private final int parserVersion;
         private final Map<String, String> attributes = new LinkedHashMap<>();
 
-        private MutableSource(UUID id, LegacySignType type, BlockPosition position) {
+        private MutableSource(
+                UUID id,
+                LegacySignType type,
+                BlockPosition position,
+                String signSide,
+                String headerLine,
+                List<String> rawLines,
+                int parserVersion) {
             this.id = id;
             this.type = type;
             this.position = position;
+            this.signSide = signSide;
+            this.headerLine = headerLine;
+            this.rawLines = rawLines;
+            this.parserVersion = parserVersion;
         }
 
         private InfrastructureSourceSign freeze() {
-            return new InfrastructureSourceSign(id, type, position, attributes);
+            return new InfrastructureSourceSign(
+                    id,
+                    type,
+                    position,
+                    signSide,
+                    headerLine,
+                    rawLines,
+                    parserVersion,
+                    attributes);
         }
     }
 

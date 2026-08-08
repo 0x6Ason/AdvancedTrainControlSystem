@@ -23,6 +23,7 @@ public final class TrainCartsWorldPolicy implements RailwayWorldPolicy {
     private final Logger logger;
     private final AtomicBoolean failureLogged = new AtomicBoolean();
     private volatile Snapshot snapshot = Snapshot.empty();
+    private volatile Runnable snapshotChangeListener = () -> { };
 
     public TrainCartsWorldPolicy(JavaPlugin owner, TrainCarts trainCarts, Logger logger) {
         this.owner = Objects.requireNonNull(owner, "owner");
@@ -48,6 +49,14 @@ public final class TrainCartsWorldPolicy implements RailwayWorldPolicy {
         return snapshot.displayNames();
     }
 
+    public void setSnapshotChangeListener(Runnable listener) {
+        if (!Bukkit.isPrimaryThread()) {
+            throw new IllegalStateException(
+                    "TrainCarts world-policy listeners must be registered on the Paper main thread");
+        }
+        snapshotChangeListener = Objects.requireNonNull(listener, "listener");
+    }
+
     /**
      * Rechecks TrainCarts directly for a future control action. Call only on the Paper main thread.
      */
@@ -66,13 +75,13 @@ public final class TrainCartsWorldPolicy implements RailwayWorldPolicy {
 
     private void refreshOnMainThread() {
         if (!Bukkit.isPrimaryThread()) {
-            snapshot = Snapshot.empty();
+            replaceSnapshot(Snapshot.empty());
             logFailure(new IllegalStateException("World-policy refresh left the Paper main thread"));
             return;
         }
         try {
             if (!trainCarts.isEnabled()) {
-                snapshot = Snapshot.empty();
+                replaceSnapshot(Snapshot.empty());
                 return;
             }
             Set<String> displayNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
@@ -84,11 +93,24 @@ public final class TrainCartsWorldPolicy implements RailwayWorldPolicy {
             Set<String> normalizedNames = displayNames.stream()
                     .map(name -> name.toLowerCase(Locale.ROOT))
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
-            snapshot = new Snapshot(Set.copyOf(displayNames), normalizedNames);
+            replaceSnapshot(new Snapshot(Set.copyOf(displayNames), normalizedNames));
             failureLogged.set(false);
         } catch (LinkageError | RuntimeException exception) {
-            snapshot = Snapshot.empty();
+            replaceSnapshot(Snapshot.empty());
             logFailure(exception);
+        }
+    }
+
+    private void replaceSnapshot(Snapshot replacement) {
+        Snapshot previous = snapshot;
+        snapshot = replacement;
+        if (previous.equals(replacement)) {
+            return;
+        }
+        try {
+            snapshotChangeListener.run();
+        } catch (RuntimeException exception) {
+            logger.log(Level.SEVERE, "TrainCarts world-policy change listener failed", exception);
         }
     }
 

@@ -2,6 +2,7 @@
   <defs>
     <symbol id="network" viewBox="0 0 24 24"><path d="M3 18h5l3-6h5l5-7M3 6h5l3 6M16 12l5 6"/><circle cx="3" cy="6" r="2"/><circle cx="3" cy="18" r="2"/><circle cx="21" cy="5" r="2"/><circle cx="21" cy="18" r="2"/></symbol>
     <symbol id="inventory" viewBox="0 0 24 24"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/><path d="M3 6h2M3 10h2M3 14h2"/></symbol>
+    <symbol id="candidate" viewBox="0 0 24 24"><path d="M4 4h10v16H4zM7 8h4M7 12h4"/><circle cx="17" cy="15" r="4"/><path d="m15.5 15 1 1 2.2-2.4"/></symbol>
     <symbol id="station" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M2 12h20M12 2v20"/><circle cx="12" cy="12" r="2"/></symbol>
     <symbol id="line" viewBox="0 0 24 24"><path d="M3 18 8 6h8l5 12"/><circle cx="3" cy="18" r="2"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="6" r="2"/><circle cx="21" cy="18" r="2"/></symbol>
     <symbol id="gate" viewBox="0 0 24 24"><path d="M4 21V4h16v17M8 21V8h8v13M8 13h8"/><path d="m10 16 2 2 4-4"/></symbol>

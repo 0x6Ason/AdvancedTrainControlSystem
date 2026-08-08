@@ -5,9 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>ATCS Network Administration</title>
-  <link rel="stylesheet" href="/styles.css?v=10">
+  <link rel="stylesheet" href="/styles.css?v=11">
 </head>
 <body>
+  <!--
+  THESIS: Evidence becomes authority only through a deliberate, inspectable gate; this surface refuses generic CRUD approval.
+  OWN-WORLD: Restrained light railway control desk, precise blue actions, amber pending states, thin rules, and tabular evidence.
+  STORY: The operator filters candidates, verifies preserved source evidence, previews one authority record, and makes one audited decision.
+  FIRST VIEWPORT: Candidate ledger at centre, task filters at left, complete evidence and adoption controls in the persistent right inspector.
+  FORM: Existing Operate-surface extension; a dense review ledger inside the incumbent ATCS administration world.
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+  -->
   <div id="login-screen" class="login-screen" hidden>
     <form id="login-form" class="login-panel">
       <div class="login-brand">
@@ -47,6 +55,7 @@
 
     <nav class="module-strip" aria-label="Primary modules">
       <button data-view="network" class="active"><svg><use href="/icons.svg#network"></use></svg>NETWORK MAP</button>
+      <button data-view="candidates"><svg><use href="/icons.svg#candidate"></use></svg>CANDIDATE REVIEW</button>
       <button data-view="symbols"><svg><use href="/icons.svg#inventory"></use></svg>SYMBOL IMPORT</button>
       <button data-view="stations"><svg><use href="/icons.svg#station"></use></svg>STATIONS</button>
       <button data-view="lines"><svg><use href="/icons.svg#line"></use></svg>LINES / ROUTES</button>
@@ -69,7 +78,7 @@
           <div class="window-title">NETWORK REGISTER</div>
           <dl id="overview-list" class="register-list"></dl>
         </section>
-        <section class="summary-box grow">
+        <section id="symbol-filter-panel" class="summary-box grow">
           <div class="window-title">QUICK FILTER</div>
           <label>World<select id="world-filter"><option value="">ALL ACTIVE</option></select></label>
           <label>Symbol type<select id="type-filter"><option value="">ALL TYPES</option></select></label>
@@ -89,6 +98,36 @@
             <span><i class="key announce"></i>Announcement</span>
             <span><i class="key other"></i>Other symbol</span>
             <span><i class="key ignored"></i>Ignored</span>
+          </div>
+        </section>
+        <section id="candidate-filter-panel" class="summary-box grow" hidden>
+          <div class="window-title">CANDIDATE FILTER</div>
+          <label>World<select id="candidate-world-filter"><option value="">ALL ACTIVE</option></select></label>
+          <label>Candidate type<select id="candidate-type-filter">
+            <option value="">ALL TYPES</option>
+            <option value="DEPARTURE">DEPARTURE POINT</option>
+            <option value="TRACK_CONTROL">TRACK CONTROL</option>
+          </select></label>
+          <label>Decision<select id="candidate-decision-filter">
+            <option value="">ALL DECISIONS</option>
+            <option value="PENDING">PENDING</option>
+            <option value="INCLUDED">INCLUDED</option>
+            <option value="IGNORED">IGNORED</option>
+            <option value="STALE">STALE</option>
+          </select></label>
+          <label>Suggested role<select id="candidate-role-filter">
+            <option value="">ALL ROLES</option>
+            <option value="DEPARTURE_POINT">DEPARTURE POINT</option>
+            <option value="MOTION_CONTROL">MOTION / RE-ACCELERATION</option>
+            <option value="REVERSING_CONTROL">REVERSING CONTROL</option>
+          </select></label>
+          <label>Find<input id="candidate-search-filter" type="search" placeholder="ID, evidence, coordinate"></label>
+          <button id="apply-candidate-filter" class="button">APPLY FILTER</button>
+          <button id="clear-candidate-filter" class="button muted">CLEAR</button>
+          <hr>
+          <div class="review-key">
+            <b>ONE RECORD AT A TIME</b>
+            <span>No bulk include is available. Every authority record requires preserved evidence and an explicit operator decision.</span>
           </div>
         </section>
       </aside>
@@ -113,6 +152,31 @@
               <span>Run <code>/atcs discover rail</code> to inventory rails using the configured saved- or loaded-chunk scope.</span>
               <span>Symbols remain available in SYMBOL IMPORT without rail discovery.</span>
             </div>
+          </div>
+        </div>
+
+        <div id="view-candidates" class="view candidate-workspace">
+          <div class="workspace-toolbar">
+            <strong>CANDIDATE REVIEW / ADOPTION GATE</strong>
+            <span id="candidate-count">0 CANDIDATES</span>
+            <button id="refresh-candidates" class="button compact" type="button">REFRESH</button>
+          </div>
+          <div class="candidate-notice">
+            <b>EVIDENCE IS NOT AUTHORITY</b>
+            <span>Review the preserved source and proposed role before creating one digital infrastructure record. No action writes to TrainCarts or world blocks.</span>
+          </div>
+          <output id="candidate-list-message" class="workspace-message" aria-live="polite"></output>
+          <div class="table-scroll candidate-table-scroll">
+            <table class="data-table candidate-table">
+              <caption class="sr-only">Candidate evidence records. Use Up and Down arrows to move between rows, Enter or Space to select, and Right Arrow to focus the evidence inspector.</caption>
+              <thead><tr><th>STATE</th><th>TYPE</th><th>SUGGESTED ROLE</th><th>CONFIDENCE</th><th>WORLD</th><th>X</th><th>Y</th><th>Z</th><th>SOURCE</th></tr></thead>
+              <tbody id="candidate-table-body"></tbody>
+            </table>
+          </div>
+          <div class="candidate-pagination" aria-label="Candidate pages">
+            <button id="candidate-previous" class="button compact" type="button">PREVIOUS</button>
+            <span id="candidate-page-status">0–0 OF 0</span>
+            <button id="candidate-next" class="button compact" type="button">NEXT</button>
           </div>
         </div>
 
@@ -277,8 +341,8 @@
         </div>
       </section>
 
-      <aside class="inspector">
-        <div class="window-title">PROPERTY INSPECTOR</div>
+      <aside class="inspector" aria-labelledby="property-inspector-title">
+        <div id="property-inspector-title" class="window-title">PROPERTY INSPECTOR</div>
         <div id="inspector-empty" class="empty-inspector">
           <svg><use href="/icons.svg#cursor"></use></svg>
           <b>NO SYMBOL SELECTED</b>
@@ -312,6 +376,45 @@
           <button id="prefill-platform" class="button wide">USE COORDINATES IN PLATFORM FORM</button>
           <p class="warning-note">No decision edits the sign or rail block. Authoritative assignment is explicit.</p>
         </div>
+        <div id="candidate-inspector" tabindex="-1" aria-label="Candidate evidence and operator decision" hidden>
+          <div class="object-heading"><span id="candidate-object-state" class="state-tag">PENDING</span><b id="candidate-object-type">TRACK CONTROL</b></div>
+          <dl class="property-list" id="candidate-properties"></dl>
+          <button id="show-candidate-source" class="button wide" type="button">SHOW SOURCE ON NETWORK MAP</button>
+
+          <div class="window-title">PRESERVED SIGN TEXT</div>
+          <ol id="candidate-sign-lines" class="sign-lines"></ol>
+
+          <div class="window-title">PARSED ATTRIBUTES</div>
+          <dl id="candidate-attributes" class="property-list compact-properties"></dl>
+
+          <div class="window-title">CANDIDATE PROPERTIES</div>
+          <dl id="candidate-properties-detail" class="property-list compact-properties"></dl>
+
+          <div class="window-title">INFERENCE EVIDENCE</div>
+          <ul id="candidate-evidence" class="evidence-list"></ul>
+
+          <div class="window-title">AUTHORITY PREVIEW</div>
+          <dl id="candidate-authority-preview" class="property-list authority-preview"></dl>
+
+          <div class="window-title">OPERATOR DECISION</div>
+          <form id="candidate-decision-form" class="dense-form">
+            <label>Decision<select name="decision">
+              <option value="PENDING">PENDING / UNDECIDED</option>
+              <option value="INCLUDED">INCLUDE AS AUTHORITY</option>
+              <option value="IGNORED">IGNORE CANDIDATE</option>
+            </select></label>
+            <fieldset id="candidate-authority-fields" class="authority-fields" disabled>
+              <legend>AUTHORITY RECORD</legend>
+              <label>Target ID<input name="targetId" required placeholder="CONTROL_CEN_01"></label>
+              <label>Display name<input name="displayName" required placeholder="Central departure control"></label>
+            </fieldset>
+            <label>Operator note<textarea name="note" rows="3" placeholder="Record the operational reason for this decision."></textarea></label>
+            <label id="candidate-review-confirmation" class="check-label" hidden><input name="evidenceReviewed" type="checkbox"> I reviewed the preserved evidence and authority preview.</label>
+            <output id="candidate-decision-message" class="form-message persistent-message" aria-live="polite"></output>
+            <button id="save-candidate-decision" class="button primary" type="submit">SAVE CANDIDATE DECISION</button>
+          </form>
+          <p class="warning-note">A stale candidate cannot be adopted. Reload after a new discovery run or changed source sign.</p>
+        </div>
       </aside>
     </main>
 
@@ -320,6 +423,6 @@
     </footer>
   </div>
   <script src="/network-map.js?v=10" defer></script>
-  <script src="/app.js?v=10" defer></script>
+  <script src="/app.js?v=11" defer></script>
 </body>
 </html>

@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-08T11:34:50.4125435Z",
+  "title": "Design System: AdvancedTrainControlSystem",
+  "extensions": {
+    "colorMeta": {
+      "control-ground": { "role": "neutral", "displayName": "Control Ground", "canonical": "#eef1f5", "tonalRamp": ["oklch(15% 0.006 255.5)", "oklch(27% 0.006 255.5)", "oklch(39% 0.006 255.5)", "oklch(51% 0.006 255.5)", "oklch(63% 0.006 255.5)", "oklch(75% 0.006 255.5)", "oklch(87% 0.006 255.5)", "oklch(95% 0.006 255.5)"] },
+      "control-paper": { "role": "neutral", "displayName": "Control Paper", "canonical": "#ffffff", "tonalRamp": ["oklch(15% 0.000 0.0)", "oklch(27% 0.000 0.0)", "oklch(39% 0.000 0.0)", "oklch(51% 0.000 0.0)", "oklch(63% 0.000 0.0)", "oklch(75% 0.000 0.0)", "oklch(87% 0.000 0.0)", "oklch(95% 0.000 0.0)"] },
+      "alternate-control-paper": { "role": "neutral", "displayName": "Alternate Control Paper", "canonical": "#f6f7f9", "tonalRamp": ["oklch(15% 0.003 264.5)", "oklch(27% 0.003 264.5)", "oklch(39% 0.003 264.5)", "oklch(51% 0.003 264.5)", "oklch(63% 0.003 264.5)", "oklch(75% 0.003 264.5)", "oklch(87% 0.003 264.5)", "oklch(95% 0.003 264.5)"] },
+      "operating-ink": { "role": "neutral", "displayName": "Operating Ink", "canonical": "#11182a", "tonalRamp": ["oklch(15% 0.037 267.1)", "oklch(27% 0.037 267.1)", "oklch(39% 0.037 267.1)", "oklch(51% 0.037 267.1)", "oklch(63% 0.037 267.1)", "oklch(75% 0.037 267.1)", "oklch(87% 0.037 267.1)", "oklch(95% 0.037 267.1)"] },
+      "muted-ink": { "role": "neutral", "displayName": "Muted Ink", "canonical": "#596276", "tonalRamp": ["oklch(15% 0.034 266.1)", "oklch(27% 0.034 266.1)", "oklch(39% 0.034 266.1)", "oklch(51% 0.034 266.1)", "oklch(63% 0.034 266.1)", "oklch(75% 0.034 266.1)", "oklch(87% 0.034 266.1)", "oklch(95% 0.034 266.1)"] },
+      "faint-ink": { "role": "neutral", "displayName": "Faint Ink", "canonical": "#667085", "tonalRamp": ["oklch(15% 0.035 265.1)", "oklch(27% 0.035 265.1)", "oklch(39% 0.035 265.1)", "oklch(51% 0.035 265.1)", "oklch(63% 0.035 265.1)", "oklch(75% 0.035 265.1)", "oklch(87% 0.035 265.1)", "oklch(95% 0.035 265.1)"] },
+      "muted-rule": { "role": "neutral", "displayName": "Muted Rule", "canonical": "#d8dde6", "tonalRamp": ["oklch(15% 0.013 262.4)", "oklch(27% 0.013 262.4)", "oklch(39% 0.013 262.4)", "oklch(51% 0.013 262.4)", "oklch(63% 0.013 262.4)", "oklch(75% 0.013 262.4)", "oklch(87% 0.013 262.4)", "oklch(95% 0.013 262.4)"] },
+      "strong-rule": { "role": "neutral", "displayName": "Strong Rule", "canonical": "#aeb6c5", "tonalRamp": ["oklch(15% 0.023 263.2)", "oklch(27% 0.023 263.2)", "oklch(39% 0.023 263.2)", "oklch(51% 0.023 263.2)", "oklch(63% 0.023 263.2)", "oklch(75% 0.023 263.2)", "oklch(87% 0.023 263.2)", "oklch(95% 0.023 263.2)"] },
+      "signal-blue": { "role": "primary", "displayName": "Signal Blue", "canonical": "#173f9f", "tonalRamp": ["oklch(15% 0.162 263.6)", "oklch(27% 0.162 263.6)", "oklch(39% 0.162 263.6)", "oklch(51% 0.162 263.6)", "oklch(63% 0.162 263.6)", "oklch(75% 0.162 263.6)", "oklch(87% 0.162 263.6)", "oklch(95% 0.162 263.6)"] },
+      "deep-signal-blue": { "role": "primary", "displayName": "Deep Signal Blue", "canonical": "#0d286d", "tonalRamp": ["oklch(15% 0.124 264.1)", "oklch(27% 0.124 264.1)", "oklch(39% 0.124 264.1)", "oklch(51% 0.124 264.1)", "oklch(63% 0.124 264.1)", "oklch(75% 0.124 264.1)", "oklch(87% 0.124 264.1)", "oklch(95% 0.124 264.1)"] },
+      "signal-blue-wash": { "role": "primary", "displayName": "Signal Blue Wash", "canonical": "#e8edfb", "tonalRamp": ["oklch(15% 0.020 270.2)", "oklch(27% 0.020 270.2)", "oklch(39% 0.020 270.2)", "oklch(51% 0.020 270.2)", "oklch(63% 0.020 270.2)", "oklch(75% 0.020 270.2)", "oklch(87% 0.020 270.2)", "oklch(95% 0.020 270.2)"] },
+      "operational-green": { "role": "tertiary", "displayName": "Operational Green", "canonical": "#066747", "tonalRamp": ["oklch(15% 0.096 163.1)", "oklch(27% 0.096 163.1)", "oklch(39% 0.096 163.1)", "oklch(51% 0.096 163.1)", "oklch(63% 0.096 163.1)", "oklch(75% 0.096 163.1)", "oklch(87% 0.096 163.1)", "oklch(95% 0.096 163.1)"] },
+      "operational-green-wash": { "role": "tertiary", "displayName": "Operational Green Wash", "canonical": "#e2f3ec", "tonalRamp": ["oklch(15% 0.020 169.3)", "oklch(27% 0.020 169.3)", "oklch(39% 0.020 169.3)", "oklch(51% 0.020 169.3)", "oklch(63% 0.020 169.3)", "oklch(75% 0.020 169.3)", "oklch(87% 0.020 169.3)", "oklch(95% 0.020 169.3)"] },
+      "pending-amber": { "role": "secondary", "displayName": "Pending Amber", "canonical": "#8c4a00", "tonalRamp": ["oklch(15% 0.115 58.2)", "oklch(27% 0.115 58.2)", "oklch(39% 0.115 58.2)", "oklch(51% 0.115 58.2)", "oklch(63% 0.115 58.2)", "oklch(75% 0.115 58.2)", "oklch(87% 0.115 58.2)", "oklch(95% 0.115 58.2)"] },
+      "pending-amber-wash": { "role": "secondary", "displayName": "Pending Amber Wash", "canonical": "#fff0d6", "tonalRamp": ["oklch(15% 0.038 81.5)", "oklch(27% 0.038 81.5)", "oklch(39% 0.038 81.5)", "oklch(51% 0.038 81.5)", "oklch(63% 0.038 81.5)", "oklch(75% 0.038 81.5)", "oklch(87% 0.038 81.5)", "oklch(95% 0.038 81.5)"] },
+      "operational-red": { "role": "tertiary", "displayName": "Operational Red", "canonical": "#b4232d", "tonalRamp": ["oklch(15% 0.180 23.6)", "oklch(27% 0.180 23.6)", "oklch(39% 0.180 23.6)", "oklch(51% 0.180 23.6)", "oklch(63% 0.180 23.6)", "oklch(75% 0.180 23.6)", "oklch(87% 0.180 23.6)", "oklch(95% 0.180 23.6)"] },
+      "map-ground": { "role": "neutral", "displayName": "Map Ground", "canonical": "#f7f9fc", "tonalRamp": ["oklch(15% 0.005 258.3)", "oklch(27% 0.005 258.3)", "oklch(39% 0.005 258.3)", "oklch(51% 0.005 258.3)", "oklch(63% 0.005 258.3)", "oklch(75% 0.005 258.3)", "oklch(87% 0.005 258.3)", "oklch(95% 0.005 258.3)"] },
+      "night-control-ground": { "role": "neutral", "displayName": "Night Control Ground", "canonical": "#0c111c", "tonalRamp": ["oklch(15% 0.024 265.2)", "oklch(27% 0.024 265.2)", "oklch(39% 0.024 265.2)", "oklch(51% 0.024 265.2)", "oklch(63% 0.024 265.2)", "oklch(75% 0.024 265.2)", "oklch(87% 0.024 265.2)", "oklch(95% 0.024 265.2)"] },
+      "night-control-paper": { "role": "neutral", "displayName": "Night Control Paper", "canonical": "#131a28", "tonalRamp": ["oklch(15% 0.030 263.7)", "oklch(27% 0.030 263.7)", "oklch(39% 0.030 263.7)", "oklch(51% 0.030 263.7)", "oklch(63% 0.030 263.7)", "oklch(75% 0.030 263.7)", "oklch(87% 0.030 263.7)", "oklch(95% 0.030 263.7)"] },
+      "night-alternate-control-paper": { "role": "neutral", "displayName": "Night Alternate Control Paper", "canonical": "#182131", "tonalRamp": ["oklch(15% 0.033 261.6)", "oklch(27% 0.033 261.6)", "oklch(39% 0.033 261.6)", "oklch(51% 0.033 261.6)", "oklch(63% 0.033 261.6)", "oklch(75% 0.033 261.6)", "oklch(87% 0.033 261.6)", "oklch(95% 0.033 261.6)"] },
+      "night-operating-ink": { "role": "neutral", "displayName": "Night Operating Ink", "canonical": "#f1f4fa", "tonalRamp": ["oklch(15% 0.009 264.5)", "oklch(27% 0.009 264.5)", "oklch(39% 0.009 264.5)", "oklch(51% 0.009 264.5)", "oklch(63% 0.009 264.5)", "oklch(75% 0.009 264.5)", "oklch(87% 0.009 264.5)", "oklch(95% 0.009 264.5)"] },
+      "night-muted-ink": { "role": "neutral", "displayName": "Night Muted Ink", "canonical": "#aab3c4", "tonalRamp": ["oklch(15% 0.026 263.3)", "oklch(27% 0.026 263.3)", "oklch(39% 0.026 263.3)", "oklch(51% 0.026 263.3)", "oklch(63% 0.026 263.3)", "oklch(75% 0.026 263.3)", "oklch(87% 0.026 263.3)", "oklch(95% 0.026 263.3)"] },
+      "night-faint-ink": { "role": "neutral", "displayName": "Night Faint Ink", "canonical": "#7e899d", "tonalRamp": ["oklch(15% 0.033 262.5)", "oklch(27% 0.033 262.5)", "oklch(39% 0.033 262.5)", "oklch(51% 0.033 262.5)", "oklch(63% 0.033 262.5)", "oklch(75% 0.033 262.5)", "oklch(87% 0.033 262.5)", "oklch(95% 0.033 262.5)"] },
+      "night-muted-rule": { "role": "neutral", "displayName": "Night Muted Rule", "canonical": "#293448", "tonalRamp": ["oklch(15% 0.039 262.1)", "oklch(27% 0.039 262.1)", "oklch(39% 0.039 262.1)", "oklch(51% 0.039 262.1)", "oklch(63% 0.039 262.1)", "oklch(75% 0.039 262.1)", "oklch(87% 0.039 262.1)", "oklch(95% 0.039 262.1)"] },
+      "night-strong-rule": { "role": "neutral", "displayName": "Night Strong Rule", "canonical": "#46536a", "tonalRamp": ["oklch(15% 0.042 261.7)", "oklch(27% 0.042 261.7)", "oklch(39% 0.042 261.7)", "oklch(51% 0.042 261.7)", "oklch(63% 0.042 261.7)", "oklch(75% 0.042 261.7)", "oklch(87% 0.042 261.7)", "oklch(95% 0.042 261.7)"] },
+      "night-signal-blue": { "role": "primary", "displayName": "Night Signal Blue", "canonical": "#7594ed", "tonalRamp": ["oklch(15% 0.136 268.1)", "oklch(27% 0.136 268.1)", "oklch(39% 0.136 268.1)", "oklch(51% 0.136 268.1)", "oklch(63% 0.136 268.1)", "oklch(75% 0.136 268.1)", "oklch(87% 0.136 268.1)", "oklch(95% 0.136 268.1)"] },
+      "night-deep-signal-blue": { "role": "primary", "displayName": "Night Deep Signal Blue", "canonical": "#a6b9f4", "tonalRamp": ["oklch(15% 0.087 270.5)", "oklch(27% 0.087 270.5)", "oklch(39% 0.087 270.5)", "oklch(51% 0.087 270.5)", "oklch(63% 0.087 270.5)", "oklch(75% 0.087 270.5)", "oklch(87% 0.087 270.5)", "oklch(95% 0.087 270.5)"] },
+      "night-signal-blue-wash": { "role": "primary", "displayName": "Night Signal Blue Wash", "canonical": "#202d4d", "tonalRamp": ["oklch(15% 0.061 266.1)", "oklch(27% 0.061 266.1)", "oklch(39% 0.061 266.1)", "oklch(51% 0.061 266.1)", "oklch(63% 0.061 266.1)", "oklch(75% 0.061 266.1)", "oklch(87% 0.061 266.1)", "oklch(95% 0.061 266.1)"] },
+      "night-operational-green": { "role": "tertiary", "displayName": "Night Operational Green", "canonical": "#4ac69b", "tonalRamp": ["oklch(15% 0.127 166.6)", "oklch(27% 0.127 166.6)", "oklch(39% 0.127 166.6)", "oklch(51% 0.127 166.6)", "oklch(63% 0.127 166.6)", "oklch(75% 0.127 166.6)", "oklch(87% 0.127 166.6)", "oklch(95% 0.127 166.6)"] },
+      "night-operational-green-wash": { "role": "tertiary", "displayName": "Night Operational Green Wash", "canonical": "#17372f", "tonalRamp": ["oklch(15% 0.041 175.1)", "oklch(27% 0.041 175.1)", "oklch(39% 0.041 175.1)", "oklch(51% 0.041 175.1)", "oklch(63% 0.041 175.1)", "oklch(75% 0.041 175.1)", "oklch(87% 0.041 175.1)", "oklch(95% 0.041 175.1)"] },
+      "night-pending-amber": { "role": "secondary", "displayName": "Night Pending Amber", "canonical": "#f1b45d", "tonalRamp": ["oklch(15% 0.126 74.1)", "oklch(27% 0.126 74.1)", "oklch(39% 0.126 74.1)", "oklch(51% 0.126 74.1)", "oklch(63% 0.126 74.1)", "oklch(75% 0.126 74.1)", "oklch(87% 0.126 74.1)", "oklch(95% 0.126 74.1)"] },
+      "night-pending-amber-wash": { "role": "secondary", "displayName": "Night Pending Amber Wash", "canonical": "#3a2c17", "tonalRamp": ["oklch(15% 0.039 76.5)", "oklch(27% 0.039 76.5)", "oklch(39% 0.039 76.5)", "oklch(51% 0.039 76.5)", "oklch(63% 0.039 76.5)", "oklch(75% 0.039 76.5)", "oklch(87% 0.039 76.5)", "oklch(95% 0.039 76.5)"] },
+      "night-operational-red": { "role": "tertiary", "displayName": "Night Operational Red", "canonical": "#ff7d85", "tonalRamp": ["oklch(15% 0.158 17.9)", "oklch(27% 0.158 17.9)", "oklch(39% 0.158 17.9)", "oklch(51% 0.158 17.9)", "oklch(63% 0.158 17.9)", "oklch(75% 0.158 17.9)", "oklch(87% 0.158 17.9)", "oklch(95% 0.158 17.9)"] },
+      "night-map-ground": { "role": "neutral", "displayName": "Night Map Ground", "canonical": "#080d16", "tonalRamp": ["oklch(15% 0.021 261.3)", "oklch(27% 0.021 261.3)", "oklch(39% 0.021 261.3)", "oklch(51% 0.021 261.3)", "oklch(63% 0.021 261.3)", "oklch(75% 0.021 261.3)", "oklch(87% 0.021 261.3)", "oklch(95% 0.021 261.3)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Institutional Display", "purpose": "ATCS wordmark and login identity only." },
+      "headline": { "displayName": "Workspace Headline", "purpose": "Major operating-workspace titles." },
+      "title": { "displayName": "Operational Title", "purpose": "Inspected-object headings and compact operational titles." },
+      "body": { "displayName": "Control Body", "purpose": "Inherited interface text and editable field content." },
+      "label": { "displayName": "Control Label", "purpose": "Uppercase fields, buttons, window titles, and compact control language." },
+      "data": { "displayName": "Tabular Evidence", "purpose": "Identifiers, coordinates, clocks, counts, status registers, and preserved evidence." }
+    },
+    "shadows": [
+      { "name": "secure-login-lift", "value": "0 24px 64px rgba(15, 24, 46, .16)", "purpose": "Isolates the authentication panel over the control ground." }
+    ],
+    "breakpoints": [
+      { "name": "compact-desktop", "value": "1100px" },
+      { "name": "constrained-desk", "value": "800px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Commits a deliberate administrative action inside the review or record flow.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">SAVE DECISION</button>",
+      "css": ".ds-btn-primary { min-height: 32px; padding: 6px 11px; color: #fff; background: var(--blue); border: 1px solid var(--blue); border-radius: 3px; font-family: \"Trebuchet MS\", \"Lucida Sans Unicode\", sans-serif; font-size: 9px; font-weight: 800; letter-spacing: .04em; cursor: pointer; box-shadow: none; } .ds-btn-primary:hover { background: var(--blue-deep); border-color: var(--blue-deep); } .ds-btn-primary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; } .ds-btn-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Supports utility actions without competing with the primary decision.",
+      "html": "<button class=\"ds-btn-secondary\" type=\"button\">SHOW SOURCE ON NETWORK MAP</button>",
+      "css": ".ds-btn-secondary { min-height: 32px; padding: 6px 11px; color: var(--ink); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 3px; font-family: \"Trebuchet MS\", \"Lucida Sans Unicode\", sans-serif; font-size: 9px; font-weight: 800; letter-spacing: .04em; cursor: pointer; box-shadow: none; } .ds-btn-secondary:hover { color: var(--blue-deep); background: var(--blue-wash); border-color: var(--blue); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; } .ds-btn-secondary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input-standard",
+      "description": "A dense field for filtering evidence or entering an explicit authority value.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">FIND</span><input class=\"ds-input\" type=\"search\" placeholder=\"ID, evidence, coordinate\"></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-family: \"Trebuchet MS\", \"Lucida Sans Unicode\", sans-serif; font-size: 9px; font-weight: 800; letter-spacing: .04em; } .ds-field-label { text-transform: uppercase; } .ds-input { width: 100%; min-height: 34px; padding: 7px 9px; color: var(--ink); caret-color: var(--blue); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 3px; font: 400 13px \"Trebuchet MS\", \"Lucida Sans Unicode\", sans-serif; box-shadow: none; } .ds-input::placeholder { color: var(--faint); opacity: 1; } .ds-input:hover { border-color: var(--muted); } .ds-input:focus { outline: 2px solid var(--blue); outline-offset: -1px; border-color: var(--blue); }"
+    },
+    {
+      "name": "Module Navigation",
+      "kind": "nav",
+      "refersTo": "navigation-tab",
+      "description": "A horizontal, compact module strip that keeps the current operating area explicit.",
+      "html": "<nav class=\"ds-module-strip\" aria-label=\"Primary modules\"><button class=\"ds-module-tab ds-active\" type=\"button\"><svg class=\"ds-module-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 18h5l3-6h5l5-7M3 6h5l3 6M16 12l5 6\"/><circle cx=\"3\" cy=\"6\" r=\"2\"/><circle cx=\"3\" cy=\"18\" r=\"2\"/><circle cx=\"21\" cy=\"5\" r=\"2\"/><circle cx=\"21\" cy=\"18\" r=\"2\"/></svg>NETWORK MAP</button><button class=\"ds-module-tab\" type=\"button\"><svg class=\"ds-module-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 4h10v16H4zM7 8h4M7 12h4\"/><circle cx=\"17\" cy=\"15\" r=\"4\"/><path d=\"m15.5 15 1 1 2.2-2.4\"/></svg>CANDIDATE REVIEW</button></nav>",
+      "css": ".ds-module-strip { height: 47px; display: flex; align-items: stretch; overflow-x: auto; padding: 0 14px; background: var(--paper); border-bottom: 1px solid var(--rule); } .ds-module-tab { min-width: 126px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 13px; color: var(--muted); background: transparent; border: 0; border-bottom: 3px solid transparent; font: 800 9px \"Trebuchet MS\", \"Lucida Sans Unicode\", sans-serif; letter-spacing: .04em; cursor: pointer; } .ds-module-tab:hover { color: var(--ink); background: var(--paper-alt); } .ds-module-tab:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; } .ds-module-tab.ds-active { color: var(--blue-deep); border-bottom-color: var(--blue); } .ds-module-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; }"
+    },
+    {
+      "name": "Decision State Set",
+      "kind": "chip",
+      "refersTo": "state-pending",
+      "description": "Compact semantic pills distinguish pending evidence, included authority, and ignored material.",
+      "html": "<div class=\"ds-state-set\"><span class=\"ds-state-pill ds-pending\">PENDING</span><span class=\"ds-state-pill ds-included\">INCLUDED</span><span class=\"ds-state-pill ds-ignored\">IGNORED</span></div>",
+      "css": ".ds-state-set { display: flex; align-items: center; gap: 7px; } .ds-state-pill { display: inline-block; padding: 3px 6px; border-radius: 999px; font: 750 8px Consolas, \"SFMono-Regular\", monospace; } .ds-state-pill.ds-pending { color: var(--amber); background: var(--amber-wash); } .ds-state-pill.ds-included { color: var(--green); background: var(--green-wash); } .ds-state-pill.ds-ignored { color: var(--muted); background: var(--paper-alt); }"
+    },
+    {
+      "name": "Candidate Evidence Notice",
+      "kind": "custom",
+      "refersTo": "candidate-notice",
+      "description": "An amber evidence banner states the authority boundary before review begins.",
+      "html": "<div class=\"ds-candidate-notice\"><b class=\"ds-candidate-notice-title\">EVIDENCE IS NOT AUTHORITY</b><span class=\"ds-candidate-notice-copy\">Review the preserved source and proposed role before creating one digital infrastructure record.</span></div>",
+      "css": ".ds-candidate-notice { display: flex; align-items: baseline; gap: 12px; padding: 9px 12px; color: var(--muted); background: var(--amber-wash); border-bottom: 1px solid color-mix(in srgb, var(--amber) 35%, var(--rule)); font: 400 9px/1.45 \"Trebuchet MS\", \"Lucida Sans Unicode\", sans-serif; } .ds-candidate-notice-title { flex: 0 0 auto; color: var(--amber); font: 800 9px Consolas, \"SFMono-Regular\", monospace; } .ds-candidate-notice-copy { max-width: 70ch; }"
+    },
+    {
+      "name": "Candidate Evidence Table",
+      "kind": "custom",
+      "refersTo": "evidence-table",
+      "description": "A dense ledger keeps state, proposed meaning, confidence, world, coordinates, and source aligned.",
+      "html": "<div class=\"ds-table-scroll\"><table class=\"ds-evidence-table\"><thead><tr><th>STATE</th><th>TYPE</th><th>SUGGESTED ROLE</th><th>CONFIDENCE</th><th>WORLD</th><th>X</th><th>Y</th><th>Z</th></tr></thead><tbody><tr class=\"ds-selected\" tabindex=\"0\"><td><span class=\"ds-table-pill\">PENDING</span></td><td>TRACK CONTROL</td><td>MOTION CONTROL</td><td>70%</td><td>world</td><td>-830</td><td>58</td><td>-719</td></tr><tr tabindex=\"-1\"><td><span class=\"ds-table-pill\">PENDING</span></td><td>DEPARTURE POINT</td><td>DEPARTURE POINT</td><td>85%</td><td>world</td><td>-821</td><td>58</td><td>815</td></tr></tbody></table></div>",
+      "css": ".ds-table-scroll { overflow: auto; background: var(--paper); border-bottom: 1px solid var(--rule-strong); } .ds-evidence-table { width: 100%; border-collapse: collapse; table-layout: fixed; color: var(--ink); font: 400 10px \"Trebuchet MS\", \"Lucida Sans Unicode\", sans-serif; font-variant-numeric: tabular-nums; } .ds-evidence-table th { padding: 8px 7px; color: var(--muted); background: var(--paper-alt); border-bottom: 1px solid var(--rule-strong); text-align: left; font-size: 8px; letter-spacing: .06em; } .ds-evidence-table td { padding: 7px; border-bottom: 1px solid var(--rule); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-evidence-table tbody tr { cursor: pointer; } .ds-evidence-table tbody tr:hover td, .ds-evidence-table tbody tr.ds-selected td, .ds-evidence-table tbody tr:focus-visible td { background: var(--blue-wash); } .ds-evidence-table tbody tr:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; } .ds-table-pill { display: inline-block; padding: 3px 6px; color: var(--amber); background: var(--amber-wash); border-radius: 999px; font: 750 8px Consolas, \"SFMono-Regular\", monospace; }"
+    },
+    {
+      "name": "Property Inspector",
+      "kind": "card",
+      "refersTo": "inspector-panel",
+      "description": "A persistent compact inspector holds preserved evidence beside the operator's next action.",
+      "html": "<aside class=\"ds-inspector\"><div class=\"ds-window-title\">PROPERTY INSPECTOR</div><div class=\"ds-object-heading\"><span class=\"ds-inspector-pill\">PENDING</span><b>MOTION CONTROL</b></div><dl class=\"ds-property-list\"><div><dt>Suggested role</dt><dd>MOTION CONTROL</dd></div><div><dt>Confidence</dt><dd>70%</dd></div><div><dt>Location</dt><dd>world -830 58 -719</dd></div></dl><button class=\"ds-inspector-button\" type=\"button\">SHOW SOURCE ON NETWORK MAP</button></aside>",
+      "css": ".ds-inspector { width: 290px; padding: 0 11px 11px; color: var(--ink); background: var(--paper); border-left: 1px solid var(--rule-strong); font-family: \"Trebuchet MS\", \"Lucida Sans Unicode\", sans-serif; } .ds-window-title { min-height: 32px; padding: 11px 0 7px; color: var(--muted); border-bottom: 1px solid var(--rule); font-size: 9px; font-weight: 800; letter-spacing: .08em; } .ds-object-heading { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; font: 12px Consolas, \"SFMono-Regular\", monospace; } .ds-inspector-pill { padding: 3px 6px; color: var(--amber); background: var(--amber-wash); border-radius: 999px; font: 750 8px Consolas, \"SFMono-Regular\", monospace; } .ds-property-list { margin: 0 0 10px; border-top: 1px solid var(--rule); } .ds-property-list div { display: grid; grid-template-columns: 96px 1fr; border-bottom: 1px solid var(--rule); } .ds-property-list dt, .ds-property-list dd { margin: 0; padding: 6px 7px; } .ds-property-list dt { color: var(--muted); background: var(--paper-alt); font-size: 8px; font-weight: 750; } .ds-property-list dd { font: 9px Consolas, \"SFMono-Regular\", monospace; overflow-wrap: anywhere; } .ds-inspector-button { width: 100%; min-height: 32px; padding: 6px 11px; color: var(--ink); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 3px; font-size: 9px; font-weight: 800; letter-spacing: .04em; cursor: pointer; } .ds-inspector-button:hover { color: var(--blue-deep); background: var(--blue-wash); border-color: var(--blue); } .ds-inspector-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; } .ds-inspector-button:active { transform: translateY(1px); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Restrained Railway Control Desk",
+    "overview": "The Restrained Railway Control Desk treats administration as an inspectable operating instrument: restrained, precise, operational, and evidence-led. Its light default surface resembles control paper held inside a disciplined rail console, with Signal Blue reserved for deliberate action and Pending Amber reserved for evidence that has not yet crossed into authority.\n\nThe design serves a dense existing Operate surface. Thin rules, compact labels, tabular evidence, fixed registers, and a persistent inspector let an operator verify source material, preview one authority record, and make one audited decision without losing context. The optional night theme remaps the same semantic roles; it does not create a separate visual personality. The world rejects generic AI-dashboard styling, decorative gradients, and floating card fields in favor of credible railway administration.",
+    "keyCharacteristics": [
+      "Dense three-zone operating desk with persistent context.",
+      "Evidence and authority remain visually and procedurally distinct.",
+      "Precise Signal Blue actions and Pending Amber review states.",
+      "Flat structural surfaces separated by thin rules.",
+      "Tabular numerals and monospaced evidence where exactness matters."
+    ],
+    "rules": [
+      { "name": "The Signal Is Scarce Rule", "body": "Signal Blue marks action, focus, active navigation, or selected evidence; it never becomes broad decoration.", "section": "colors" },
+      { "name": "The Amber Means Pending Rule", "body": "Pending Amber marks review debt, non-authoritative evidence, and warnings; it never implies success.", "section": "colors" },
+      { "name": "The Evidence Is Tabular Rule", "body": "Use monospace for IDs, coordinates, clocks, counts, schema/status registers, and preserved evidence; use Trebuchet for controls and explanation; reserve Georgia for the brand and major workspace titles.", "section": "typography" },
+      { "name": "The Desk Stays Dense Rule", "body": "Preserve the register–workspace–inspector relationship and keep evidence visible beside decisions; do not inflate operational controls into consumer-dashboard cards.", "section": "layout" },
+      { "name": "The Flat-by-Default Rule", "body": "Surfaces remain flat and rule-bound; add a shadow only when the secure login panel must detach from its underlying plane.", "section": "elevation" },
+      { "name": "The Structure Uses Lines Rule", "body": "Build hierarchy with aligned edges and rules; rounded geometry belongs only to controls, state pills, and the roundel.", "section": "shapes" },
+      { "name": "The Gate Must Be Inspectable Rule", "body": "Keep preserved evidence, authority preview, and the explicit operator decision in one visible review path; never style an inferred candidate as already authoritative.", "section": "components" }
+    ],
+    "dos": [
+      "Do preserve the dense register–workspace–inspector frame on operational surfaces.",
+      "Do reserve Signal Blue for deliberate action, focus, selection, and active navigation.",
+      "Do use Pending Amber whenever evidence still requires an operator decision.",
+      "Do keep identifiers, coordinates, clocks, counts, and evidence in tabular monospace.",
+      "Do remap semantic roles consistently when implementing the optional night theme."
+    ],
+    "donts": [
+      "Don't use floating card grids, decorative gradients, or generic AI-dashboard ornament.",
+      "Don't add broad shadows to buttons, tables, notices, or ordinary panels.",
+      "Don't round structural containers; keep the 3px radius for controls and full capsules for state pills.",
+      "Don't let a sign, rail observation, confidence score, or suggested role look authoritative before the inspectable gate is completed.",
+      "Don't trade operational density for oversized type, spacious marketing rhythm, or mobile-card stacking."
+    ]
+  }
+}

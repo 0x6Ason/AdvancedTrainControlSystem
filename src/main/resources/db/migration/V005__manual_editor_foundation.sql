@@ -33,12 +33,46 @@ CREATE TABLE departure_point (
     direction_hint TEXT,
     clearance_blocks REAL NOT NULL DEFAULT 2.0 CHECK (clearance_blocks > 0),
     permitted_templates_json TEXT NOT NULL DEFAULT '[]',
+    source_discovery_run_id TEXT REFERENCES infrastructure_discovery_run(id),
+    source_candidate_id TEXT REFERENCES departure_candidate(id),
+    source_sign_id TEXT REFERENCES legacy_sign_inventory(id),
+    source_evidence_fingerprint TEXT,
+    source_evidence_revision INTEGER CHECK (source_evidence_revision > 0),
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    UNIQUE (world_name, block_x, block_y, block_z)
+    UNIQUE (world_name, block_x, block_y, block_z),
+    CHECK (
+        (source_discovery_run_id IS NULL
+            AND source_candidate_id IS NULL
+            AND source_sign_id IS NULL
+            AND source_evidence_fingerprint IS NULL
+            AND source_evidence_revision IS NULL)
+        OR (source_discovery_run_id IS NOT NULL
+            AND source_candidate_id IS NOT NULL
+            AND source_sign_id IS NOT NULL
+            AND source_evidence_fingerprint IS NOT NULL
+            AND source_evidence_revision IS NOT NULL)
+    ),
+    FOREIGN KEY (source_discovery_run_id, source_candidate_id, source_sign_id)
+        REFERENCES departure_candidate(discovery_run_id, id, source_sign_id),
+    FOREIGN KEY (
+        source_discovery_run_id,
+        source_sign_id,
+        source_evidence_fingerprint,
+        source_evidence_revision
+    ) REFERENCES infrastructure_source_sign_snapshot(
+        discovery_run_id,
+        source_sign_id,
+        evidence_fingerprint,
+        evidence_revision
+    )
 );
+
+CREATE UNIQUE INDEX idx_departure_point_source_sign
+    ON departure_point(source_sign_id)
+    WHERE source_sign_id IS NOT NULL;
 
 CREATE TABLE track_control_point (
     id TEXT PRIMARY KEY,
@@ -54,12 +88,144 @@ CREATE TABLE track_control_point (
     block_y INTEGER NOT NULL,
     block_z INTEGER NOT NULL,
     legacy_sign_id TEXT REFERENCES legacy_sign_inventory(id),
+    source_discovery_run_id TEXT REFERENCES infrastructure_discovery_run(id),
+    source_candidate_id TEXT REFERENCES track_control_candidate(id),
+    source_evidence_fingerprint TEXT,
+    source_evidence_revision INTEGER CHECK (source_evidence_revision > 0),
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    UNIQUE (world_name, block_x, block_y, block_z)
+    UNIQUE (world_name, block_x, block_y, block_z),
+    CHECK (
+        (source_discovery_run_id IS NULL
+            AND source_candidate_id IS NULL
+            AND source_evidence_fingerprint IS NULL
+            AND source_evidence_revision IS NULL)
+        OR (source_discovery_run_id IS NOT NULL
+            AND source_candidate_id IS NOT NULL
+            AND legacy_sign_id IS NOT NULL
+            AND source_evidence_fingerprint IS NOT NULL
+            AND source_evidence_revision IS NOT NULL)
+    ),
+    FOREIGN KEY (source_discovery_run_id, source_candidate_id, legacy_sign_id)
+        REFERENCES track_control_candidate(discovery_run_id, id, source_sign_id),
+    FOREIGN KEY (
+        source_discovery_run_id,
+        legacy_sign_id,
+        source_evidence_fingerprint,
+        source_evidence_revision
+    ) REFERENCES infrastructure_source_sign_snapshot(
+        discovery_run_id,
+        source_sign_id,
+        evidence_fingerprint,
+        evidence_revision
+    )
 );
+
+CREATE UNIQUE INDEX idx_track_control_point_source_sign
+    ON track_control_point(legacy_sign_id)
+    WHERE legacy_sign_id IS NOT NULL;
+
+CREATE UNIQUE INDEX idx_track_control_point_identity_role
+    ON track_control_point(id, control_role);
+
+CREATE TABLE infrastructure_authority_identity (
+    authority_role TEXT NOT NULL CHECK (authority_role IN (
+        'DEPARTURE_POINT',
+        'MOTION_CONTROL',
+        'REVERSING_CONTROL'
+    )),
+    target_id TEXT NOT NULL,
+    departure_point_id TEXT,
+    track_control_point_id TEXT,
+    PRIMARY KEY (authority_role, target_id),
+    UNIQUE (target_id),
+    CHECK (
+        (authority_role = 'DEPARTURE_POINT'
+            AND departure_point_id = target_id
+            AND track_control_point_id IS NULL)
+        OR (authority_role IN ('MOTION_CONTROL', 'REVERSING_CONTROL')
+            AND departure_point_id IS NULL
+            AND track_control_point_id = target_id)
+    ),
+    FOREIGN KEY (departure_point_id) REFERENCES departure_point(id),
+    FOREIGN KEY (track_control_point_id, authority_role)
+        REFERENCES track_control_point(id, control_role)
+);
+
+CREATE TABLE infrastructure_candidate_decision (
+    discovery_run_id TEXT NOT NULL REFERENCES infrastructure_discovery_run(id) ON DELETE CASCADE,
+    candidate_type TEXT NOT NULL CHECK (candidate_type IN ('DEPARTURE', 'TRACK_CONTROL')),
+    candidate_id TEXT NOT NULL,
+    source_sign_id TEXT NOT NULL REFERENCES legacy_sign_inventory(id),
+    evidence_fingerprint TEXT NOT NULL,
+    evidence_revision INTEGER NOT NULL CHECK (evidence_revision > 0),
+    decision_status TEXT NOT NULL CHECK (decision_status IN ('PENDING', 'INCLUDED', 'IGNORED', 'STALE')),
+    authority_role TEXT CHECK (authority_role IN (
+        'DEPARTURE_POINT',
+        'MOTION_CONTROL',
+        'REVERSING_CONTROL'
+    )),
+    target_id TEXT,
+    note TEXT,
+    stale_reason TEXT,
+    version INTEGER NOT NULL CHECK (version > 0),
+    decided_by TEXT NOT NULL,
+    decided_at TEXT NOT NULL,
+    PRIMARY KEY (discovery_run_id, candidate_type, candidate_id),
+    FOREIGN KEY (
+        discovery_run_id,
+        candidate_type,
+        candidate_id,
+        source_sign_id,
+        evidence_fingerprint,
+        evidence_revision
+    ) REFERENCES infrastructure_candidate_identity(
+        discovery_run_id,
+        candidate_type,
+        candidate_id,
+        source_sign_id,
+        evidence_fingerprint,
+        evidence_revision
+    ) ON DELETE CASCADE,
+    FOREIGN KEY (authority_role, target_id)
+        REFERENCES infrastructure_authority_identity(authority_role, target_id),
+    CHECK (
+        (authority_role IS NULL AND target_id IS NULL)
+        OR (authority_role IS NOT NULL AND target_id IS NOT NULL)
+    ),
+    CHECK (
+        (candidate_type = 'DEPARTURE'
+            AND (authority_role IS NULL OR authority_role = 'DEPARTURE_POINT'))
+        OR (candidate_type = 'TRACK_CONTROL'
+            AND (authority_role IS NULL OR authority_role IN (
+                'MOTION_CONTROL',
+                'REVERSING_CONTROL'
+            )))
+    ),
+    CHECK (
+        (decision_status = 'INCLUDED'
+            AND authority_role IS NOT NULL
+            AND target_id IS NOT NULL
+            AND stale_reason IS NULL)
+        OR (decision_status = 'IGNORED'
+            AND authority_role IS NULL
+            AND target_id IS NULL
+            AND stale_reason IS NULL)
+        OR (decision_status = 'PENDING'
+            AND authority_role IS NULL
+            AND target_id IS NULL
+            AND stale_reason IS NULL)
+        OR (decision_status = 'STALE'
+            AND authority_role IS NULL
+            AND target_id IS NULL
+            AND stale_reason IS NOT NULL)
+    )
+);
+
+CREATE INDEX idx_infrastructure_candidate_decision_source
+    ON infrastructure_candidate_decision(source_sign_id, decision_status);
 
 CREATE TABLE fare_gate (
     id TEXT PRIMARY KEY,
