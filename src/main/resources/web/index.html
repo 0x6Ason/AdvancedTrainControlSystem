@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>ATCS Network Administration</title>
-  <link rel="stylesheet" href="/styles.css?v=12">
+  <link rel="stylesheet" href="/styles.css?v=14">
 </head>
 <body>
   <!--
@@ -141,6 +141,11 @@
           <div class="workspace-toolbar map-toolbar">
             <strong>PHYSICAL NETWORK / EVIDENCE LAYER</strong>
             <label>World<select id="map-world"></select></label>
+            <label>Tracks<select id="map-rail-scope" aria-describedby="map-track-scope-help">
+              <option value="NETWORK">RELEVANT TRACKS</option>
+              <option value="ALL_EVIDENCE">ALL RAIL EVIDENCE</option>
+            </select></label>
+            <span id="map-track-scope-help" class="sr-only">Relevant Tracks is filtered evidence, not an authoritative route. All Rail Evidence includes every discovered component for forensic review.</span>
             <label>Objects<select id="map-object-scope">
               <option value="INCLUDED">INCLUDED ONLY</option>
               <option value="REVIEWABLE">PENDING + INCLUDED</option>
@@ -154,24 +159,25 @@
             <button id="toggle-rail-blocks" class="button compact" type="button" aria-pressed="false" title="Show individual rail blocks">BLOCKS</button>
             <button id="view-3d-map" class="button compact" type="button" aria-pressed="false">3D</button>
             <button id="view-top-map" class="button compact active-control" type="button" aria-pressed="true">TOP</button>
-            <span class="toolbar-note">Rail lines are context. Click a marker to inspect.</span>
+            <span id="map-track-scope-note" class="toolbar-note">Filtered evidence only, not an authoritative route. Raw evidence remains available.</span>
           </div>
           <div class="map-shell">
-            <canvas id="network-canvas" tabindex="0" aria-label="Discovered railway network map" aria-describedby="map-keyboard-help"></canvas>
+            <canvas id="network-canvas" tabindex="0" aria-label="Relevant tracks map" aria-describedby="map-keyboard-help"></canvas>
             <span id="map-keyboard-help" class="sr-only">Use left and right bracket keys to select the previous or next visible marker, Enter or Space to confirm it, arrow keys to pan, plus and minus to zoom, F to fit, N for north, and Escape to clear the selected symbol.</span>
             <div id="map-selection" class="map-selection" aria-live="polite" hidden>
               <span id="map-selection-state">SELECTED SIGN EVIDENCE</span>
               <b id="map-selection-title"></b>
               <small id="map-selection-location"></small>
             </div>
+            <div id="map-warning" class="map-warning" role="status" aria-live="polite" aria-atomic="true" hidden></div>
             <div class="map-coordinates" id="map-coordinates">X -- / Z -- / SCALE --</div>
             <div class="map-layer-key" aria-hidden="true">
-              <span><i class="track"></i>RAIL CONTEXT</span>
+              <span><i class="track"></i><span id="map-track-key-label">RELEVANT TRACK</span></span>
               <span><i class="marker"></i>SELECTABLE MARKER</span>
             </div>
-            <div class="map-empty" id="map-empty" hidden>
-              <b>NO RAIL CANDIDATE SNAPSHOT</b>
-              <span>Run <code>/atcs discover rail</code> to inventory rails using the configured saved- or loaded-chunk scope.</span>
+            <div class="map-empty" id="map-empty" role="status" aria-live="polite" hidden>
+              <b>NO RAIL INVENTORY SNAPSHOT</b>
+              <span>Run <code>/atcs discover rail</code> to inventory rail evidence using the configured saved- or loaded-chunk scope.</span>
               <span>Symbols remain available in SYMBOL IMPORT without rail discovery.</span>
             </div>
           </div>
@@ -445,7 +451,7 @@
       <span>ATCS ADMIN FACILITY</span><span>SCHEMA <b id="schema-display">V7</b></span><span>ENGLISH OPERATIONAL OUTPUT</span><span id="footer-time"></span>
     </footer>
   </div>
-  <script src="/network-map.js?v=12" defer></script>
-  <script src="/app.js?v=13" defer></script>
+  <script src="/network-map.js?v=15" defer></script>
+  <script src="/app.js?v=16" defer></script>
 </body>
 </html>

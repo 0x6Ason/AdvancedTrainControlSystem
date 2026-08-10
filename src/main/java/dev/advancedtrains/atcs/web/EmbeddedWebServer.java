@@ -2,6 +2,7 @@ package dev.advancedtrains.atcs.web;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonIOException;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSerializer;
@@ -21,9 +22,13 @@ import dev.advancedtrains.atcs.infrastructure.review.CandidateNotFoundException;
 import dev.advancedtrains.atcs.infrastructure.review.CandidateReviewItem;
 import dev.advancedtrains.atcs.infrastructure.review.InfrastructureCandidateReviewService;
 import dev.advancedtrains.atcs.web.AdminDataRepository.OptimisticLockException;
+import dev.advancedtrains.atcs.web.AdminDataRepository.RailGraph;
+import dev.advancedtrains.atcs.web.AdminDataRepository.RailGraphCapacityException;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStreamWriter;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -113,6 +118,14 @@ public final class EmbeddedWebServer implements AutoCloseable {
             sendJson(exchange, 409, Map.of("error", "CANDIDATE_CONFLICT", "message", exception.getMessage()));
         } catch (OptimisticLockException exception) {
             sendJson(exchange, 409, Map.of("error", "VERSION_CONFLICT", "message", exception.getMessage()));
+        } catch (RailGraphCapacityException exception) {
+            sendJson(exchange, 413, Map.of(
+                    "error", "RAIL_GRAPH_CAPACITY",
+                    "message", exception.getMessage(),
+                    "world", exception.world(),
+                    "elementType", exception.elementType(),
+                    "actualCount", exception.actualCount(),
+                    "maximumCount", exception.maximumCount()));
         } catch (IllegalArgumentException | JsonParseException exception) {
             sendJson(exchange, 400, Map.of("error", "INVALID_REQUEST", "message", exception.getMessage()));
         } catch (SQLException exception) {
@@ -344,8 +357,9 @@ public final class EmbeddedWebServer implements AutoCloseable {
             if (world == null || world.isBlank()) {
                 throw new IllegalArgumentException("The world query parameter is required");
             }
-            sendJson(exchange, 200, repository.loadRailGraph(
-                    world, configuration.networkMaxElements()));
+            RailGraphScope scope = RailGraphScope.fromQuery(query.get("scope"));
+            sendRailGraph(exchange, repository.loadRailGraph(
+                    world, scope, configuration.networkMaxElements()));
             return;
         }
         sendJson(exchange, 404, Map.of("error", "NOT_FOUND", "message", "API route not found"));
@@ -569,6 +583,27 @@ public final class EmbeddedWebServer implements AutoCloseable {
             sendText(exchange, status, "application/json; charset=utf-8", gson.toJson(body));
         } catch (IOException exception) {
             logger.log(Level.FINE, "Could not write web response", exception);
+        }
+    }
+
+    private void sendRailGraph(HttpExchange exchange, RailGraph graph) {
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        try {
+            exchange.sendResponseHeaders(200, 0);
+            try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                    exchange.getResponseBody(), StandardCharsets.UTF_8))) {
+                gson.toJson(graph, RailGraph.class, writer);
+                writer.flush();
+            }
+        } catch (IOException exception) {
+            logger.log(Level.FINE, "Rail graph client disconnected during streaming", exception);
+        } catch (JsonIOException exception) {
+            if (exception.getCause() instanceof IOException) {
+                logger.log(Level.FINE, "Rail graph client disconnected during streaming", exception);
+            } else {
+                logger.log(Level.SEVERE, "Could not stream rail graph response", exception);
+            }
         }
     }
 

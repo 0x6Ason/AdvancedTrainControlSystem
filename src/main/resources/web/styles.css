@@ -204,6 +204,7 @@ hr { border: 0; border-top: 1px solid var(--rule); margin: 12px 0; }
 .map-toolbar { flex-wrap: wrap; }
 .map-toolbar .active-control { color: #fff; background: var(--blue); border-color: var(--blue); }
 .map-toolbar label { white-space: nowrap; }
+.map-toolbar #map-rail-scope { width: 160px; }
 .map-toolbar #map-object-scope { width: 154px; }
 
 .map-shell { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--map); }
@@ -214,6 +215,10 @@ hr { border: 0; border-top: 1px solid var(--rule); margin: 12px 0; }
 .map-selection span { color: var(--blue-deep); font: 800 8px var(--data-face); letter-spacing: .06em; }
 .map-selection b { overflow: hidden; font: 700 11px var(--data-face); text-overflow: ellipsis; white-space: nowrap; }
 .map-selection small { color: var(--muted); font: 8px var(--data-face); font-variant-numeric: tabular-nums; }
+.map-warning { position: absolute; top: 11px; right: 11px; z-index: 2; width: min(360px, calc(100% - 22px)); display: grid; gap: 3px; padding: 8px 10px; color: var(--muted); background: var(--amber-wash); border: 1px solid color-mix(in srgb, var(--amber) 45%, var(--rule)); pointer-events: none; }
+.map-warning b { color: var(--amber); font: 800 9px var(--data-face); letter-spacing: .04em; }
+.map-warning span { font-size: 9px; line-height: 1.4; }
+.map-selection:not([hidden]) ~ .map-warning { top: 76px; }
 .map-coordinates { position: absolute; left: 11px; bottom: 10px; max-width: calc(100% - 260px); padding: 6px 8px; color: var(--ink); background: color-mix(in srgb, var(--paper) 94%, transparent); border: 1px solid var(--rule-strong); font: 9px/1.35 var(--data-face); font-variant-numeric: tabular-nums; }
 .map-layer-key { position: absolute; right: 11px; bottom: 10px; display: flex; align-items: center; gap: 10px; padding: 6px 8px; color: var(--muted); background: color-mix(in srgb, var(--paper) 94%, transparent); border: 1px solid var(--rule-strong); font: 8px var(--data-face); pointer-events: none; }
 .map-layer-key span { display: inline-flex; align-items: center; gap: 5px; }

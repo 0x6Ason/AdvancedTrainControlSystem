@@ -29,6 +29,13 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
     this.selectedPointCount = 0;
     this.railBlocksVisible = false;
     this.gridVisible = false;
+    this.graphScope = "NETWORK";
+    this.sourceNodeCount = 0;
+    this.selectedComponentCount = 0;
+    this.visibleComponentCount = 0;
+    this.sourceComponentCount = 0;
+    this.returnedAnchoredComponentCount = 0;
+    this.anchoredComponentCount = 0;
 
     this.segmentProgram = createProgram(this.gl, SEGMENT_VERTEX_SHADER, SEGMENT_FRAGMENT_SHADER);
     this.pointProgram = createProgram(this.gl, POINT_VERTEX_SHADER, POINT_FRAGMENT_SHADER);
@@ -43,11 +50,17 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
 
   setScene(graph, symbols) {
     const nodes = graph.nodes || [];
+    this.graphScope = graph.scope || "NETWORK";
+    this.sourceNodeCount = Number(graph.sourceNodeCount || 0);
+    this.selectedComponentCount = Number(graph.selectedComponentCount || 0);
+    this.visibleComponentCount = Number(graph.visibleComponentCount || 0);
+    this.sourceComponentCount = Number(graph.sourceComponentCount || 0);
+    this.returnedAnchoredComponentCount = Number(graph.returnedAnchoredComponentCount || 0);
+    this.anchoredComponentCount = Number(graph.anchoredComponentCount || 0);
     const points = nodes.map(node => ({ x: node[0], y: node[1], z: node[2] }));
     this.bounds = calculateBounds(points);
     this.symbols = this.bounds ? symbols : [];
     this.synchronizeKeyboardSymbolIndex();
-    this.updateAccessibilityLabel();
     if (!this.bounds) {
       this.origin = [0, 0, 0];
       this.uploadBuffer(this.railBuffer, new Float32Array());
@@ -57,6 +70,7 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
       this.uploadBuffer(this.selectedPointBuffer, new Float32Array());
       this.railVertexCount = this.gridVertexCount = this.railPointCount = 0;
       this.symbolPointCount = this.selectedPointCount = 0;
+      this.updateAccessibilityLabel();
       this.requestRender();
       return;
     }
@@ -89,6 +103,7 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
 
     this.rebuildSymbolBuffer();
     this.rebuildGrid();
+    this.updateAccessibilityLabel();
     this.fit();
   }
 
@@ -144,12 +159,18 @@ window.AtcsNetworkMap = class AtcsNetworkMap {
 
   updateAccessibilityLabel() {
     const selected = this.symbols.find(item => item.id === this.selectedSymbolId);
+    const mapDescription = this.graphScope === "ALL_EVIDENCE"
+      ? "Forensic rail evidence map"
+      : "Relevant tracks map";
+    const componentDescription = this.selectedComponentCount !== this.visibleComponentCount
+      ? `${this.visibleComponentCount} returned of ${this.selectedComponentCount} selected components from ${this.sourceComponentCount} source components`
+      : `${this.visibleComponentCount} of ${this.sourceComponentCount} components`;
     const selection = selected
       ? ` Selected ${selected.decision.toLowerCase()} ${selected.type.toLowerCase()} marker at X ${selected.x}, Y ${selected.y}, Z ${selected.z}.`
       : "";
     this.canvas.setAttribute(
       "aria-label",
-      `Discovered railway network map with ${this.symbols.length} selectable symbol markers.${selection} Use left and right bracket keys to select the previous or next marker.`
+      `${mapDescription} showing ${this.railPointCount} of ${this.sourceNodeCount} rail nodes across ${componentDescription}; ${this.returnedAnchoredComponentCount} of ${this.anchoredComponentCount} anchored components returned. ${this.symbols.length} selectable symbol markers.${selection} Use left and right bracket keys to select the previous or next marker.`
     );
   }
 

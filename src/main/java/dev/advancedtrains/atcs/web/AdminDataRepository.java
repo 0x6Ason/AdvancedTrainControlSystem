@@ -7,6 +7,9 @@ import dev.advancedtrains.atcs.domain.DomainId;
 import dev.advancedtrains.atcs.persistence.SQLiteDatabase;
 import dev.advancedtrains.atcs.world.RailwayWorldPolicy;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -15,6 +18,9 @@ import java.sql.Types;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HexFormat;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -23,14 +29,47 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Provides versioned, audited editor access without mutating Minecraft worlds.
  */
 public final class AdminDataRepository {
+    private static final int DEFAULT_MAXIMUM_SOURCE_NODES = 1_000_000;
+    private static final int DEFAULT_MAXIMUM_SOURCE_EDGES = 2_000_000;
+    private static final int MAXIMUM_COMPLETED_SOURCE_ENTRIES = 8;
+    private static final long MAXIMUM_COMPLETED_SOURCE_NODES = 1_000_000L;
+    private static final long MAXIMUM_COMPLETED_SOURCE_EDGES = 2_000_000L;
+    private static final int MAXIMUM_COMPLETED_RESPONSE_ENTRIES = 16;
+    private static final long MAXIMUM_COMPLETED_RESPONSE_NODES = 1_000_000L;
+    private static final long MAXIMUM_COMPLETED_RESPONSE_EDGES = 2_000_000L;
     private final SQLiteDatabase database;
     private final RailwayWorldPolicy worldPolicy;
     private final Clock clock;
+    private final int maximumSourceNodes;
+    private final int maximumSourceEdges;
+    private final Object railGraphCacheLock = new Object();
+    private final Map<RailGraphCacheKey, CompletableFuture<RailGraphSource>> sourceBuildsInFlight =
+            new HashMap<>();
+    private final LinkedHashMap<RailGraphCacheKey, RailGraphSource> completedSourceCache =
+            new LinkedHashMap<>(16, 0.75F, true);
+    private final Map<RailGraphResponseKey, CompletableFuture<RailGraph>> responseBuildsInFlight =
+            new HashMap<>();
+    private final LinkedHashMap<RailGraphResponseKey, RailGraph> completedResponseCache =
+            new LinkedHashMap<>(16, 0.75F, true);
+    private final Map<RailRunWorld, RailGraphCacheKey> currentSourceKeys = new HashMap<>();
+    private final Semaphore sourceMaterializationPermits = new Semaphore(1, true);
+    private final Semaphore responseRenderPermits = new Semaphore(1, true);
+    private final AtomicLong railGraphMaterializations = new AtomicLong();
+    private final AtomicLong railGraphResponseRenders = new AtomicLong();
+    private long completedSourceNodes;
+    private long completedSourceEdges;
+    private long completedResponseNodes;
+    private long completedResponseEdges;
+    private RailRunRevision newestCachedRailRun;
     private final Gson gson = new GsonBuilder()
             .registerTypeAdapterFactory(new OptionalTypeAdapterFactory())
             .create();
@@ -39,9 +78,25 @@ public final class AdminDataRepository {
             SQLiteDatabase database,
             RailwayWorldPolicy worldPolicy,
             Clock clock) {
+        this(
+                database, worldPolicy, clock,
+                DEFAULT_MAXIMUM_SOURCE_NODES, DEFAULT_MAXIMUM_SOURCE_EDGES);
+    }
+
+    AdminDataRepository(
+            SQLiteDatabase database,
+            RailwayWorldPolicy worldPolicy,
+            Clock clock,
+            int maximumSourceNodes,
+            int maximumSourceEdges) {
         this.database = Objects.requireNonNull(database, "database");
         this.worldPolicy = Objects.requireNonNull(worldPolicy, "worldPolicy");
         this.clock = Objects.requireNonNull(clock, "clock");
+        if (maximumSourceNodes <= 0 || maximumSourceEdges <= 0) {
+            throw new IllegalArgumentException("Rail graph source limits must be positive");
+        }
+        this.maximumSourceNodes = maximumSourceNodes;
+        this.maximumSourceEdges = maximumSourceEdges;
     }
 
     public Overview loadOverview() throws SQLException {
@@ -1088,80 +1143,522 @@ public final class AdminDataRepository {
     }
 
     public RailGraph loadRailGraph(String requestedWorld, int maximumElements) throws SQLException {
+        return loadRailGraph(requestedWorld, RailGraphScope.NETWORK, maximumElements);
+    }
+
+    public RailGraph loadRailGraph(
+            String requestedWorld,
+            RailGraphScope scope,
+            int maximumElements) throws SQLException {
         String world = requireText(requestedWorld, "Rail graph world");
+        Objects.requireNonNull(scope, "scope");
+        if (maximumElements <= 0) {
+            throw new IllegalArgumentException("Rail graph maximum elements must be positive");
+        }
         if (!worldPolicy.isActive(world)) {
             throw new IllegalArgumentException("Rail graph world is not active in TrainCarts");
         }
+        RailGraphCacheLease cacheLease;
         try (Connection connection = database.openConnection()) {
-            Optional<String> runId = latestRailRunId(connection);
-            if (runId.isEmpty()) {
+            Optional<RailRunRevision> latestRun = latestRailRunRevision(connection);
+            if (latestRun.isEmpty()) {
                 return new RailGraph(
-                        Optional.empty(), world, List.of(), List.of(), List.of(), List.of(), false);
+                        Optional.empty(), world, scope,
+                        List.of(), List.of(), List.of(), List.of(),
+                        0, 0, 0, 0, 0, 0, 0, false);
             }
-            List<int[]> nodes = new ArrayList<>();
-            List<String> materials = new ArrayList<>();
-            List<String> shapes = new ArrayList<>();
-            Map<String, Integer> materialIndexes = new LinkedHashMap<>();
-            Map<String, Integer> shapeIndexes = new LinkedHashMap<>();
-            Map<String, Integer> nodeIndexes = new LinkedHashMap<>();
-            try (PreparedStatement query = connection.prepareStatement("""
-                    SELECT id, block_x, block_y, block_z, material_name, rail_shape
-                    FROM rail_candidate_node
-                    WHERE discovery_run_id = ? AND world_name = ?
-                    ORDER BY block_x, block_z, block_y
-                    LIMIT ?
-                    """)) {
-                query.setString(1, runId.orElseThrow());
-                query.setString(2, world);
-                query.setInt(3, maximumElements + 1);
-                try (ResultSet result = query.executeQuery()) {
-                    while (result.next()) {
-                        String nodeId = result.getString(1);
-                        String material = result.getString(5);
-                        String shape = result.getString(6);
-                        int materialIndex = materialIndexes.computeIfAbsent(material, key -> {
-                            materials.add(key);
-                            return materials.size() - 1;
-                        });
-                        int shapeIndex = shapeIndexes.computeIfAbsent(shape, key -> {
-                            shapes.add(key);
-                            return shapes.size() - 1;
-                        });
-                        nodeIndexes.put(nodeId, nodes.size());
-                        nodes.add(new int[] {
-                                result.getInt(2), result.getInt(3), result.getInt(4),
-                                materialIndex, shapeIndex
-                        });
+            SignInventorySnapshot signSnapshot = loadSignInventorySnapshot(connection, world);
+            RailGraphCacheKey cacheKey = new RailGraphCacheKey(
+                    latestRun.orElseThrow(), world, signSnapshot.revision());
+            cacheLease = acquireRailGraphCache(cacheKey);
+            if (cacheLease.builder()) {
+                boolean permitAcquired = false;
+                try {
+                    acquirePermit(sourceMaterializationPermits);
+                    permitAcquired = true;
+                    RailGraphSource source = loadRailGraphSource(
+                            connection, cacheKey, signSnapshot.anchors());
+                    railGraphMaterializations.incrementAndGet();
+                    completeRailGraphSource(cacheLease, source);
+                } catch (SQLException | RuntimeException exception) {
+                    failRailGraphCache(cacheLease, exception);
+                    throw exception;
+                } finally {
+                    if (permitAcquired) {
+                        sourceMaterializationPermits.release();
                     }
                 }
             }
-            boolean truncated = nodes.size() > maximumElements;
-            if (truncated) {
-                nodes = new ArrayList<>(nodes.subList(0, maximumElements));
-                nodeIndexes.entrySet().removeIf(entry -> entry.getValue() >= maximumElements);
+        }
+        RailGraphSource source = awaitRailGraphSource(cacheLease.future());
+        RailGraphResponseKey responseKey = new RailGraphResponseKey(
+                cacheLease.key(), scope, maximumElements);
+        RailGraphResponseLease responseLease = acquireRailGraphResponseCache(responseKey);
+        if (responseLease.builder()) {
+            boolean permitAcquired = false;
+            try {
+                acquirePermit(responseRenderPermits);
+                permitAcquired = true;
+                RailGraphComponentSelector.Selection selection =
+                        source.classification().select(scope, maximumElements);
+                RailGraph graph = renderRailGraph(source, scope, selection);
+                railGraphResponseRenders.incrementAndGet();
+                completeRailGraphResponse(responseLease, graph);
+            } catch (RuntimeException exception) {
+                failRailGraphResponse(responseLease, exception);
+                throw exception;
+            } finally {
+                if (permitAcquired) {
+                    responseRenderPermits.release();
+                }
             }
-            List<int[]> edges = new ArrayList<>();
-            try (PreparedStatement query = connection.prepareStatement("""
-                    SELECT first_node_id, second_node_id
-                    FROM rail_candidate_edge
-                    WHERE discovery_run_id = ?
-                    ORDER BY first_node_id, second_node_id
-                    """)) {
-                query.setString(1, runId.orElseThrow());
-                try (ResultSet result = query.executeQuery()) {
-                    while (result.next()) {
-                        String first = result.getString(1);
-                        String second = result.getString(2);
-                        Integer firstIndex = nodeIndexes.get(first);
-                        Integer secondIndex = nodeIndexes.get(second);
-                        if (firstIndex != null && secondIndex != null) {
-                            edges.add(new int[] {firstIndex, secondIndex});
-                        }
+        }
+        return awaitRailGraphResponse(responseLease.future());
+    }
+
+    private RailGraphSource loadRailGraphSource(
+            Connection connection,
+            RailGraphCacheKey cacheKey,
+            List<RailGraphComponentSelector.Anchor> anchors) throws SQLException {
+        String sourceRunId = cacheKey.run().id();
+        String world = cacheKey.world();
+        long sourceNodeCount = countRailSourceNodes(connection, sourceRunId, world);
+        if (sourceNodeCount > maximumSourceNodes) {
+            throw new RailGraphCapacityException(
+                    world, "nodes", sourceNodeCount, maximumSourceNodes);
+        }
+        long sourceEdgeCount = countRailSourceEdges(connection, sourceRunId, world);
+        if (sourceEdgeCount > maximumSourceEdges) {
+            throw new RailGraphCapacityException(
+                    world, "edges", sourceEdgeCount, maximumSourceEdges);
+        }
+        List<RailNodeSource> sourceNodes = new ArrayList<>((int) sourceNodeCount);
+        try (PreparedStatement query = connection.prepareStatement("""
+                SELECT id, block_x, block_y, block_z, material_name, rail_shape
+                FROM rail_candidate_node
+                WHERE discovery_run_id = ? AND world_name = ?
+                ORDER BY block_x, block_z, block_y
+                """)) {
+            query.setString(1, sourceRunId);
+            query.setString(2, world);
+            try (ResultSet result = query.executeQuery()) {
+                while (result.next()) {
+                    sourceNodes.add(new RailNodeSource(
+                            result.getString(1),
+                            result.getInt(2), result.getInt(3), result.getInt(4),
+                            result.getString(5), result.getString(6)));
+                }
+            }
+        }
+        List<RailEdgeSource> sourceEdges = new ArrayList<>((int) sourceEdgeCount);
+        try (PreparedStatement query = connection.prepareStatement("""
+                SELECT edge.first_node_id, edge.second_node_id
+                FROM rail_candidate_edge edge
+                JOIN rail_candidate_node first_node
+                  ON first_node.id = edge.first_node_id
+                JOIN rail_candidate_node second_node
+                  ON second_node.id = edge.second_node_id
+                WHERE edge.discovery_run_id = ?
+                  AND first_node.discovery_run_id = edge.discovery_run_id
+                  AND second_node.discovery_run_id = edge.discovery_run_id
+                  AND first_node.world_name = ?
+                  AND second_node.world_name = ?
+                ORDER BY edge.first_node_id, edge.second_node_id
+                """)) {
+            query.setString(1, sourceRunId);
+            query.setString(2, world);
+            query.setString(3, world);
+            try (ResultSet result = query.executeQuery()) {
+                while (result.next()) {
+                    sourceEdges.add(new RailEdgeSource(
+                            result.getString(1), result.getString(2)));
+                }
+            }
+        }
+        List<RailGraphComponentSelector.Node> componentNodes = sourceNodes.stream()
+                .map(node -> new RailGraphComponentSelector.Node(
+                        node.id(), node.x(), node.y(), node.z()))
+                .toList();
+        List<RailGraphComponentSelector.Edge> componentEdges = sourceEdges.stream()
+                .map(edge -> new RailGraphComponentSelector.Edge(
+                        edge.firstNodeId(), edge.secondNodeId()))
+                .toList();
+        RailGraphComponentSelector.Classification classification =
+                RailGraphComponentSelector.classify(componentNodes, componentEdges, anchors);
+        return new RailGraphSource(
+                cacheKey.run().id(), world,
+                List.copyOf(sourceNodes), List.copyOf(sourceEdges), classification);
+    }
+
+    private static long countRailSourceNodes(
+            Connection connection,
+            String runId,
+            String world) throws SQLException {
+        try (PreparedStatement query = connection.prepareStatement("""
+                SELECT COUNT(*)
+                FROM rail_candidate_node
+                WHERE discovery_run_id = ? AND world_name = ?
+                """)) {
+            query.setString(1, runId);
+            query.setString(2, world);
+            try (ResultSet result = query.executeQuery()) {
+                return result.next() ? result.getLong(1) : 0L;
+            }
+        }
+    }
+
+    private static long countRailSourceEdges(
+            Connection connection,
+            String runId,
+            String world) throws SQLException {
+        try (PreparedStatement query = connection.prepareStatement("""
+                SELECT COUNT(*)
+                FROM rail_candidate_edge edge
+                JOIN rail_candidate_node first_node
+                  ON first_node.id = edge.first_node_id
+                JOIN rail_candidate_node second_node
+                  ON second_node.id = edge.second_node_id
+                WHERE edge.discovery_run_id = ?
+                  AND first_node.discovery_run_id = edge.discovery_run_id
+                  AND second_node.discovery_run_id = edge.discovery_run_id
+                  AND first_node.world_name = ?
+                  AND second_node.world_name = ?
+                """)) {
+            query.setString(1, runId);
+            query.setString(2, world);
+            query.setString(3, world);
+            try (ResultSet result = query.executeQuery()) {
+                return result.next() ? result.getLong(1) : 0L;
+            }
+        }
+    }
+
+    private RailGraph renderRailGraph(
+            RailGraphSource source,
+            RailGraphScope scope,
+            RailGraphComponentSelector.Selection selection) {
+        List<int[]> nodes = new ArrayList<>();
+        List<String> materials = new ArrayList<>();
+        List<String> shapes = new ArrayList<>();
+        Map<String, Integer> materialIndexes = new LinkedHashMap<>();
+        Map<String, Integer> shapeIndexes = new LinkedHashMap<>();
+        Map<String, Integer> responseNodeIndexes = new LinkedHashMap<>();
+        for (int sourceIndex = 0; sourceIndex < source.nodes().size(); sourceIndex++) {
+            if (!selection.includesNode(sourceIndex)) {
+                continue;
+            }
+            RailNodeSource sourceNode = source.nodes().get(sourceIndex);
+            int materialIndex = materialIndexes.computeIfAbsent(sourceNode.material(), key -> {
+                materials.add(key);
+                return materials.size() - 1;
+            });
+            int shapeIndex = shapeIndexes.computeIfAbsent(sourceNode.shape(), key -> {
+                shapes.add(key);
+                return shapes.size() - 1;
+            });
+            responseNodeIndexes.put(sourceNode.id(), nodes.size());
+            nodes.add(new int[] {
+                    sourceNode.x(), sourceNode.y(), sourceNode.z(),
+                    materialIndex, shapeIndex
+            });
+        }
+        List<int[]> edges = new ArrayList<>();
+        for (RailEdgeSource sourceEdge : source.edges()) {
+            Integer firstIndex = responseNodeIndexes.get(sourceEdge.firstNodeId());
+            Integer secondIndex = responseNodeIndexes.get(sourceEdge.secondNodeId());
+            if (firstIndex != null && secondIndex != null) {
+                edges.add(new int[] {firstIndex, secondIndex});
+            }
+        }
+        return new RailGraph(
+                Optional.of(source.runId()), source.world(), scope,
+                List.copyOf(materials), List.copyOf(shapes),
+                List.copyOf(nodes), List.copyOf(edges),
+                source.nodes().size(), source.edges().size(),
+                selection.visibleComponentCount(), selection.selectedComponentCount(),
+                selection.sourceComponentCount(), selection.anchoredComponentCount(),
+                selection.returnedAnchoredComponentCount(),
+                selection.truncated());
+    }
+
+    private SignInventorySnapshot loadSignInventorySnapshot(
+            Connection connection,
+            String world) throws SQLException {
+        MessageDigest digest = sha256();
+        List<RailGraphComponentSelector.Anchor> anchors = new ArrayList<>();
+        int count = 0;
+        try (PreparedStatement query = connection.prepareStatement("""
+                SELECT id, block_x, block_y, block_z
+                FROM legacy_sign_inventory
+                WHERE world_name = ? AND present = 1
+                ORDER BY id
+                """)) {
+            query.setString(1, world);
+            try (ResultSet result = query.executeQuery()) {
+                while (result.next()) {
+                    count++;
+                    anchors.add(new RailGraphComponentSelector.Anchor(
+                            result.getInt(2), result.getInt(3), result.getInt(4)));
+                    for (int column = 1; column <= 4; column++) {
+                        updateDigest(digest, result.getString(column));
                     }
                 }
             }
-            return new RailGraph(
-                    runId, world, materials, shapes, nodes, edges, truncated);
+        }
+        SignInventoryRevision revision = new SignInventoryRevision(
+                count, HexFormat.of().formatHex(digest.digest()));
+        return new SignInventorySnapshot(revision, List.copyOf(anchors));
+    }
+
+    private RailGraphCacheLease acquireRailGraphCache(RailGraphCacheKey cacheKey) {
+        synchronized (railGraphCacheLock) {
+            if (newestCachedRailRun == null
+                    || cacheKey.run().compareTo(newestCachedRailRun) > 0) {
+                clearCompletedRailCaches();
+                currentSourceKeys.clear();
+                newestCachedRailRun = cacheKey.run();
+            }
+            boolean cacheable = cacheKey.run().equals(newestCachedRailRun);
+            if (cacheable) {
+                RailRunWorld runWorld = new RailRunWorld(cacheKey.run(), cacheKey.world());
+                RailGraphCacheKey previousKey = currentSourceKeys.put(runWorld, cacheKey);
+                if (previousKey != null && !previousKey.equals(cacheKey)) {
+                    removeCompletedSource(previousKey);
+                    removeCompletedResponsesForSource(previousKey);
+                }
+                RailGraphSource completed = completedSourceCache.get(cacheKey);
+                if (completed != null) {
+                    return new RailGraphCacheLease(
+                            CompletableFuture.completedFuture(completed),
+                            false, true, cacheKey);
+                }
+            }
+            CompletableFuture<RailGraphSource> existing = sourceBuildsInFlight.get(cacheKey);
+            if (existing != null) {
+                return new RailGraphCacheLease(existing, false, cacheable, cacheKey);
+            }
+            CompletableFuture<RailGraphSource> future = new CompletableFuture<>();
+            sourceBuildsInFlight.put(cacheKey, future);
+            return new RailGraphCacheLease(future, true, cacheable, cacheKey);
+        }
+    }
+
+    private void completeRailGraphSource(
+            RailGraphCacheLease cacheLease,
+            RailGraphSource source) {
+        synchronized (railGraphCacheLock) {
+            sourceBuildsInFlight.remove(cacheLease.key(), cacheLease.future());
+            if (cacheLease.cacheable() && isCurrentSourceKey(cacheLease.key())) {
+                addCompletedSource(cacheLease.key(), source);
+            }
+        }
+        cacheLease.future().complete(source);
+    }
+
+    private void failRailGraphCache(RailGraphCacheLease cacheLease, Exception exception) {
+        synchronized (railGraphCacheLock) {
+            sourceBuildsInFlight.remove(cacheLease.key(), cacheLease.future());
+        }
+        cacheLease.future().completeExceptionally(exception);
+    }
+
+    private RailGraphResponseLease acquireRailGraphResponseCache(RailGraphResponseKey responseKey) {
+        synchronized (railGraphCacheLock) {
+            boolean cacheable = isResponseCacheable(responseKey.sourceKey());
+            if (cacheable) {
+                RailGraph completed = completedResponseCache.get(responseKey);
+                if (completed != null) {
+                    return new RailGraphResponseLease(
+                            CompletableFuture.completedFuture(completed),
+                            false, true, responseKey);
+                }
+            }
+            CompletableFuture<RailGraph> existing = responseBuildsInFlight.get(responseKey);
+            if (existing != null) {
+                return new RailGraphResponseLease(existing, false, cacheable, responseKey);
+            }
+            CompletableFuture<RailGraph> future = new CompletableFuture<>();
+            responseBuildsInFlight.put(responseKey, future);
+            return new RailGraphResponseLease(future, true, cacheable, responseKey);
+        }
+    }
+
+    private void completeRailGraphResponse(
+            RailGraphResponseLease responseLease,
+            RailGraph graph) {
+        synchronized (railGraphCacheLock) {
+            responseBuildsInFlight.remove(responseLease.key(), responseLease.future());
+            if (responseLease.cacheable()
+                    && isResponseCacheable(responseLease.key().sourceKey())) {
+                addCompletedResponse(responseLease.key(), graph);
+            }
+        }
+        responseLease.future().complete(graph);
+    }
+
+    private void failRailGraphResponse(
+            RailGraphResponseLease responseLease,
+            RuntimeException exception) {
+        synchronized (railGraphCacheLock) {
+            responseBuildsInFlight.remove(responseLease.key(), responseLease.future());
+        }
+        responseLease.future().completeExceptionally(exception);
+    }
+
+    private boolean isCurrentSourceKey(RailGraphCacheKey cacheKey) {
+        return cacheKey.run().equals(newestCachedRailRun)
+                && cacheKey.equals(currentSourceKeys.get(
+                        new RailRunWorld(cacheKey.run(), cacheKey.world())));
+    }
+
+    private boolean isResponseCacheable(RailGraphCacheKey sourceKey) {
+        return isCurrentSourceKey(sourceKey) && completedSourceCache.containsKey(sourceKey);
+    }
+
+    private void addCompletedSource(RailGraphCacheKey key, RailGraphSource source) {
+        removeCompletedSource(key);
+        completedSourceCache.put(key, source);
+        completedSourceNodes += source.nodes().size();
+        completedSourceEdges += source.edges().size();
+        while (completedSourceCache.size() > MAXIMUM_COMPLETED_SOURCE_ENTRIES
+                || completedSourceNodes > MAXIMUM_COMPLETED_SOURCE_NODES
+                || completedSourceEdges > MAXIMUM_COMPLETED_SOURCE_EDGES) {
+            Iterator<Map.Entry<RailGraphCacheKey, RailGraphSource>> iterator =
+                    completedSourceCache.entrySet().iterator();
+            Map.Entry<RailGraphCacheKey, RailGraphSource> eldest = iterator.next();
+            iterator.remove();
+            completedSourceNodes -= eldest.getValue().nodes().size();
+            completedSourceEdges -= eldest.getValue().edges().size();
+            removeCompletedResponsesForSource(eldest.getKey());
+        }
+    }
+
+    private void removeCompletedSource(RailGraphCacheKey key) {
+        RailGraphSource removed = completedSourceCache.remove(key);
+        if (removed != null) {
+            completedSourceNodes -= removed.nodes().size();
+            completedSourceEdges -= removed.edges().size();
+        }
+    }
+
+    private void addCompletedResponse(RailGraphResponseKey key, RailGraph graph) {
+        removeCompletedResponse(key);
+        completedResponseCache.put(key, graph);
+        completedResponseNodes += graph.nodes().size();
+        completedResponseEdges += graph.edges().size();
+        while (completedResponseCache.size() > MAXIMUM_COMPLETED_RESPONSE_ENTRIES
+                || completedResponseNodes > MAXIMUM_COMPLETED_RESPONSE_NODES
+                || completedResponseEdges > MAXIMUM_COMPLETED_RESPONSE_EDGES) {
+            Iterator<Map.Entry<RailGraphResponseKey, RailGraph>> iterator =
+                    completedResponseCache.entrySet().iterator();
+            Map.Entry<RailGraphResponseKey, RailGraph> eldest = iterator.next();
+            iterator.remove();
+            completedResponseNodes -= eldest.getValue().nodes().size();
+            completedResponseEdges -= eldest.getValue().edges().size();
+        }
+    }
+
+    private void removeCompletedResponse(RailGraphResponseKey key) {
+        RailGraph removed = completedResponseCache.remove(key);
+        if (removed != null) {
+            completedResponseNodes -= removed.nodes().size();
+            completedResponseEdges -= removed.edges().size();
+        }
+    }
+
+    private void removeCompletedResponsesForSource(RailGraphCacheKey sourceKey) {
+        Iterator<Map.Entry<RailGraphResponseKey, RailGraph>> iterator =
+                completedResponseCache.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<RailGraphResponseKey, RailGraph> entry = iterator.next();
+            if (entry.getKey().sourceKey().equals(sourceKey)) {
+                completedResponseNodes -= entry.getValue().nodes().size();
+                completedResponseEdges -= entry.getValue().edges().size();
+                iterator.remove();
+            }
+        }
+    }
+
+    private void clearCompletedRailCaches() {
+        completedSourceCache.clear();
+        completedResponseCache.clear();
+        completedSourceNodes = 0;
+        completedSourceEdges = 0;
+        completedResponseNodes = 0;
+        completedResponseEdges = 0;
+    }
+
+    private static RailGraphSource awaitRailGraphSource(
+            CompletableFuture<RailGraphSource> future) throws SQLException {
+        try {
+            return future.join();
+        } catch (CompletionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof SQLException sqlException) {
+                throw sqlException;
+            }
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException("Rail graph cache materialization failed", cause);
+        }
+    }
+
+    private static RailGraph awaitRailGraphResponse(
+            CompletableFuture<RailGraph> future) {
+        try {
+            return future.join();
+        } catch (CompletionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException("Rail graph response render failed", cause);
+        }
+    }
+
+    private static void acquirePermit(Semaphore semaphore) {
+        try {
+            semaphore.acquire();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Rail graph processing was interrupted", exception);
+        }
+    }
+
+    private static MessageDigest sha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    private static void updateDigest(MessageDigest digest, String value) {
+        if (value == null) {
+            digest.update((byte) 0);
+            return;
+        }
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        digest.update((byte) 1);
+        digest.update((byte) (bytes.length >>> 24));
+        digest.update((byte) (bytes.length >>> 16));
+        digest.update((byte) (bytes.length >>> 8));
+        digest.update((byte) bytes.length);
+        digest.update(bytes);
+    }
+
+    long railGraphMaterializationCount() {
+        return railGraphMaterializations.get();
+    }
+
+    long railGraphResponseRenderCount() {
+        return railGraphResponseRenders.get();
+    }
+
+    int railGraphCacheEntryCount() {
+        synchronized (railGraphCacheLock) {
+            return completedSourceCache.size();
         }
     }
 
@@ -1235,16 +1732,18 @@ public final class AdminDataRepository {
         }
     }
 
-    private Optional<String> latestRailRunId(Connection connection) throws SQLException {
+    private Optional<RailRunRevision> latestRailRunRevision(Connection connection) throws SQLException {
         try (PreparedStatement query = connection.prepareStatement("""
-                SELECT id
+                SELECT id, completed_at
                 FROM rail_discovery_run
                 WHERE status = 'COMPLETED'
-                ORDER BY completed_at DESC
+                ORDER BY completed_at DESC, id DESC
                 LIMIT 1
                 """);
              ResultSet result = query.executeQuery()) {
-            return result.next() ? Optional.of(result.getString(1)) : Optional.empty();
+            return result.next()
+                    ? Optional.of(new RailRunRevision(result.getString(1), result.getString(2)))
+                    : Optional.empty();
         }
     }
 
@@ -1752,14 +2251,146 @@ public final class AdminDataRepository {
             String createdAt) {
     }
 
+    /**
+     * visibleComponentCount is the actual response count; selectedComponentCount is the scope
+     * count before capping. anchoredComponentCount describes the complete source graph, while
+     * returnedAnchoredComponentCount describes only anchored components present in the response.
+     * Collections are immutable; contained coordinate and edge arrays are internal read-only data.
+     */
     public record RailGraph(
             Optional<String> runId,
             String worldName,
+            RailGraphScope scope,
             List<String> materials,
             List<String> shapes,
             List<int[]> nodes,
             List<int[]> edges,
+            int sourceNodeCount,
+            int sourceEdgeCount,
+            int visibleComponentCount,
+            int selectedComponentCount,
+            int sourceComponentCount,
+            int anchoredComponentCount,
+            int returnedAnchoredComponentCount,
             boolean truncated) {
+    }
+
+    private record RailNodeSource(
+            String id,
+            int x,
+            int y,
+            int z,
+            String material,
+            String shape) {
+    }
+
+    private record RailEdgeSource(String firstNodeId, String secondNodeId) {
+    }
+
+    private record RailGraphSource(
+            String runId,
+            String world,
+            List<RailNodeSource> nodes,
+            List<RailEdgeSource> edges,
+            RailGraphComponentSelector.Classification classification) {
+    }
+
+    private record SignInventoryRevision(int presentCount, String fingerprint) {
+    }
+
+    private record SignInventorySnapshot(
+            SignInventoryRevision revision,
+            List<RailGraphComponentSelector.Anchor> anchors) {
+    }
+
+    private record RailGraphCacheKey(
+            RailRunRevision run,
+            String world,
+            SignInventoryRevision signRevision) {
+    }
+
+    private record RailGraphCacheLease(
+            CompletableFuture<RailGraphSource> future,
+            boolean builder,
+            boolean cacheable,
+            RailGraphCacheKey key) {
+    }
+
+    private record RailGraphResponseKey(
+            RailGraphCacheKey sourceKey,
+            RailGraphScope scope,
+            int maximumElements) {
+    }
+
+    private record RailGraphResponseLease(
+            CompletableFuture<RailGraph> future,
+            boolean builder,
+            boolean cacheable,
+            RailGraphResponseKey key) {
+    }
+
+    private record RailRunWorld(RailRunRevision run, String world) {
+    }
+
+    private record RailRunRevision(String id, String completedAt)
+            implements Comparable<RailRunRevision> {
+        @Override
+        public int compareTo(RailRunRevision other) {
+            int completedAtComparison = completedAt.compareTo(other.completedAt);
+            return completedAtComparison != 0
+                    ? completedAtComparison
+                    : id.compareTo(other.id);
+        }
+    }
+
+    public static final class RailGraphCapacityException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private final String world;
+        private final String elementType;
+        private final long actualCount;
+        private final long maximumCount;
+
+        private RailGraphCapacityException(
+                String world,
+                String elementType,
+                long actualCount,
+                long maximumCount) {
+            super(capacityMessage(world, elementType, actualCount, maximumCount));
+            this.world = world;
+            this.elementType = elementType;
+            this.actualCount = actualCount;
+            this.maximumCount = maximumCount;
+        }
+
+        public String world() {
+            return world;
+        }
+
+        public String elementType() {
+            return elementType;
+        }
+
+        public long actualCount() {
+            return actualCount;
+        }
+
+        public long maximumCount() {
+            return maximumCount;
+        }
+
+        private static String capacityMessage(
+                String world,
+                String elementType,
+                long actualCount,
+                long maximumCount) {
+            String recovery = "nodes".equals(elementType)
+                    ? "Reduce infrastructure-discovery.rail.maximum-nodes to at most "
+                            + maximumCount + " and run rail discovery again."
+                    : "Regenerate the rail discovery inventory; report an integrity issue if "
+                            + "the edge count remains above " + maximumCount + ".";
+            return "Rail graph " + elementType + " for " + world + " exceed the safety limit: "
+                    + actualCount + " > " + maximumCount + ". " + recovery;
+        }
     }
 
     public static final class OptimisticLockException extends RuntimeException {

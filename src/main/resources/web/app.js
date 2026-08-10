@@ -20,12 +20,13 @@ const state = {
   zones: [],
   fareRules: [],
   selectedSymbol: null,
-  graph: { nodes: [], edges: [], materials: [], shapes: [], runId: null, worldName: "", truncated: false },
+  graph: emptyRailGraph("", "NETWORK"),
   networkMap: null,
   mapViewMode: "TOP",
   railBlocksVisible: false,
   mapGridVisible: false,
-  mapLoadSequence: 0
+  mapLoadSequence: 0,
+  mapLoadController: null
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -113,6 +114,7 @@ function bindEvents() {
   $("#reload-map").addEventListener("click", loadMap);
   $("#fit-map").addEventListener("click", fitMap);
   $("#north-map").addEventListener("click", () => state.networkMap?.north());
+  $("#map-rail-scope").addEventListener("change", loadMap);
   $("#map-object-scope").addEventListener("change", handleMapObjectScopeChange);
   $("#toggle-map-grid").addEventListener("click", toggleMapGrid);
   $("#toggle-rail-blocks").addEventListener("click", toggleRailBlocks);
@@ -1481,7 +1483,10 @@ async function refreshAudit() {
 
 async function loadMap() {
   const world = $("#map-world").value;
+  const railScope = getMapRailScope();
   const loadSequence = ++state.mapLoadSequence;
+  state.mapLoadController?.abort();
+  state.mapLoadController = null;
   if (!state.networkMap) return;
   if (state.selectedSymbol && state.selectedSymbol.worldName !== world) {
     state.selectedSymbol = null;
@@ -1489,21 +1494,31 @@ async function loadMap() {
     renderSymbolTable();
   }
   if (!world) {
-    state.graph = emptyRailGraph("");
+    state.graph = emptyRailGraph("", railScope);
     updateMapEmptyState(world);
     updateNetworkMapScene(true);
     return;
   }
-  state.graph = emptyRailGraph(world);
-  showMapMessage("LOADING RAIL EVIDENCE", `Reading the latest saved rail snapshot for ${world}.`);
+  state.graph = emptyRailGraph(world, railScope);
+  updateMapScopeInterface(railScope);
+  if (railScope === "ALL_EVIDENCE") {
+    showMapMessage("LOADING ALL RAIL EVIDENCE", `Reading every discovered rail component in ${world} for forensic review.`);
+  } else {
+    showMapMessage("LOADING RELEVANT TRACKS", `Applying the relevance filter to the latest saved rail inventory for ${world}.`);
+  }
   updateNetworkMapScene(true);
+  const loadController = new AbortController();
+  state.mapLoadController = loadController;
   try {
-    const graph = await request(`/api/v1/network/rails?world=${encodeURIComponent(world)}`);
-    if (loadSequence !== state.mapLoadSequence || $("#map-world").value !== world) return;
+    const graph = await request(
+      `/api/v1/network/rails?world=${encodeURIComponent(world)}&scope=${encodeURIComponent(railScope)}`,
+      { signal: loadController.signal }
+    );
+    if (!mapLoadIsCurrent(loadSequence, world, railScope)) return;
     const overviewRunId = state.overview?.railRun?.runId || null;
     const graphRunId = graph.runId || null;
     if (overviewRunId !== graphRunId) await refreshOverview();
-    if (loadSequence !== state.mapLoadSequence || $("#map-world").value !== world) return;
+    if (!mapLoadIsCurrent(loadSequence, world, railScope)) return;
     state.graph = graph;
     updateMapEmptyState(world);
     updateNetworkMapScene(true);
@@ -1512,23 +1527,56 @@ async function loadMap() {
       state.networkMap?.focusSymbol(state.selectedSymbol.id);
     }
   } catch (error) {
-    if (loadSequence !== state.mapLoadSequence || $("#map-world").value !== world) return;
-    state.graph = emptyRailGraph(world);
+    if (error.name === "AbortError") return;
+    if (!mapLoadIsCurrent(loadSequence, world, railScope)) return;
+    state.graph = emptyRailGraph(world, railScope);
     state.selectedSymbol = null;
     renderInspector();
     renderSymbolTable();
-    showMapMessage("RAIL MAP UNAVAILABLE", `${error.message} Use Reload to try again.`);
+    showMapMessage(
+      railScope === "ALL_EVIDENCE" ? "RAIL EVIDENCE UNAVAILABLE" : "RELEVANT TRACKS UNAVAILABLE",
+      `${error.message} Use Reload to try again.`
+    );
     updateNetworkMapScene(true);
     showToast(error.message, true);
+  } finally {
+    if (state.mapLoadController === loadController) state.mapLoadController = null;
   }
 }
 
-function emptyRailGraph(world) {
-  return { nodes: [], edges: [], materials: [], shapes: [], runId: null, worldName: world, truncated: false };
+function getMapRailScope() {
+  return $("#map-rail-scope")?.value || "NETWORK";
+}
+
+function mapLoadIsCurrent(loadSequence, world, railScope) {
+  return loadSequence === state.mapLoadSequence &&
+    $("#map-world").value === world &&
+    getMapRailScope() === railScope;
+}
+
+function emptyRailGraph(world, scope) {
+  return {
+    nodes: [],
+    edges: [],
+    materials: [],
+    shapes: [],
+    runId: null,
+    worldName: world,
+    scope,
+    truncated: false,
+    sourceNodeCount: 0,
+    sourceEdgeCount: 0,
+    selectedComponentCount: 0,
+    visibleComponentCount: 0,
+    sourceComponentCount: 0,
+    returnedAnchoredComponentCount: 0,
+    anchoredComponentCount: 0
+  };
 }
 
 function showMapMessage(titleText, messageText) {
   const empty = $("#map-empty");
+  $("#map-warning").hidden = true;
   empty.hidden = false;
   const title = document.createElement("b");
   const message = document.createElement("span");
@@ -1541,19 +1589,54 @@ function updateMapEmptyState(world) {
   if (!state.networkMap) return;
   if (state.graph.runId && state.graph.nodes.length > 0) {
     $("#map-empty").hidden = true;
+    updateMapAnchoredWarning();
     return;
   }
   if (state.graph.runId) {
-    showMapMessage(
-      "NO RAIL EVIDENCE IN THIS WORLD",
-      `The latest rail snapshot contains no saved rail nodes for ${world}.`
-    );
+    if (state.graph.truncated &&
+        state.graph.selectedComponentCount > 0 &&
+        state.graph.visibleComponentCount === 0) {
+      showMapMessage(
+        "MAP LIMIT TOO LOW",
+        `The configured map limit cannot fit one complete component in ${world}. Increase web.network-max-elements and reload.`
+      );
+      return;
+    }
+    if (state.graph.scope === "NETWORK") {
+      showMapMessage(
+        "NO RELEVANT TRACKS FOUND",
+        state.graph.sourceNodeCount > 0
+          ? `The relevance filter did not retain any of the ${state.graph.sourceComponentCount} discovered rail evidence components in ${world}. Choose All Rail Evidence for forensic review.`
+          : `The latest rail inventory contains no saved rail evidence for ${world}.`
+      );
+    } else {
+      showMapMessage(
+        "NO RAIL EVIDENCE IN THIS WORLD",
+        `The latest rail inventory contains no saved rail evidence for ${world}.`
+      );
+    }
   } else {
     showMapMessage(
-      "NO RAIL CANDIDATE SNAPSHOT",
-      "Run /atcs discover rail to inventory existing rail evidence without generating terrain."
+      "NO RAIL INVENTORY SNAPSHOT",
+      "Run /atcs discover rail to inventory rail evidence without generating terrain."
     );
   }
+}
+
+function updateMapAnchoredWarning() {
+  const warning = $("#map-warning");
+  const returned = state.graph.returnedAnchoredComponentCount;
+  const source = state.graph.anchoredComponentCount;
+  const omitted = Math.max(0, source - returned);
+  warning.hidden = omitted === 0;
+  if (omitted === 0) return;
+  const title = document.createElement("b");
+  const message = document.createElement("span");
+  title.textContent = omitted === 1
+    ? "ANCHORED TRACK OMITTED BY MAP LIMIT"
+    : "ANCHORED TRACKS OMITTED BY MAP LIMIT";
+  message.textContent = `Returned ${returned} of ${source} anchored components. Increase web.network-max-elements and reload.`;
+  warning.replaceChildren(title, message);
 }
 
 function fitMap() {
@@ -1576,19 +1659,34 @@ function updateNetworkMapScene(graphChanged = false) {
   else state.networkMap?.setSymbols(symbols);
   state.networkMap?.setSelectedSymbol(state.selectedSymbol?.id || null);
   const rail = state.overview?.railRun;
+  updateMapScopeInterface(state.graph.scope);
+  const componentCountDetail = state.graph.selectedComponentCount !== state.graph.visibleComponentCount
+    ? `COMPONENTS ${state.graph.visibleComponentCount} RETURNED, ${state.graph.selectedComponentCount} SELECTED, ${state.graph.sourceComponentCount} SOURCE`
+    : `COMPONENTS ${state.graph.visibleComponentCount}/${state.graph.sourceComponentCount}`;
   const detail = [
     `WORLD ${world || "—"}`,
     state.mapViewMode,
-    `RAIL NODES ${state.graph.nodes.length}`,
-    `EDGES ${state.graph.edges.length}`,
+    state.graph.scope === "ALL_EVIDENCE" ? "ALL RAIL EVIDENCE" : "RELEVANT TRACKS",
+    `RETURNED/SOURCE NODES ${state.graph.nodes.length}/${state.graph.sourceNodeCount}`,
+    `EDGES ${state.graph.edges.length}/${state.graph.sourceEdgeCount}`,
+    componentCountDetail,
+    `ANCHORED RETURNED/SOURCE ${state.graph.returnedAnchoredComponentCount}/${state.graph.anchoredComponentCount}`,
     `OBJECTS ${symbols.length}/${worldSymbols.length}`,
-    state.railBlocksVisible ? "RAIL BLOCKS ON" : "RAIL BLOCKS OFF",
+    state.railBlocksVisible ? "BLOCKS ON" : "BLOCKS OFF",
     state.mapGridVisible ? "GRID ON" : "GRID OFF"
   ];
   if (state.graph.truncated) detail.push("TRUNCATED");
   if (rail?.discoveryMode) detail.push(rail.discoveryMode);
   $("#map-coordinates").textContent = detail.join(" / ");
   updateMapSelectionBadge(symbols);
+}
+
+function updateMapScopeInterface(railScope) {
+  const allEvidence = railScope === "ALL_EVIDENCE";
+  $("#map-track-key-label").textContent = allEvidence ? "RAIL EVIDENCE" : "RELEVANT TRACK";
+  $("#map-track-scope-note").textContent = allEvidence
+    ? "Forensic scope shows every discovered rail component. Click a marker to inspect."
+    : "Filtered evidence only, not an authoritative route. Raw evidence remains available.";
 }
 
 function mapObjectScopeIncludes(scope, item) {
@@ -1692,6 +1790,7 @@ async function request(path, options = {}) {
     method: options.method || "GET",
     headers,
     credentials: "same-origin",
+    signal: options.signal,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined
   });
   const text = await response.text();

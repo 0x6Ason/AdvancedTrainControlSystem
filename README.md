@@ -170,7 +170,7 @@ The web editor adds a separate evidence-backed infrastructure candidate layer. A
 
 When enabled, open the configured loopback address and log on with the generated token stored in the plugin data directory. The current workbench provides:
 
-- a WebGL2 overhead 3D physical rail map with perspective and top views, map-style grid, pan/zoom/orbit controls, material-aware rail colors, and all active legacy symbols overlaid independently;
+- a WebGL2 overhead 3D physical rail map with perspective and top views, map-style grid, pan/zoom/orbit controls, material-aware rail colors, and all active legacy symbols overlaid independently; the default `RELEVANT TRACKS` view retains components within four blocks of present TrainCarts sign evidence or components containing at least 200 rail nodes, while `ALL RAIL EVIDENCE` preserves explicit forensic access to every discovered component;
 - preserved four-line sign evidence and manual `PENDING` / `INCLUDED` / `IGNORED` classification;
 - a separate Candidate Review ledger for departure and track-control suggestions, including preserved raw lines, parsed attributes, inference evidence, evidence fingerprints, stale state, and one-record-at-a-time authority adoption;
 - station and platform creation;
@@ -178,7 +178,7 @@ When enabled, open the configured loopback address and log on with the generated
 - fare gate creation/editing, fare zones, and fare rules;
 - an audit change register.
 
-All web editor text and operational output are English. The interface uses a clean, high-density administration layout with a light theme by default and an optional dark theme. It is implemented as framework-free embedded assets so installations do not need a separate Node.js service. The physical map deliberately requires WebGL2 and does not include a legacy rendering compatibility layer.
+The relevant-tracks projection is a display filter, not operational authority. Approved physical component and corridor identities remain a later evidence-hardening step. All web editor text and operational output are English. The interface uses a clean, high-density administration layout with a light theme by default and an optional dark theme. It is implemented as framework-free embedded assets so installations do not need a separate Node.js service. The physical map deliberately requires WebGL2 and does not include a legacy rendering compatibility layer.
 
 Rail discovery can inspect many millions of block positions. `SAVED_CHUNKS` first performs a background, read-only palette index over existing region files. Complete rail-bearing chunks are loaded without generation for Bukkit snapshots and released immediately when ATCS loaded them. Rail data in incomplete protochunks is decoded directly from Anvil NBT, so ATCS does not complete, generate, or rewrite those chunks. `LOADED_CHUNKS` remains available for a faster memory-only pass. Block inspection is divided across server ticks, empty snapshot sections are skipped, and the final run stores coverage and block-check counts.
 
