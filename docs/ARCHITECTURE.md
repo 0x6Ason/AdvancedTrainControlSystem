@@ -6,8 +6,9 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
 ## Principles
 
 - **Observe, never drive.** TrainCarts does physics, stopping and switching. ATCS listens to its
-  events and adds information. It never moves trains, edits signs it did not create a board on, or
-  loads chunks.
+  events and adds information. It never moves trains or edits signs it did not create a board on.
+  The only chunks it holds itself are those of spawn signs and fleet spawn points; running trains
+  hold their own through TrainCarts' keep-chunks-loaded.
 - **Pure core, thin adapters.** Everything that decides something (network model, journeys, timing,
   departures, importing, route suggestions) is plain Java without Bukkit runtime calls, and is unit
   tested. Bukkit and TrainCarts code only translates events and draws output.
@@ -54,6 +55,15 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
   another service at a terminus even though its tag or match rule still names the first one (the
   runtime also rewrites an explicit tag to keep restarts consistent).
 - Entering the station just left within 15 seconds resumes the visit instead of arriving again.
+
+### TrainCarts timing worth knowing
+
+- `GroupCreateEvent` fires before TrainCarts finishes a new train (`onGroupCreated`, where it
+  works out the chunks the train holds). Keep-chunks-loaded is therefore switched on synchronously
+  in the event (`trainCreating`); everything else about a new train waits a tick (`trainCreated`),
+  by which time a spawn sign has placed every cart and applied its properties. Set a tick later, a
+  train still standing at its spawn point (TrainCarts' only-when-moving rule) would sit in chunks
+  nothing holds, and TrainCarts logs "unloaded unexpectedly" when they go.
 
 ## Persistence
 

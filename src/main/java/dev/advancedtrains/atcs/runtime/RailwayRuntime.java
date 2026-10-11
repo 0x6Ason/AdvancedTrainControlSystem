@@ -344,6 +344,19 @@ public final class RailwayRuntime {
     }
 
     /**
+     * TrainCarts is creating a train and has not set it up yet. Keep-chunks-loaded has to go on
+     * here, before TrainCarts works out which chunks the train occupies: it holds those chunks only
+     * for a train that already has the property. Switched on a tick later, a train still standing
+     * at its spawn point (TrainCarts' only-when-moving rule) would occupy chunks that nothing
+     * holds, and TrainCarts logs "unloaded unexpectedly" when they go.
+     */
+    public void trainCreating(TrainHandle train) {
+        if (settings.trains().keepChunksLoaded() && !train.keepsChunksLoaded()) {
+            train.keepChunksLoaded(true);
+        }
+    }
+
+    /**
      * A train was created, by a TrainCarts spawn sign at {@code spawnSign} if known. Trains from a
      * spawn sign listed by a service are assigned to it, unless they already carry an assignment.
      */

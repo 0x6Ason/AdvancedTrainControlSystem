@@ -75,6 +75,10 @@ public final class TrainCartsListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onGroupCreate(GroupCreateEvent event) {
         MinecartGroup group = event.getGroup();
+        if (!group.isEmpty()) {
+            // Settings TrainCarts reads while finishing the train must be in place right now.
+            runtime.trainCreating(new TrainCartsTrain(group));
+        }
         // Wait a tick so a spawn sign has placed every cart and applied its properties.
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             if (!TrainCartsTrains.usable(group)) {
