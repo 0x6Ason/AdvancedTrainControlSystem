@@ -54,14 +54,31 @@ final class TrainCartsTrain implements TrainHandle {
     }
 
     @Override
-    public void setAssignment(@Nullable ServiceKey service) {
+    public void setAssignment(ServiceKey service, boolean inferred) {
         TrainProperties properties = group.getProperties();
-        List<String> stale = properties.getTags().stream().filter(ServiceResolver::isAssignmentTag).toList();
+        removeAtcsTags(properties);
+        if (inferred) {
+            properties.addTags(ServiceResolver.assignmentTag(service), ServiceResolver.TAG_INFERRED);
+        } else {
+            properties.addTags(ServiceResolver.assignmentTag(service));
+        }
+    }
+
+    @Override
+    public void clearAssignment(boolean manual) {
+        TrainProperties properties = group.getProperties();
+        removeAtcsTags(properties);
+        if (manual) {
+            properties.addTags(ServiceResolver.manualTag());
+        }
+    }
+
+    private static void removeAtcsTags(TrainProperties properties) {
+        List<String> stale = properties.getTags().stream()
+                .filter(tag -> ServiceResolver.isAssignmentTag(tag) || ServiceResolver.isInferredTag(tag))
+                .toList();
         if (!stale.isEmpty()) {
             properties.removeTags(stale.toArray(String[]::new));
-        }
-        if (service != null) {
-            properties.addTags(ServiceResolver.assignmentTag(service));
         }
     }
 }

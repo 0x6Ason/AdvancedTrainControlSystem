@@ -7,6 +7,8 @@ TrainCarts server, configured with files and in-game commands.
 
 ### Added
 
+- Service inference from the stations a train visits, for trains no spawn sign or sign ever
+  assigned (loop lines); `/atcs train auto` and a manual mode for `/atcs train unassign`.
 - Network model in `network.yml`: stations, platforms with trigger signs, lines with colours and
   badges, directional services with planned platforms, run-through stops, circular services,
   continuations at termini, automatic assignment rules and spawn-sign bindings, departure boards.

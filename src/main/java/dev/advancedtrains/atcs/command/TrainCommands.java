@@ -40,11 +40,16 @@ final class TrainCommands {
                     support.runtime.assign(train, key);
                     Chat.success(context.sender(), "Train " + train.name() + " now runs " + key);
                 }, (context, index) -> index == 0 ? support.serviceKeys() : index == 1 ? support.trainNames() : List.of()),
-                leaf("unassign", MANAGE, "[train]", "Remove a train's explicit service", context -> {
+                leaf("unassign", MANAGE, "[train]", "Take a train out of service and off automatic assignment", context -> {
                     TrainHandle train = support.train(context, 0);
-                    support.runtime.assign(train, null);
+                    support.runtime.unassign(train, true);
                     Chat.success(context.sender(), "Train " + train.name()
-                            + " has no explicit service (automatic match rules still apply)");
+                            + " has no service and will not be assigned automatically. /atcs train auto puts it back.");
+                }, trains),
+                leaf("auto", MANAGE, "[train]", "Let spawn signs, match rules and its route assign a train again", context -> {
+                    TrainHandle train = support.train(context, 0);
+                    support.runtime.unassign(train, false);
+                    Chat.success(context.sender(), "Train " + train.name() + " is assigned automatically again");
                 }, trains));
     }
 
@@ -85,8 +90,19 @@ final class TrainCommands {
             journey.map(JourneySnapshot::currentStationId).ifPresent(station ->
                     sender.sendMessage(Chat.field("At", network.stationName(station))));
         }
-        boolean explicit = ServiceResolver.taggedService(info.tags()).isPresent();
-        sender.sendMessage(Chat.field("Assigned by", view.isEmpty() ? "-" : explicit ? "ATCS sign or command" : "match rule"));
+        String assignedBy;
+        if (ServiceResolver.isManual(info.tags())) {
+            assignedBy = "nobody: taken out of service with /atcs train unassign";
+        } else if (view.isEmpty()) {
+            assignedBy = "-";
+        } else if (ServiceResolver.isInferred(info.tags())) {
+            assignedBy = "its route (inferred from the stations it visited)";
+        } else if (ServiceResolver.taggedService(info.tags()).isPresent()) {
+            assignedBy = "ATCS sign, spawn sign or command";
+        } else {
+            assignedBy = "match rule";
+        }
+        sender.sendMessage(Chat.field("Assigned by", assignedBy));
         if (!info.destination().isEmpty()) {
             sender.sendMessage(Chat.field("TrainCarts destination", info.destination()));
         }

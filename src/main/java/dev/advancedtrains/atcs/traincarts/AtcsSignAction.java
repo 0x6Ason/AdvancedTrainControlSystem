@@ -55,7 +55,7 @@ public final class AtcsSignAction extends SignAction {
                 }
             }
             case AtcsSign.ServiceSign service when entering && info.isPowered() -> runtime.assign(train, service.service());
-            case AtcsSign.ClearSign ignored when entering && info.isPowered() -> runtime.assign(train, null);
+            case AtcsSign.ClearSign ignored when entering && info.isPowered() -> runtime.unassign(train, true);
             default -> {
             }
         }

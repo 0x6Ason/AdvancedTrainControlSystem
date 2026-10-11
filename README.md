@@ -114,7 +114,20 @@ around at the end.
    written by an ATCS service sign, a spawn sign listed by a service, or `/atcs train assign`;
 2. the first service whose `match` rules fit the train: its TrainCarts destination or route, a tag,
    or its name (useful with TrainCarts path finding);
-3. otherwise the train has no service; riders still see station names on arrival.
+3. **its route**: once a train with no service has been seen at two stations in an order that only
+   one service explains, it gets that service (stored on the train, so it survives restarts). A
+   train that later strays onto another line is re-inferred. This is how loop lines work, where the
+   same trains run all day and no spawn sign ever creates them;
+4. otherwise the train has no service; riders still see station names on arrival.
+
+`/atcs train unassign` takes a train out of service *and* out of automatic assignment (for a
+maintenance run, say); `/atcs train auto` puts it back.
+
+**A loop line.** Build the stations with ordinary TrainCarts `station` signs so trains stop
+(ATCS never drives trains; it reads those signs as platform triggers), bind or import them, create
+the service with `/atcs service stops ... ` and `/atcs service circular <service> true`, and put
+trains on the track however you like. Every train is recognised after its first two stops. Every
+station of the loop needs a trigger, because inference follows the stop order exactly.
 
 **Following a train.** ATCS searches forward along the service from the last stop reached, so
 stations without triggers and trains that were unloaded for part of the trip are handled. Travel and
@@ -160,7 +173,7 @@ platform. The layout is in `messages.yml`.
 | `/atcs service info` | atcs.use | A service and what has been learned about it |
 | `/atcs service create\|stops\|record\|spawn\|unspawn\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services |
 | `/atcs train info [train]` | atcs.use | The train you ride or look at |
-| `/atcs train assign\|unassign`, `/atcs trains` | atcs.manage | Assignments |
+| `/atcs train assign\|unassign\|auto`, `/atcs trains` | atcs.manage | Assignments |
 | `/atcs board create\|add\|unbind\|remove\|list` | atcs.manage | Departure boards |
 | `/atcs import scan\|stations\|services\|write\|apply\|reset` | atcs.manage | Set-up from the world |
 | `/atcs status`, `/atcs reload`, `/atcs debug` | atcs.manage | Administration |

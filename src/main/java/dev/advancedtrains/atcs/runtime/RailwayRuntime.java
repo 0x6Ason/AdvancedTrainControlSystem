@@ -22,6 +22,7 @@ import dev.advancedtrains.atcs.operation.JourneyEvent;
 import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.operation.JourneySnapshot;
 import dev.advancedtrains.atcs.operation.JourneyTracker;
+import dev.advancedtrains.atcs.operation.RouteMatcher;
 import dev.advancedtrains.atcs.operation.ServiceResolver;
 import dev.advancedtrains.atcs.operation.StopObservation;
 import dev.advancedtrains.atcs.operation.TrackPaths;
@@ -101,6 +102,8 @@ public final class RailwayRuntime {
     private int drawnPathsVersion = -1;
     private boolean debug;
     private Map<BlockPos, ServiceKey> knownSpawnSigns;
+    /** Consecutive visits to stations a train's inferred service does not list. */
+    private final Map<String, Integer> offRouteVisits = new HashMap<>();
 
     public RailwayRuntime(
             Plugin plugin,
@@ -236,10 +239,11 @@ public final class RailwayRuntime {
             logger.info("[debug] " + train.name() + " created" + (spawnSign == null ? "" : " by spawn sign at " + spawnSign.coordinates()));
         }
         Network network = store.network();
-        boolean assigned = ServiceResolver.taggedService(train.info().tags())
+        Set<String> tags = train.info().tags();
+        boolean assigned = ServiceResolver.taggedService(tags)
                 .filter(key -> network.service(key).isPresent())
                 .isPresent();
-        if (spawnSign == null || assigned) {
+        if (spawnSign == null || assigned || ServiceResolver.isManual(tags)) {
             return;
         }
         network.serviceSpawnedAt(spawnSign).ifPresent(service -> assign(train, service));
@@ -273,13 +277,15 @@ public final class RailwayRuntime {
         for (TrainHandle train : trains.loadedTrains()) {
             BlockPos sign = trips.spawnSignOf(train.name());
             ServiceKey service = sign == null ? null : added.get(sign);
-            if (service != null && ServiceResolver.resolve(train.info(), network).isEmpty()) {
+            if (service != null && ServiceResolver.resolve(train.info(), network).isEmpty()
+                    && !ServiceResolver.isManual(train.info().tags())) {
                 assign(train, service);
             }
         }
     }
 
     public void trainRemoved(String name) {
+        offRouteVisits.remove(name);
         trips.ended(name);
         if (debug) {
             logger.info("[debug] " + name + " removed");
@@ -314,15 +320,67 @@ public final class RailwayRuntime {
 
     // ---------------------------------------------------------------- commands and queries
 
-    /** Assigns or clears a train's service explicitly and stores it on the train. */
-    public List<JourneyEvent> assign(TrainHandle train, @Nullable ServiceKey service) {
-        train.setAssignment(service);
+    /** Assigns a service explicitly (command, ATCS sign, spawn sign) and stores it on the train. */
+    public List<JourneyEvent> assign(TrainHandle train, ServiceKey service) {
+        return assign(train, service, false);
+    }
+
+    private List<JourneyEvent> assign(TrainHandle train, ServiceKey service, boolean inferred) {
+        train.setAssignment(service, inferred);
+        offRouteVisits.remove(train.name());
         List<JourneyEvent> events = tracker.assign(train.name(), service, store.network(), clock.instant());
         if (debug) {
-            logger.info("[debug] " + train.name() + (service == null ? " unassigned" : " assigned " + service) + " -> " + events);
+            logger.info("[debug] " + train.name() + (inferred ? " inferred " : " assigned ") + service + " -> " + events);
         }
         handle(train, events);
         return events;
+    }
+
+    /**
+     * Removes a train's service. With {@code manual} the train stays without one until an operator
+     * assigns it again; otherwise spawn signs, match rules and route inference apply as usual.
+     */
+    public List<JourneyEvent> unassign(TrainHandle train, boolean manual) {
+        train.clearAssignment(manual);
+        offRouteVisits.remove(train.name());
+        List<JourneyEvent> events = tracker.assign(train.name(), null, store.network(), clock.instant());
+        if (debug) {
+            logger.info("[debug] " + train.name() + (manual ? " set to manual" : " set to automatic") + " -> " + events);
+        }
+        handle(train, events);
+        return events;
+    }
+
+    /**
+     * Gives a train without a service the one its recent stops identify, and re-infers a train
+     * whose inferred service no longer explains where it goes.
+     */
+    private void inferService(TrainHandle train, Network network) {
+        AtcsSettings.Assignment rules = settings.assignment();
+        if (!rules.inferFromRoute()) {
+            return;
+        }
+        Set<String> tags = train.info().tags();
+        if (ServiceResolver.isManual(tags)) {
+            return;
+        }
+        JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+        if (journey == null) {
+            return;
+        }
+        if (journey.service() != null && (!ServiceResolver.isInferred(tags)
+                || offRouteVisits.getOrDefault(train.name(), 0) < rules.minStops())) {
+            return;
+        }
+        Optional<ServiceKey> match = RouteMatcher.infer(
+                trips.recentStations(train.name(), RouteMatcher.MAX_WINDOW), network, rules.minStops());
+        if (match.isPresent()) {
+            if (!match.get().equals(journey.service())) {
+                assign(train, match.get(), true);
+            }
+        } else if (journey.service() != null) {
+            unassign(train, false);
+        }
     }
 
     public Optional<JourneySnapshot> journey(String trainName) {
@@ -402,17 +460,27 @@ public final class RailwayRuntime {
         for (JourneyEvent event : events) {
             times.record(event, network);
             trips.record(event);
+            switch (event) {
+                case JourneyEvent.Passed passed when passed.stopIndex() < 0 ->
+                        offRouteVisits.merge(train.name(), 1, Integer::sum);
+                case JourneyEvent.Passed ignored -> offRouteVisits.remove(train.name());
+                case JourneyEvent.Arrived ignored -> offRouteVisits.remove(train.name());
+                default -> {
+                }
+            }
             if (settings.blueMap().recordTrackPaths()) {
                 paths.onEvent(event, network);
             }
             if (event instanceof JourneyEvent.ServiceChanged changed && changed.to() != null) {
-                Optional<ServiceKey> tagged = ServiceResolver.taggedService(train.info().tags());
+                Set<String> tags = train.info().tags();
+                Optional<ServiceKey> tagged = ServiceResolver.taggedService(tags);
                 if (tagged.isPresent() && !tagged.get().equals(changed.to())) {
                     // Keep the train's tag in step when it continues as another service.
-                    train.setAssignment(changed.to());
+                    train.setAssignment(changed.to(), ServiceResolver.isInferred(tags));
                 }
             }
         }
+        inferService(train, network);
         TrainView view = view(train.name()).orElse(null);
         List<Player> riders = train.riders();
         if (riders.isEmpty()) {

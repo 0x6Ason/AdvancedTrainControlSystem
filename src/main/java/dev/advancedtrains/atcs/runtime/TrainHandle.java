@@ -20,6 +20,12 @@ public interface TrainHandle {
 
     List<Player> riders();
 
-    /** Stores the service assignment on the train itself (a TrainCarts tag), or clears it. */
-    void setAssignment(@Nullable ServiceKey service);
+    /** Stores the service on the train as a TrainCarts tag, so it survives restarts and unloads. */
+    void setAssignment(ServiceKey service, boolean inferred);
+
+    /**
+     * Removes the stored service. With {@code manual} the train is also marked as not to be
+     * assigned automatically until an operator assigns it again or clears that mark.
+     */
+    void clearAssignment(boolean manual);
 }

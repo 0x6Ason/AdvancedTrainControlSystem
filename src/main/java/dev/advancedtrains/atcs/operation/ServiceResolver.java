@@ -18,6 +18,10 @@ import java.util.regex.Pattern;
  */
 public final class ServiceResolver {
     public static final String TAG_PREFIX = "atcs:service=";
+    /** Marks an assignment that was inferred from the train's route rather than set by an operator. */
+    public static final String TAG_INFERRED = "atcs:inferred";
+    /** Tag value of a train an operator cleared: no service, and no automatic assignment either. */
+    public static final String MANUAL_VALUE = "none";
 
     private ServiceResolver() {
     }
@@ -28,6 +32,24 @@ public final class ServiceResolver {
 
     public static boolean isAssignmentTag(String tag) {
         return tag.regionMatches(true, 0, TAG_PREFIX, 0, TAG_PREFIX.length());
+    }
+
+    public static String manualTag() {
+        return TAG_PREFIX + MANUAL_VALUE;
+    }
+
+    public static boolean isInferredTag(String tag) {
+        return tag.equalsIgnoreCase(TAG_INFERRED);
+    }
+
+    /** Whether the train's service was inferred from its route. */
+    public static boolean isInferred(Collection<String> tags) {
+        return tags.stream().anyMatch(ServiceResolver::isInferredTag);
+    }
+
+    /** Whether an operator cleared the train's service and switched automatic assignment off for it. */
+    public static boolean isManual(Collection<String> tags) {
+        return tags.stream().anyMatch(tag -> tag.equalsIgnoreCase(manualTag()));
     }
 
     /** The service named by an assignment tag, if any, whether or not it still exists. */
@@ -48,6 +70,9 @@ public final class ServiceResolver {
         Optional<ServiceKey> tagged = taggedService(train.tags());
         if (tagged.isPresent() && network.service(tagged.get()).isPresent()) {
             return tagged;
+        }
+        if (isManual(train.tags())) {
+            return Optional.empty();
         }
         for (Service service : network.services()) {
             if (!service.match().isEmpty() && matches(service.match(), train)) {

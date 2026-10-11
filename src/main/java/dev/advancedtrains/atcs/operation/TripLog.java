@@ -84,6 +84,18 @@ public final class TripLog {
         dirty = true;
     }
 
+    /** Station ids the running train visited, oldest first, at most {@code max}. */
+    public List<String> recentStations(String trainId, int max) {
+        Active trip = active.get(trainId);
+        if (trip == null) {
+            return List.of();
+        }
+        List<PlatformRef> visits = trip.visits;
+        return visits.subList(Math.max(0, visits.size() - max), visits.size()).stream()
+                .map(PlatformRef::stationId)
+                .toList();
+    }
+
     /** The train was removed (for example by a destroy sign). */
     public void ended(String trainId) {
         Active trip = active.remove(trainId);

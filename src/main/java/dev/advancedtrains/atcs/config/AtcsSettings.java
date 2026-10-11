@@ -1,6 +1,7 @@
 package dev.advancedtrains.atcs.config;
 
 import dev.advancedtrains.atcs.importer.StationImporter;
+import dev.advancedtrains.atcs.operation.RouteMatcher;
 import net.kyori.adventure.key.InvalidKeyException;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.sound.Sound;
@@ -22,6 +23,7 @@ public record AtcsSettings(
         BlueMap blueMap,
         SignLink signLink,
         Importer importer,
+        Assignment assignment,
         boolean debug,
         List<String> warnings) {
 
@@ -66,6 +68,14 @@ public record AtcsSettings(
     }
 
     public record Importer(StationImporter.Settings settings, int chunksPerTick) {
+    }
+
+    /**
+     * @param inferFromRoute give a train with no service the one service whose stop order matches
+     *                       the stations it has visited
+     * @param minStops       visits needed before a service is inferred
+     */
+    public record Assignment(boolean inferFromRoute, int minStops) {
     }
 
     public static AtcsSettings read(ConfigurationSection config) {
@@ -124,7 +134,11 @@ public record AtcsSettings(
                 reader.integer("importer.cluster-radius", defaults.clusterRadius(), 1, 1024)),
                 reader.integer("importer.chunks-per-tick", 8, 1, 256));
 
-        return new AtcsSettings(passenger, boards, timing, blueMap, signLink, importer,
+        Assignment assignment = new Assignment(
+                reader.bool("assignment.infer-from-route", true),
+                reader.integer("assignment.min-stops", 2, 1, RouteMatcher.MAX_WINDOW));
+
+        return new AtcsSettings(passenger, boards, timing, blueMap, signLink, importer, assignment,
                 reader.bool("debug", false), List.copyOf(warnings));
     }
 

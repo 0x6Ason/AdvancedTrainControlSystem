@@ -70,4 +70,13 @@ class ServiceResolverTest {
         assertTrue(ServiceResolver.taggedService(List.of("atcs:service=no-slash")).isEmpty());
         assertEquals(Optional.of(ServiceKey.parse("a/b")), ServiceResolver.taggedService(List.of("atcs:service=a/b")));
     }
+
+    @Test
+    void manualTagSwitchesAutomaticAssignmentOff() {
+        TrainInfo info = train("train7", Set.of("atcs:service=none"), "NewVil2Main", List.of());
+        assertTrue(ServiceResolver.resolve(info, network).isEmpty(), "match rules do not apply either");
+        assertTrue(ServiceResolver.isManual(info.tags()));
+        assertTrue(!ServiceResolver.isInferred(info.tags()));
+        assertTrue(ServiceResolver.isInferred(Set.of("atcs:service=a/north", "ATCS:INFERRED")));
+    }
 }
