@@ -24,6 +24,8 @@ public record AtcsSettings(
         SignLink signLink,
         Importer importer,
         Assignment assignment,
+        Trains trains,
+        Spawning spawning,
         boolean debug,
         List<String> warnings) {
 
@@ -76,6 +78,22 @@ public record AtcsSettings(
      * @param minStops       visits needed before a service is inferred
      */
     public record Assignment(boolean inferFromRoute, int minStops) {
+    }
+
+    /**
+     * @param rename           name trains after their service when ATCS assigns one
+     * @param nameFormat       with placeholders {@code <line>}, {@code <service>} and {@code <n>}
+     * @param keepChunksLoaded switch TrainCarts' keep-chunks-loaded on for every train
+     */
+    public record Trains(boolean rename, String nameFormat, boolean keepChunksLoaded) {
+        public static final String DEFAULT_NAME_FORMAT = "<line>-<service>-<n>";
+    }
+
+    /**
+     * @param keepSpawnChunksLoaded hold the chunks of spawn signs and fleet spawn points
+     * @param checkSeconds          how often fleets are checked and trains are spawned
+     */
+    public record Spawning(boolean keepSpawnChunksLoaded, int checkSeconds) {
     }
 
     public static AtcsSettings read(ConfigurationSection config) {
@@ -138,7 +156,15 @@ public record AtcsSettings(
                 reader.bool("assignment.infer-from-route", true),
                 reader.integer("assignment.min-stops", 2, 1, RouteMatcher.MAX_WINDOW));
 
-        return new AtcsSettings(passenger, boards, timing, blueMap, signLink, importer, assignment,
+        Trains trains = new Trains(
+                reader.bool("trains.rename", true),
+                reader.string("trains.name-format", Trains.DEFAULT_NAME_FORMAT),
+                reader.bool("trains.keep-chunks-loaded", false));
+        Spawning spawning = new Spawning(
+                reader.bool("spawning.keep-spawn-chunks-loaded", true),
+                reader.integer("spawning.check-seconds", 5, 1, 600));
+
+        return new AtcsSettings(passenger, boards, timing, blueMap, signLink, importer, assignment, trains, spawning,
                 reader.bool("debug", false), List.copyOf(warnings));
     }
 

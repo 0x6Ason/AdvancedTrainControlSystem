@@ -123,6 +123,22 @@ around at the end.
 `/atcs train unassign` takes a train out of service *and* out of automatic assignment (for a
 maintenance run, say); `/atcs train auto` puts it back.
 
+**Fleets: trains without spawn signs.** A timed spawn sign would keep adding trains to a loop.
+Instead give the service a fleet: stand on the rail where trains should appear, facing the way
+they go, and run `/atcs service fleet 5/cw 3 00:35 4m`. ATCS then keeps 3 trains in service,
+spawning one (four minecarts) at most every 35 seconds while there are fewer, which also spaces
+them out. Trains are counted even in unloaded chunks. `/atcs service fleet 5/cw off` stops it.
+
+**Train names.** With `trains.rename` on (the default), every train ATCS assigns is renamed after
+its service, `A-to-main-2` or `5-cw-1` instead of `train17`, spawn-sign trains included. Trains
+you named yourself are never renamed. The format is in `config.yml`.
+
+**Chunks and memory.** Set `trains.keep-chunks-loaded: true` and ATCS switches TrainCarts'
+keep-chunks-loaded on for every train, so trains keep running with nobody around while each
+holds only the chunks around itself. With `spawning.keep-spawn-chunks-loaded` (default on) ATCS
+also holds the chunk of every spawn sign and fleet spawn point. Together these replace
+force-loading the railway: `/forceload remove all` and the trains keep running.
+
 **A loop line.** Build the stations with ordinary TrainCarts `station` signs so trains stop
 (ATCS never drives trains; it reads those signs as platform triggers), bind or import them, create
 the service with `/atcs service stops ... ` and `/atcs service circular <service> true`, and put
@@ -171,7 +187,7 @@ platform. The layout is in `messages.yml`.
 | `/atcs line list\|info` | atcs.use | Lines |
 | `/atcs line create\|rename\|color\|badge\|suspend\|resume\|remove` | atcs.manage | Edit lines |
 | `/atcs service info` | atcs.use | A service and what has been learned about it |
-| `/atcs service create\|stops\|record\|spawn\|unspawn\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services |
+| `/atcs service create\|stops\|record\|spawn\|unspawn\|fleet\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services |
 | `/atcs train info [train]` | atcs.use | The train you ride or look at |
 | `/atcs train assign\|unassign\|auto`, `/atcs trains` | atcs.manage | Assignments |
 | `/atcs board create\|add\|unbind\|remove\|list` | atcs.manage | Departure boards |

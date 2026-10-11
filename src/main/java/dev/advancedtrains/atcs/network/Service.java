@@ -21,6 +21,7 @@ import java.util.Optional;
  *                    opposite direction of a line whose trains reverse at the terminus
  * @param match       rules for assigning trains automatically
  * @param spawnSigns  TrainCarts spawn signs whose new trains run this service
+ * @param fleet       trains ATCS itself keeps running on the service, or {@code null}
  */
 public record Service(
         ServiceKey key,
@@ -29,7 +30,8 @@ public record Service(
         boolean circular,
         @Nullable ServiceKey continuesAs,
         ServiceMatch match,
-        List<BlockPos> spawnSigns) {
+        List<BlockPos> spawnSigns,
+        @Nullable Fleet fleet) {
 
     public Service {
         Objects.requireNonNull(key, "key");
@@ -43,12 +45,17 @@ public record Service(
     }
 
     public Service(ServiceKey key, String name, List<Stop> stops, boolean circular,
+                   @Nullable ServiceKey continuesAs, ServiceMatch match, List<BlockPos> spawnSigns) {
+        this(key, name, stops, circular, continuesAs, match, spawnSigns, null);
+    }
+
+    public Service(ServiceKey key, String name, List<Stop> stops, boolean circular,
                    @Nullable ServiceKey continuesAs, ServiceMatch match) {
-        this(key, name, stops, circular, continuesAs, match, List.of());
+        this(key, name, stops, circular, continuesAs, match, List.of(), null);
     }
 
     public static Service of(ServiceKey key, String name, List<Stop> stops) {
-        return new Service(key, name, stops, false, null, ServiceMatch.NONE, List.of());
+        return new Service(key, name, stops, false, null, ServiceMatch.NONE, List.of(), null);
     }
 
     public int size() {
@@ -137,26 +144,30 @@ public record Service(
     }
 
     public Service withName(String newName) {
-        return new Service(key, newName, stops, circular, continuesAs, match, spawnSigns);
+        return new Service(key, newName, stops, circular, continuesAs, match, spawnSigns, fleet);
     }
 
     public Service withStops(List<Stop> newStops) {
-        return new Service(key, name, newStops, circular, continuesAs, match, spawnSigns);
+        return new Service(key, name, newStops, circular, continuesAs, match, spawnSigns, fleet);
     }
 
     public Service withCircular(boolean newCircular) {
-        return new Service(key, name, stops, newCircular, continuesAs, match, spawnSigns);
+        return new Service(key, name, stops, newCircular, continuesAs, match, spawnSigns, fleet);
     }
 
     public Service withContinuesAs(@Nullable ServiceKey newContinuesAs) {
-        return new Service(key, name, stops, circular, newContinuesAs, match, spawnSigns);
+        return new Service(key, name, stops, circular, newContinuesAs, match, spawnSigns, fleet);
     }
 
     public Service withMatch(ServiceMatch newMatch) {
-        return new Service(key, name, stops, circular, continuesAs, newMatch, spawnSigns);
+        return new Service(key, name, stops, circular, continuesAs, newMatch, spawnSigns, fleet);
     }
 
     public Service withSpawnSigns(List<BlockPos> newSpawnSigns) {
-        return new Service(key, name, stops, circular, continuesAs, match, newSpawnSigns);
+        return new Service(key, name, stops, circular, continuesAs, match, newSpawnSigns, fleet);
+    }
+
+    public Service withFleet(@Nullable Fleet newFleet) {
+        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, newFleet);
     }
 }

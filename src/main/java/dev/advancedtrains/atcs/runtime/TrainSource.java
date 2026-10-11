@@ -1,5 +1,6 @@
 package dev.advancedtrains.atcs.runtime;
 
+import dev.advancedtrains.atcs.operation.TrainInfo;
 import org.bukkit.entity.Player;
 
 import java.util.Collection;
@@ -9,6 +10,11 @@ import java.util.Optional;
 public interface TrainSource {
 
     Collection<TrainHandle> loadedTrains();
+
+    /** Every train TrainCarts knows, loaded or not, as far as its stored properties go. */
+    Collection<TrainInfo> allTrains();
+
+    boolean nameTaken(String name);
 
     Optional<TrainHandle> train(String name);
 

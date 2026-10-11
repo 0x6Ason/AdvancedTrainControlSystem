@@ -62,6 +62,24 @@ integrations:
     enabled: true
     departures-per-station: 3
 
+trains:
+  # Name trains after their service when ATCS assigns one, for example A-to-main-2 instead of
+  # train17 (spawn-sign trains included). Only names TrainCarts generated are replaced; a train
+  # you named yourself keeps its name. Placeholders: <line> (badge), <service>, <n>.
+  rename: true
+  name-format: "<line>-<service>-<n>"
+  # Switch TrainCarts' keep-chunks-loaded on for every train, so trains keep running with nobody
+  # around. Each train then holds only the chunks around itself, which is far cheaper than
+  # force-loading the railway.
+  keep-chunks-loaded: false
+
+spawning:
+  # Hold the chunks of every spawn sign listed in network.yml and of every fleet spawn point, so
+  # timed spawn signs keep firing and fleets can spawn with nobody around.
+  keep-spawn-chunks-loaded: true
+  # How often fleets are checked (seconds).
+  check-seconds: 5
+
 assignment:
   # Give a train that has no service the one service whose stop order matches the stations it
   # has been seen at. This is how trains that no spawn sign, sign or command ever assigned get

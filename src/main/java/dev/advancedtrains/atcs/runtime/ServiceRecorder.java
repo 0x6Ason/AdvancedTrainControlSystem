@@ -45,6 +45,13 @@ public final class ServiceRecorder {
         return Optional.ofNullable(sessions.remove(player.getUniqueId()));
     }
 
+    /** Follows a train that was renamed. */
+    public void rename(String from, String to) {
+        sessions.replaceAll((player, session) -> session.trainName().equalsIgnoreCase(from)
+                ? new Session(session.player(), to, session.service(), session.stops())
+                : session);
+    }
+
     public void onPlatform(String trainName, PlatformRef platform, boolean entering) {
         if (!entering) {
             return;

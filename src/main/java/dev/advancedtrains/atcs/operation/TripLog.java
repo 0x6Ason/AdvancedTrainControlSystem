@@ -96,6 +96,14 @@ public final class TripLog {
                 .toList();
     }
 
+    /** Follows a train that was renamed. */
+    public void rename(String from, String to) {
+        Active trip = active.remove(from);
+        if (trip != null) {
+            active.put(to, trip);
+        }
+    }
+
     /** The train was removed (for example by a destroy sign). */
     public void ended(String trainId) {
         Active trip = active.remove(trainId);

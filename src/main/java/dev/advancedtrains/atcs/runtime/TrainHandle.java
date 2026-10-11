@@ -28,4 +28,15 @@ public interface TrainHandle {
      * assigned automatically until an operator assigns it again or clears that mark.
      */
     void clearAssignment(boolean manual);
+
+    /** Whether the train still has the name TrainCarts generated, rather than one a person chose. */
+    boolean hasGeneratedName();
+
+    /** Renames the train; false when the name is taken or not allowed. */
+    boolean rename(String newName);
+
+    boolean keepsChunksLoaded();
+
+    /** Switches TrainCarts' keep-chunks-loaded on or off for the train. */
+    void keepChunksLoaded(boolean keep);
 }

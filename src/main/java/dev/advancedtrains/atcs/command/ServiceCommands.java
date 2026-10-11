@@ -2,6 +2,7 @@ package dev.advancedtrains.atcs.command;
 
 import dev.advancedtrains.atcs.importer.TrainSign;
 import dev.advancedtrains.atcs.network.BlockPos;
+import dev.advancedtrains.atcs.network.Fleet;
 import dev.advancedtrains.atcs.network.Line;
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.Service;
@@ -16,10 +17,12 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.block.Block;
 import org.bukkit.block.Sign;
+import org.bukkit.block.data.Rail;
 import org.bukkit.block.sign.Side;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -60,6 +63,15 @@ final class ServiceCommands {
                         context -> spawn(support, context), services),
                 leaf("unspawn", MANAGE, "", "Stop assigning new trains from the spawn sign you look at",
                         context -> unspawn(support, context)),
+                leaf("fleet", MANAGE, "<line/service> <trains> <every> <train>|off",
+                        "Let ATCS keep trains running on a service without spawn signs; stand on the rail facing their way",
+                        context -> fleet(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.serviceKeys();
+                            case 1 -> List.of("1", "2", "3", "off");
+                            case 2 -> List.of("00:35", "01:00", "02:00");
+                            case 3 -> List.of("4m", "6m", "9m");
+                            default -> List.of();
+                        }),
                 leaf("reverse", MANAGE, "<line/service> <new-service> [name...]", "Create the opposite direction of a service",
                         context -> reverse(support, context), services),
                 leaf("rename", MANAGE, "<line/service> <name...>", "Change the passenger-facing service name", context -> {
@@ -161,6 +173,9 @@ final class ServiceCommands {
         if (!service.spawnSigns().isEmpty()) {
             sender.sendMessage(Chat.field("Spawn signs", String.join(", ",
                     service.spawnSigns().stream().map(BlockPos::coordinates).toList())));
+        }
+        if (service.fleet() != null) {
+            sender.sendMessage(Chat.field("Fleet", service.fleet().describe()));
         }
         ServiceMatch match = service.match();
         if (!match.isEmpty()) {
@@ -300,6 +315,50 @@ final class ServiceCommands {
         signs.remove(position);
         save(support, service.withSpawnSigns(signs));
         Chat.success(context.sender(), "Trains from that spawn sign are no longer assigned to " + service.key());
+    }
+
+    private static void fleet(Support support, CommandContext context) throws CommandError {
+        Service service = support.service(context.arg(0));
+        if (context.arg(1).equalsIgnoreCase("off")) {
+            save(support, service.withFleet(null));
+            Chat.success(context.sender(), service.key() + " no longer keeps a fleet; its trains stay as they are");
+            return;
+        }
+        Player player = context.player();
+        int trains;
+        try {
+            trains = Integer.parseInt(context.arg(1));
+        } catch (NumberFormatException exception) {
+            throw new CommandError("'" + context.arg(1) + "' is not a number of trains");
+        }
+        Duration every;
+        try {
+            every = Fleet.parseEvery(context.arg(2));
+        } catch (IllegalArgumentException exception) {
+            throw new CommandError(exception.getMessage());
+        }
+        String pattern = context.arg(3);
+        BlockPos spawn = Support.position(railUnder(player));
+        Fleet.Direction direction = Fleet.Direction.fromYaw(player.getLocation().getYaw());
+        Fleet fleet;
+        try {
+            fleet = new Fleet(trains, every, spawn, direction, pattern);
+        } catch (IllegalArgumentException exception) {
+            throw new CommandError(exception.getMessage());
+        }
+        save(support, service.withFleet(fleet));
+        Chat.success(context.sender(), service.key() + " keeps " + fleet.describe() + ". A train appears every "
+                + Fleet.formatEvery(every) + " while fewer than " + trains + " are in service.");
+    }
+
+    private static Block railUnder(Player player) throws CommandError {
+        Block at = player.getLocation().getBlock();
+        for (Block candidate : List.of(at, at.getRelative(0, -1, 0))) {
+            if (candidate.getBlockData() instanceof Rail) {
+                return candidate;
+            }
+        }
+        throw new CommandError("Stand on the rail where trains should appear, facing the way they should go");
     }
 
     private static boolean isSpawnSign(Block block) {

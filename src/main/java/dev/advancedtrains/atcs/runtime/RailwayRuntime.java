@@ -8,6 +8,8 @@ import dev.advancedtrains.atcs.map.MapLayer;
 import dev.advancedtrains.atcs.map.StationLocator;
 import dev.advancedtrains.atcs.network.BlockPos;
 import dev.advancedtrains.atcs.network.Board;
+import dev.advancedtrains.atcs.network.Fleet;
+import dev.advancedtrains.atcs.network.Line;
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.NetworkStore;
 import dev.advancedtrains.atcs.network.Platform;
@@ -26,6 +28,7 @@ import dev.advancedtrains.atcs.operation.RouteMatcher;
 import dev.advancedtrains.atcs.operation.ServiceResolver;
 import dev.advancedtrains.atcs.operation.StopObservation;
 import dev.advancedtrains.atcs.operation.TrackPaths;
+import dev.advancedtrains.atcs.operation.TrainInfo;
 import dev.advancedtrains.atcs.operation.TrainView;
 import dev.advancedtrains.atcs.operation.TravelTimes;
 import dev.advancedtrains.atcs.operation.TripLog;
@@ -53,6 +56,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -74,6 +78,10 @@ public final class RailwayRuntime {
     private final Logger logger;
     private final NetworkStore store;
     private final TrainSource trains;
+    private final @Nullable TrainSpawner spawner;
+    private final ChunkKeeper chunkKeeper;
+    private final FleetManager fleets = new FleetManager();
+    private final Map<ServiceKey, String> lastSpawnProblem = new HashMap<>();
     private final Clock clock;
     private final Path timingsFile;
     private final Path pathsFile;
@@ -109,6 +117,7 @@ public final class RailwayRuntime {
             Plugin plugin,
             NetworkStore store,
             TrainSource trains,
+            @Nullable TrainSpawner spawner,
             AtcsSettings settings,
             Messages messages,
             Clock clock) {
@@ -116,6 +125,8 @@ public final class RailwayRuntime {
         this.logger = plugin.getLogger();
         this.store = store;
         this.trains = trains;
+        this.spawner = spawner;
+        this.chunkKeeper = new ChunkKeeper(plugin);
         this.clock = clock;
         this.settings = settings;
         this.messages = messages;
@@ -138,6 +149,7 @@ public final class RailwayRuntime {
                 logger.info("[debug] network changed -> " + relocated);
             }
             assignFromNewSpawnSigns(network);
+            refreshHeldChunks(network);
         });
     }
 
@@ -146,6 +158,7 @@ public final class RailwayRuntime {
         this.map = mapLayer;
         this.signLink = signLinkPublisher;
         mapDirty = true;
+        refreshHeldChunks(store.network());
         schedule();
     }
 
@@ -153,6 +166,7 @@ public final class RailwayRuntime {
         tasks.forEach(BukkitTask::cancel);
         tasks.clear();
         display.clear();
+        chunkKeeper.release();
         if (map != null) {
             map.close();
             map = null;
@@ -206,6 +220,106 @@ public final class RailwayRuntime {
         long saveTicks = settings.timing().saveIntervalMinutes() * 60L * 20L;
         tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, () -> saveData(true), saveTicks, saveTicks));
         tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, this::expireJourneys, 1200L, 1200L));
+        long fleetTicks = settings.spawning().checkSeconds() * 20L;
+        tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, this::fleetTick, 60L, fleetTicks));
+    }
+
+    /**
+     * Keeps every fleet at strength, holds spawn chunks, and keeps trains' chunks loaded as
+     * configured. Runs every {@code spawning.check-seconds}.
+     */
+    private void fleetTick() {
+        Network network = store.network();
+        refreshHeldChunks(network);
+        if (settings.trains().keepChunksLoaded()) {
+            for (TrainHandle train : trains.loadedTrains()) {
+                if (!train.keepsChunksLoaded()) {
+                    train.keepChunksLoaded(true);
+                }
+            }
+        }
+        if (spawner == null) {
+            return;
+        }
+        Map<ServiceKey, Integer> counts = new HashMap<>();
+        for (TrainInfo info : trains.allTrains()) {
+            ServiceResolver.resolve(info, network).ifPresent(key -> counts.merge(key, 1, Integer::sum));
+        }
+        Instant now = clock.instant();
+        for (Service service : fleets.due(network, counts, now)) {
+            Fleet fleet = Objects.requireNonNull(service.fleet());
+            fleets.attempted(service.key(), now);
+            TrainSpawner.Result result = spawner.spawn(fleet.spawn(), fleet.direction(), fleet.train());
+            if (!result.succeeded()) {
+                if (!result.problem().equals(lastSpawnProblem.put(service.key(), result.problem()))) {
+                    logger.warning("Could not spawn a train for " + service.key() + ": " + result.problem());
+                }
+                continue;
+            }
+            lastSpawnProblem.remove(service.key());
+            TrainHandle train = Objects.requireNonNull(result.train());
+            assign(train, service.key());
+            logger.info("Spawned " + train.name() + " for " + service.key() + " ("
+                    + (counts.getOrDefault(service.key(), 0) + 1) + " of " + fleet.trains() + ")");
+        }
+    }
+
+    /** Holds the chunks of spawn signs and fleet spawn points, or none when switched off. */
+    private void refreshHeldChunks(Network network) {
+        if (!settings.spawning().keepSpawnChunksLoaded()) {
+            chunkKeeper.keep(List.of());
+            return;
+        }
+        List<BlockPos> positions = new ArrayList<>(network.spawnSigns().keySet());
+        for (Service service : network.services()) {
+            if (service.fleet() != null) {
+                positions.add(service.fleet().spawn());
+            }
+        }
+        chunkKeeper.keep(positions);
+    }
+
+    public int heldChunks() {
+        return chunkKeeper.heldChunks();
+    }
+
+    /** Names the train after its service and keeps its chunks loaded, as configured. */
+    private void settle(TrainHandle train, ServiceKey key) {
+        AtcsSettings.Trains rules = settings.trains();
+        if (rules.keepChunksLoaded() && !train.keepsChunksLoaded()) {
+            train.keepChunksLoaded(true);
+        }
+        if (!rules.rename() || !train.hasGeneratedName()) {
+            return;
+        }
+        Network network = store.network();
+        Service service = network.service(key).orElse(null);
+        Line line = network.line(key.lineId()).orElse(null);
+        if (service == null || line == null) {
+            return;
+        }
+        String name = TrainNamer.firstFree(rules.nameFormat(), line, service, trains::nameTaken);
+        if (!name.isEmpty() && !name.equals(train.name())) {
+            renameTrain(train, name);
+        }
+    }
+
+    private void renameTrain(TrainHandle train, String newName) {
+        String old = train.name();
+        if (!train.rename(newName)) {
+            return;
+        }
+        tracker.rename(old, newName);
+        trips.rename(old, newName);
+        display.rename(old, newName);
+        recorder.rename(old, newName);
+        Integer offRoute = offRouteVisits.remove(old);
+        if (offRoute != null) {
+            offRouteVisits.put(newName, offRoute);
+        }
+        if (debug) {
+            logger.info("[debug] " + old + " renamed to " + newName);
+        }
     }
 
     // ---------------------------------------------------------------- adapter callbacks
@@ -327,6 +441,7 @@ public final class RailwayRuntime {
 
     private List<JourneyEvent> assign(TrainHandle train, ServiceKey service, boolean inferred) {
         train.setAssignment(service, inferred);
+        settle(train, service);
         offRouteVisits.remove(train.name());
         List<JourneyEvent> events = tracker.assign(train.name(), service, store.network(), clock.instant());
         if (debug) {

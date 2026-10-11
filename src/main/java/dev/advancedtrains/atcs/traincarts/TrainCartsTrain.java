@@ -3,6 +3,8 @@ package dev.advancedtrains.atcs.traincarts;
 import com.bergerkiller.bukkit.tc.controller.MinecartGroup;
 import com.bergerkiller.bukkit.tc.controller.MinecartMember;
 import com.bergerkiller.bukkit.tc.properties.TrainProperties;
+import com.bergerkiller.bukkit.tc.properties.TrainPropertiesStore;
+import com.bergerkiller.bukkit.tc.properties.standard.type.ChunkLoadOptions;
 import dev.advancedtrains.atcs.network.ServiceKey;
 import dev.advancedtrains.atcs.operation.ServiceResolver;
 import dev.advancedtrains.atcs.operation.TrainInfo;
@@ -71,6 +73,30 @@ final class TrainCartsTrain implements TrainHandle {
         if (manual) {
             properties.addTags(ServiceResolver.manualTag());
         }
+    }
+
+    @Override
+    public boolean hasGeneratedName() {
+        return !group.getProperties().isTrainRenamed();
+    }
+
+    @Override
+    public boolean rename(String newName) {
+        if (TrainPropertiesStore.exists(newName) || !TrainPropertiesStore.isUseableName(newName)) {
+            return false;
+        }
+        group.getProperties().setTrainName(newName);
+        return true;
+    }
+
+    @Override
+    public boolean keepsChunksLoaded() {
+        return group.getProperties().getChunkLoadOptions().mode() != ChunkLoadOptions.Mode.DISABLED;
+    }
+
+    @Override
+    public void keepChunksLoaded(boolean keep) {
+        group.getProperties().parseSet("keepchunksloaded", Boolean.toString(keep));
     }
 
     private static void removeAtcsTags(TrainProperties properties) {

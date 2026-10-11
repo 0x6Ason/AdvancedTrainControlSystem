@@ -233,6 +233,20 @@ public final class NetworkCodec {
                     stringOrList(match, "destinations", "destination"),
                     stringOrList(match, "tags", "tag"),
                     stringOrList(match, "train-names", "train-name"));
+            Fleet fleet = null;
+            ConfigurationSection fleetNode = node.getConfigurationSection("fleet");
+            if (fleetNode != null) {
+                try {
+                    fleet = new Fleet(
+                            fleetNode.getInt("trains", 1),
+                            Fleet.parseEvery(fleetNode.getString("every", "01:00")),
+                            BlockPos.parse(fleetNode.getString("spawn", "")),
+                            Fleet.Direction.parse(fleetNode.getString("direction", "")),
+                            fleetNode.getString("train", "1m"));
+                } catch (IllegalArgumentException exception) {
+                    throw new IllegalArgumentException("fleet: " + exception.getMessage(), exception);
+                }
+            }
             return new Service(
                     serviceKey,
                     node.getString("name", key),
@@ -240,7 +254,8 @@ public final class NetworkCodec {
                     node.getBoolean("circular", false),
                     continuation,
                     serviceMatch,
-                    positions(node, "spawn-signs", path + ".spawn-signs", errors));
+                    positions(node, "spawn-signs", path + ".spawn-signs", errors),
+                    fleet);
         } catch (IllegalArgumentException exception) {
             errors.add(path + ": " + exception.getMessage());
             return null;
@@ -376,6 +391,15 @@ public final class NetworkCodec {
                 }
                 if (!service.spawnSigns().isEmpty()) {
                     serviceNode.set("spawn-signs", service.spawnSigns().stream().map(BlockPos::format).toList());
+                }
+                if (service.fleet() != null) {
+                    Fleet fleet = service.fleet();
+                    ConfigurationSection fleetNode = serviceNode.createSection("fleet");
+                    fleetNode.set("trains", fleet.trains());
+                    fleetNode.set("every", Fleet.formatEvery(fleet.every()));
+                    fleetNode.set("spawn", fleet.spawn().format());
+                    fleetNode.set("direction", fleet.direction().name().toLowerCase(java.util.Locale.ROOT));
+                    fleetNode.set("train", fleet.train());
                 }
                 ServiceMatch match = service.match();
                 if (!match.isEmpty()) {

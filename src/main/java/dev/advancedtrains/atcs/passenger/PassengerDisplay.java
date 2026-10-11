@@ -171,6 +171,14 @@ public final class PassengerDisplay {
         return messages.render(key, placeholders);
     }
 
+    /** Follows a train that was renamed. */
+    public void rename(String from, String to) {
+        TrainBar bar = bars.remove(from);
+        if (bar != null) {
+            bars.put(to, bar);
+        }
+    }
+
     public void remove(String trainId) {
         TrainBar bar = bars.remove(trainId);
         if (bar != null) {

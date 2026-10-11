@@ -7,6 +7,10 @@ TrainCarts server, configured with files and in-game commands.
 
 ### Added
 
+- Fleets: ATCS keeps a configured number of trains running on a service, spawning them itself
+  at a spawn point, for lines without spawn signs (`/atcs service fleet`).
+- Train naming after the service (`A-to-main-2`), keep-chunks-loaded for every train, and plugin
+  chunk tickets for spawn signs and fleet spawn points, so the railway runs without force-loading.
 - Service inference from the stations a train visits, for trains no spawn sign or sign ever
   assigned (loop lines); `/atcs train auto` and a manual mode for `/atcs train unassign`.
 - Network model in `network.yml`: stations, platforms with trigger signs, lines with colours and

@@ -172,6 +172,15 @@ public final class JourneyTracker {
         journeys.remove(trainId);
     }
 
+    /** Follows a train that was renamed. */
+    public void rename(String from, String to) {
+        Journey journey = journeys.remove(from);
+        if (journey != null) {
+            journey.trainId = to;
+            journeys.put(to, journey);
+        }
+    }
+
     /** Drops journeys of trains that are not loaded and have not been seen since {@code cutoff}. */
     public int expire(Instant cutoff, Predicate<String> loaded) {
         int before = journeys.size();
@@ -399,7 +408,7 @@ public final class JourneyTracker {
     }
 
     private static final class Journey {
-        private final String trainId;
+        private String trainId;
         private @Nullable ServiceKey service;
         private @Nullable ServiceKey lastResolved;
         private JourneyPhase phase = JourneyPhase.IDLE;

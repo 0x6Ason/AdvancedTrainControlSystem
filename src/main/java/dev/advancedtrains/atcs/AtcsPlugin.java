@@ -64,7 +64,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             reportNetworkLoad(store.load());
 
             TrainCartsTrains trains = new TrainCartsTrains();
-            runtime = new RailwayRuntime(this, store, trains, settings, messages, Clock.systemUTC());
+            runtime = new RailwayRuntime(this, store, trains, trains, settings, messages, Clock.systemUTC());
             runtime.start(createMap(), createSignLink());
             importer = new ImportService(this, store, runtime.trips()::trips,
                     settings.importer().settings(), settings.importer().chunksPerTick());
@@ -161,6 +161,10 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         }
         lines.add("Learned travel times: " + learned + "/" + segments + " segments; recorded track paths: "
                 + recorded + "/" + segments);
+        long fleets = network.services().stream().filter(service -> service.fleet() != null).count();
+        lines.add("Fleets on " + fleets + " service(s); spawn chunks held: " + runtime.heldChunks()
+                + "; every train keeps chunks loaded: " + onOff(settings.trains().keepChunksLoaded())
+                + "; train naming: " + onOff(settings.trains().rename()));
         AtcsSettings.Passenger passenger = settings.passenger();
         lines.add("Passenger information: " + (passenger.enabled() ? "on" : "off")
                 + (passenger.enabled() ? " (boss bar " + onOff(passenger.bossBar()) + ", titles " + onOff(passenger.arrivalTitle())
