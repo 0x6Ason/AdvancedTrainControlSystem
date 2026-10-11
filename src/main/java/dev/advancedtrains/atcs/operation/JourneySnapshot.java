@@ -10,12 +10,15 @@ import java.time.Instant;
 /**
  * An immutable view of a train's journey.
  *
- * @param lastIndex    the last stop index reached (arrived at or passed), -1 if none yet
- * @param platform     the platform the train is at while {@code AT_STOP} or {@code PASSING}
- * @param arrivedAt    when the current or most recent station visit began
- * @param departedAt   when the most recent station visit ended
- * @param segmentStart when the train left stop {@code lastIndex}, if that is still the segment it
- *                     is running; used to estimate arrival times
+ * @param lastIndex        the last stop index reached (arrived at or passed), -1 if none yet
+ * @param platform         the platform the train is at while {@code AT_STOP} or {@code PASSING}
+ * @param lastPlatform     the platform of the current or most recent station visit, null before the
+ *                         first one
+ * @param approachingIndex the stop the train has been announced as approaching, -1 if none
+ * @param arrivedAt        when the current or most recent station visit began
+ * @param departedAt       when the most recent station visit ended
+ * @param segmentStart     when the train left stop {@code lastIndex}, if that is still the segment it
+ *                         is running; used to estimate arrival times
  */
 public record JourneySnapshot(
         String trainId,
@@ -23,10 +26,26 @@ public record JourneySnapshot(
         JourneyPhase phase,
         int lastIndex,
         @Nullable PlatformRef platform,
+        @Nullable PlatformRef lastPlatform,
+        int approachingIndex,
         @Nullable Instant arrivedAt,
         @Nullable Instant departedAt,
         @Nullable Instant segmentStart,
         Instant lastSeen) {
+
+    /** A snapshot whose most recent platform is the current one and that approaches nothing. */
+    public JourneySnapshot(
+            String trainId,
+            @Nullable ServiceKey service,
+            JourneyPhase phase,
+            int lastIndex,
+            @Nullable PlatformRef platform,
+            @Nullable Instant arrivedAt,
+            @Nullable Instant departedAt,
+            @Nullable Instant segmentStart,
+            Instant lastSeen) {
+        this(trainId, service, phase, lastIndex, platform, platform, -1, arrivedAt, departedAt, segmentStart, lastSeen);
+    }
 
     /** The station the train is standing at, if any. */
     public @Nullable String currentStationId() {

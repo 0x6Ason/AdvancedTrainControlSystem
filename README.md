@@ -152,18 +152,39 @@ estimate) and drive the boss-bar and board arrival times.
 
 ## Signs
 
-ATCS adds three TrainCarts sign types. Building them needs `atcs.sign.build`.
+ATCS adds four TrainCarts sign types. Building them needs `atcs.sign.build`.
 
 ```
-[+train]        [+train]          [+train]
-atcs stop       atcs service      atcs clear
-main            a/north
-2
+[+train]        [+train]          [+train]      [+train]
+atcs stop       atcs service      atcs clear    atcs indicator
+main            a/north                         main:2
+2                                               approach a
 ```
 
 - `atcs stop` marks platform 2 of `main` (platform defaults to 1) without binding a sign in network.yml.
 - `atcs service` assigns passing trains to the service.
 - `atcs clear` removes the assignment.
+- `atcs indicator` turns the levers on the block behind the sign on and off with the trains, for
+  platform lamps, track diagrams or barriers, anywhere in the world and without any track wiring.
+
+### Indicator signs
+
+Line 3 names what to watch: a station (`main`) or one platform (`main:2`). Line 4 says when the
+levers go on, and optionally for which trains:
+
+| Line 4 | On while |
+|---|---|
+| empty or `at` | a train stands at (or runs through) the station or platform |
+| `approach` | a train has been announced as approaching it (`passenger.approach-distance`) |
+| `after` | a train has left it and has not reached its next stop |
+
+Add a line or service to count only its trains: `at 5`, `approach a/north`, `after 5/cw`. For a
+track diagram, give every station an `at` sign and every stretch of track an `after` sign for the
+station it starts at, naming the service so each direction has its own lamps.
+
+The levers switch the moment ATCS sees the train arrive, leave or come within approach distance, and
+are checked every second. Signs work in loaded chunks; when a chunk unloads its levers keep their
+last state until it loads again.
 
 ## Departure boards
 

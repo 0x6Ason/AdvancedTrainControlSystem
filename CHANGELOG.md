@@ -27,7 +27,9 @@ TrainCarts server, configured with files and in-game commands.
 - Set-up from the existing world: stations drafted from TrainCarts station signs and arrival
   announcements; lines and services suggested from observed train trips, including spawn signs,
   express variants and turn-arounds; reviewed through `import-proposal.yml`.
-- ATCS TrainCarts signs: `atcs stop`, `atcs service`, `atcs clear`.
+- ATCS TrainCarts signs: `atcs stop`, `atcs service`, `atcs clear`, and `atcs indicator`, which
+  drives levers while a train is at, approaching or just past a station, for lamps, track diagrams
+  and barriers without any wiring along the track.
 - Service recording by riding a train.
 
 ### Changed

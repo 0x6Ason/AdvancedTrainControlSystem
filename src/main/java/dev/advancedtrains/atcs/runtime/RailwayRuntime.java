@@ -80,6 +80,7 @@ public final class RailwayRuntime {
     private final TrainSource trains;
     private final @Nullable TrainSpawner spawner;
     private final ChunkKeeper chunkKeeper;
+    private final IndicatorService indicators;
     private final FleetManager fleets = new FleetManager();
     private final Map<ServiceKey, String> lastSpawnProblem = new HashMap<>();
     private final Clock clock;
@@ -118,6 +119,7 @@ public final class RailwayRuntime {
             NetworkStore store,
             TrainSource trains,
             @Nullable TrainSpawner spawner,
+            IndicatorService.Output indicatorOutput,
             AtcsSettings settings,
             Messages messages,
             Clock clock) {
@@ -127,6 +129,7 @@ public final class RailwayRuntime {
         this.trains = trains;
         this.spawner = spawner;
         this.chunkKeeper = new ChunkKeeper(plugin);
+        this.indicators = new IndicatorService(indicatorOutput);
         this.clock = clock;
         this.settings = settings;
         this.messages = messages;
@@ -166,6 +169,7 @@ public final class RailwayRuntime {
         tasks.forEach(BukkitTask::cancel);
         tasks.clear();
         display.clear();
+        indicators.shutdown();
         chunkKeeper.release();
         if (map != null) {
             map.close();
@@ -277,6 +281,11 @@ public final class RailwayRuntime {
             }
         }
         chunkKeeper.keep(positions);
+    }
+
+    /** The {@code atcs indicator} signs currently loaded. */
+    public IndicatorService indicators() {
+        return indicators;
     }
 
     public int heldChunks() {
@@ -421,6 +430,7 @@ public final class RailwayRuntime {
         paths.forget(name);
         display.remove(name);
         recorder.trainRemoved(name);
+        indicators.refresh(tracker.snapshots(), store.network());
     }
 
     public void trainUnloaded(String name) {
@@ -609,6 +619,7 @@ public final class RailwayRuntime {
             }
         }
         inferService(train, network);
+        indicators.refresh(tracker.snapshots(), network);
         TrainView view = view(train.name()).orElse(null);
         List<Player> riders = train.riders();
         if (riders.isEmpty()) {
@@ -675,6 +686,7 @@ public final class RailwayRuntime {
 
     private void refreshPassengers() {
         Network network = store.network();
+        indicators.refresh(tracker.snapshots(), network);
         Set<String> loaded = new HashSet<>();
         for (TrainHandle train : trains.loadedTrains()) {
             loaded.add(train.name());

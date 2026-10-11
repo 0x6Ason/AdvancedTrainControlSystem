@@ -16,6 +16,7 @@ import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import dev.advancedtrains.atcs.traincarts.AtcsSignAction;
+import dev.advancedtrains.atcs.traincarts.SignLevers;
 import dev.advancedtrains.atcs.traincarts.TrainCartsListener;
 import dev.advancedtrains.atcs.traincarts.TrainCartsTrains;
 import org.bukkit.World;
@@ -64,13 +65,15 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             reportNetworkLoad(store.load());
 
             TrainCartsTrains trains = new TrainCartsTrains();
-            runtime = new RailwayRuntime(this, store, trains, trains, settings, messages, Clock.systemUTC());
+            runtime = new RailwayRuntime(this, store, trains, trains, new SignLevers(), settings, messages, Clock.systemUTC());
             runtime.start(createMap(), createSignLink());
             importer = new ImportService(this, store, runtime.trips()::trips,
                     settings.importer().settings(), settings.importer().chunksPerTick());
 
             getServer().getPluginManager().registerEvents(new TrainCartsListener(this, store, runtime), this);
             signAction = SignAction.register(new AtcsSignAction(store, runtime));
+            // Signs in chunks loaded before this point are matched to the action only now.
+            TrainCarts.plugin.getSignController().redetectSignActions();
 
             PluginCommand command = Objects.requireNonNull(getCommand("atcs"), "atcs command missing from plugin.yml");
             AtcsCommand executor = new AtcsCommand(new Support(store, runtime, trains, importer, this), getLogger());
@@ -165,6 +168,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         lines.add("Fleets on " + fleets + " service(s); spawn chunks held: " + runtime.heldChunks()
                 + "; every train keeps chunks loaded: " + onOff(settings.trains().keepChunksLoaded())
                 + "; train naming: " + onOff(settings.trains().rename()));
+        lines.add("Indicator signs: " + runtime.indicators().size() + " loaded, " + runtime.indicators().lit() + " lit");
         AtcsSettings.Passenger passenger = settings.passenger();
         lines.add("Passenger information: " + (passenger.enabled() ? "on" : "off")
                 + (passenger.enabled() ? " (boss bar " + onOff(passenger.bossBar()) + ", titles " + onOff(passenger.arrivalTitle())

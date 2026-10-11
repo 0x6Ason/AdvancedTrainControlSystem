@@ -251,12 +251,14 @@ public final class JourneyTracker {
             journey.phaseAfterDeparture = journey.phase;
             journey.phase = journey.resumePhase;
             journey.platform = observation.platform();
+            journey.lastPlatform = observation.platform();
             journey.occupied.clear();
             journey.occupied.add(observation.trigger());
             return;
         }
 
         journey.platform = observation.platform();
+        journey.lastPlatform = observation.platform();
         journey.occupied.clear();
         journey.occupied.add(observation.trigger());
         journey.arrivedAt = observation.at();
@@ -414,6 +416,8 @@ public final class JourneyTracker {
         private JourneyPhase phase = JourneyPhase.IDLE;
         private int lastIndex = -1;
         private @Nullable PlatformRef platform;
+        /** The platform of the current or most recent visit; kept after departure. */
+        private @Nullable PlatformRef lastPlatform;
         private final Set<BlockPos> occupied = new HashSet<>();
         private boolean offRouteVisit;
         private @Nullable String lastDepartedStation;
@@ -439,7 +443,8 @@ public final class JourneyTracker {
 
         private JourneySnapshot snapshot() {
             return new JourneySnapshot(trainId, service, phase, lastIndex,
-                    isVisiting() ? platform : null, arrivedAt, departedAt, segmentStart, lastSeen);
+                    isVisiting() ? platform : null, lastPlatform, approachAnnouncedFor,
+                    arrivedAt, departedAt, segmentStart, lastSeen);
         }
     }
 }
