@@ -1,0 +1,205 @@
+# TrainCarts signs captured from the staging copy of the reference server (2026-08).
+# world, x, y, z, side, line 1-4; tab separated.
+world	-844	48	-701	FRONT	[+train]	destroy		
+world	-843	48	-704	FRONT	[+train]	destroy		
+world	-843	48	-700	FRONT	[+train]	destroy		
+world	-830	58	-719	FRONT	[+train]	station	6	continue
+world	-830	58	-718	FRONT	[+train]	announce	Arrived: Frostpeak St.	
+world	-830	58	-700	FRONT	[+train]	announce	To: Old Village St.	
+world	-829	58	779	FRONT	[+train]	announce	Arrived: Old Village St.	
+world	-829	58	780	FRONT	[+train]	announce	End of Line 1 Under	
+world	-829	58	781	FRONT	[+train]	announce	Thanks!!!	
+world	-828	58	-389	FRONT	[+train]	announce	Arrived: Golden Islands 	St.
+world	-828	58	-377	FRONT	[+train]	station	00:05	continue
+world	-828	58	-367	FRONT	[+train]	announce	To: Old Village St.	
+world	-828	58	-366	FRONT	[+train]	announce	Next: Overworld 	Terminal St.
+world	-828	58	416	FRONT	[+train]	announce	Arrive: Overworld 	Terminal St.
+world	-828	58	417	FRONT	[+train]	station	5	continue
+world	-828	58	426	FRONT	[+train]	announce	To: Old Village St.	
+world	-828	58	427	FRONT	[+train]	announce	Next: Old Village St.	
+world	-827	58	780	FRONT	[+train]	station	6	continue
+world	-825	58	272	FRONT	[+train]	station	00:02	continue
+world	-825	58	819	FRONT	[+train]	destroy		
+world	-824	58	-719	FRONT	[+train]	station	6	continue
+world	-824	58	-718	FRONT	[+train]	announce	Arrived: Frostpeak St.	
+world	-824	58	-700	FRONT	[+train]	announce	To: Old Village St.	
+world	-824	58	-699	FRONT	[+train]	announce	Next: Old Village St.	
+world	-824	58	-381	FRONT	[+train]	announce	The train wil stop for 2	 seconds. Please Wait
+world	-824	58	-380	FRONT	[+train]	station	00:02	continue
+world	-824	58	649	FRONT	[+train]	announce	This train will stop for	 2 seconds.
+world	-824	58	780	FRONT	[+train]	station	6	continue
+world	-824	58	823	FRONT	[+train]	destroy		
+world	-822	48	-692	FRONT	[+train]	station	8	continue
+world	-822	58	651	FRONT	[+train]	station	2	continue
+world	-822	58	779	FRONT	[+train] 	annnounce	Arrived: Old	 Village St.
+world	-822	58	780	FRONT	[+train]	announce	End of Line 1 Under	
+world	-822	58	781	FRONT	[+train]	announce	Thanks!!!	
+world	-821	58	272	FRONT	[+train]	station	00:02	continue
+world	-821	58	815	FRONT	[+train]	spawn 00:50 9999	9m	
+world	-821	58	833	FRONT	[+train]	station	0	reverse
+world	-819	58	780	FRONT	[+train]	station	6	continue
+world	-818	58	-737	FRONT	[+train]	announce	Next: Nerdy	 Islands St.
+world	-818	58	-736	FRONT	[+train]	announce	To: Main St.	
+world	-818	58	-720	FRONT	[+train]	announce	Arrived: Frostpeak St.	
+world	-818	58	-719	FRONT	[+train]	station	6	continue
+world	-818	58	-390	FRONT	[+train]	announce	Next: Nerdy Island St.	
+world	-818	58	-389	FRONT	[+train]	announce	To: Main St.	
+world	-818	58	-377	FRONT	[+train]	station	00:05	continue
+world	-818	58	-367	FRONT	[+train]	announce	Arrived: Golden Islands 	St.
+world	-817	58	407	FRONT	[+train]	announce	Next: Golden Islands St.	
+world	-817	58	408	FRONT	[+train]	announce	To: Main St.	
+world	-817	58	416	FRONT	[+train]	station	5	continue
+world	-817	58	417	FRONT	[+train]	announce	Arrive: Overworld	 Terminal St.
+world	-793	48	-698	FRONT	[train]	spawn 00:45 9999	20m	
+world	-517	68	-834	FRONT	[+train]	station	5	continue
+world	-517	73	-743	FRONT	[+train]	station	5	continue
+world	-517	73	-742	FRONT	[+train]	announce	Arrive: 	Middle of Nowhere
+world	-513	68	-833	FRONT	[+train]	station	5	continue
+world	-513	73	-743	FRONT	[+train]	announce	Arrive: 	Middle of Nowhere
+world	-513	73	-742	FRONT	[+train]	station	5	continue
+world	-497	58	-782	FRONT	[+train]	announce	Next: Frostpeak St.	
+world	-496	58	-782	FRONT	[+train]	announce	To: Old Village St.	
+world	-488	68	-674	FRONT	[+train]	announce	Arrive: 	Metal++
+world	-488	68	-670	FRONT	[+train]	station	5	continue
+world	-487	68	-674	FRONT	[+train]	station	5	continue
+world	-487	68	-670	FRONT	[+train]	announce	Arrive: 	Metal++
+world	-486	58	-781	FRONT	[+train]	station	00:08	continue
+world	-486	58	-774	FRONT	[+train]	station	00:08	continue
+world	-484	58	-776	FRONT	[+train]	announce	Arrived: Nerdy 	Island St.
+world	-483	58	-776	FRONT	[+train]	announce	To: Main St.	
+world	-482	58	-781	FRONT	[+train]	announce	Arrived: Nerdy 	Island St.
+world	-482	58	-776	FRONT	[+train]	announce	Next: Main St.	
+world	-474	70	-923	FRONT	[+train]	station	5	continue
+world	-473	70	-927	FRONT	[+train]	station	5	continue
+world	-471	68	-740	FRONT	[train:left]	spawn 9999	2m24s2m	
+world	-471	68	-738	FRONT	[train:left]	spawn 9999	2m24s2m	
+world	-446	68	-740	FRONT	[+train]	station	00:36	continue
+world	-446	68	-738	FRONT	[+train]	station	00:35	continue
+world	-414	70	-923	FRONT	[train]	destroy		
+world	-410	70	-769	FRONT	[+train]	station	00:05	continue
+world	-410	70	-768	FRONT	[+train]	announce	Arrive: 	Nerdy Estate BLK. 1
+world	-410	70	-749	FRONT	[+train:left]	spawn 00:35 9999	4m	
+world	-410	70	-747	FRONT	[+train]	destroy		
+world	-410	70	-726	FRONT	[+train]	eject		
+world	-408	70	-919	FRONT	[+train]	station	00:05	continue
+world	-408	70	-918	FRONT	[+train]	announce	Arrive: 	Nerdy St.
+world	-408	70	-898	FRONT	[+train]	station	00:05	continue
+world	-408	70	-897	FRONT	[+train]	announce	Arrive: 	Falcon Heavy
+world	-408	70	-859	FRONT	[+train]	station	00:05	continue
+world	-408	70	-858	FRONT	[+train]	announce	Arrive: 	Nerdy Sky BLK. 1
+world	-408	70	-816	FRONT	[+train]	station	00:05	continue
+world	-408	70	-815	FRONT	[+train]	announce	Arrive: 	Nerdy Estate BLK. 2
+world	-407	68	-1534	FRONT	[+train]	destroy		
+world	-406	70	-769	FRONT	[+train]	announce	Arrive: 	Nerdy Estate BLK. 1
+world	-406	70	-768	FRONT	[+train]	station	00:05	continue
+world	-406	70	-764	FRONT	[+train]	eject		
+world	-406	70	-749	FRONT	[+train]	destroy		
+world	-406	70	-747	FRONT	[+train:left]	spawn 00:35 9999	4m	
+world	-405	68	-1535	FRONT	[+train]	destroy		
+world	-404	68	-1536	FRONT	[+train]	announce	Arrived: New Village St.	
+world	-404	70	-919	FRONT	[+train]	announce	Arrive: 	Nerdy St.
+world	-404	70	-918	FRONT	[+train]	station	00:05	continue
+world	-404	70	-898	FRONT	[+train]	announce	Arrive: 	Falcon Heavy
+world	-404	70	-897	FRONT	[+train]	station	00:05	continue
+world	-404	70	-859	FRONT	[+train]	announce	Arrive: 	Nerdy Sky BLK. 1
+world	-404	70	-858	FRONT	[+train]	station	00:05	continue
+world	-404	70	-816	FRONT	[+train]	announce	Arrive: 	Nerdy Estate BLK. 2
+world	-404	70	-815	FRONT	[+train]	station	00:05	continue
+world	-403	68	-1536	FRONT	[+train:left]	spawn 00:50 9999	9m	
+world	-394	68	-1533	FRONT	[+train]	announce	Arrived: New Village St.	
+world	-393	68	-1539	FRONT	[+train]	station	5	continue
+world	-393	68	-1533	FRONT	[+train]	station	5	continue
+world	-393	68	-1529	FRONT	[+train]	station	5	continue
+world	-386	68	-1527	FRONT	[+train]	announce	Arrived: New Village St.	
+world	-357	68	-1202	FRONT	[+train]	announce	Next: New Village St.	
+world	-357	68	-1201	FRONT	[+train]	announce	To: New Village St.	
+world	-357	68	-1193	FRONT	[+train]	station	5	continue
+world	-357	68	-1186	FRONT	[+train]	announce	Arrived: Golden Beach 	St.
+world	-357	69	-921	FRONT	[+train]	announce	Next: Golden Beach St.	
+world	-357	69	-920	FRONT	[+train]	announce	To: New Village St.	
+world	-357	69	-912	FRONT	[+train]	station	00:05	continue
+world	-357	69	-903	FRONT	[+train]	announce	Arrived: Nerdy St.	
+world	-352	68	-1185	FRONT	[+train]	announce	Next: Nerdy St.	
+world	-351	68	-1201	FRONT	[+train]	announce	Arrived: Golden Beach 	St.
+world	-351	68	-1193	FRONT	[+train]	station	5	continue
+world	-351	68	-1186	FRONT	[+train]	announce	To: Main St.	
+world	-351	69	-921	FRONT	[+train]	announce	Arrived: Nerdy St.	
+world	-351	69	-912	FRONT	[+train]	station	00:05	continue
+world	-351	69	-904	FRONT	[+train]	announce	To: Main St.	
+world	-351	69	-903	FRONT	[+train]	announce	Next: Main St.	
+world	-336	62	-804	FRONT	[+train]	announce	Thanks!	
+world	-336	62	-798	FRONT	[+train]	announce	Next: New Village	 St.
+world	-336	62	-792	FRONT	[+train]	announce	Next: Nerdy St.	
+world	-336	62	-786	FRONT	[+train]	announce	Next: Nerdy	 Island St.
+world	-336	62	-780	FRONT	[+train]	announce	Next: Frostpeak St.	
+world	-336	62	-774	FRONT	[+train]	announce	Thanks!	
+world	-335	62	-804	FRONT	[+train]	announce	End of Line A 	Upperground
+world	-335	62	-798	FRONT	[+train]	announce	To: New Village St.	
+world	-335	62	-792	FRONT	[+train]	announce	To: New Village St.	
+world	-335	62	-786	FRONT	[+train]	announce	To: Old Village St.	
+world	-335	62	-780	FRONT	[+train]	announce	To: Old Village St.	
+world	-335	62	-774	FRONT	[+train]	announce	End of Line 1. 	Underground.
+world	-334	62	-804	FRONT	[+train]	announce	Arrived: Main St.	
+world	-334	62	-798	FRONT	[+train]	announce	Line A Upper	 Express
+world	-334	62	-792	FRONT	[+train]	announce	Line A Upper	 Local
+world	-334	62	-786	FRONT	[+train]	announce	Line 1 Under	 Local
+world	-334	62	-780	FRONT	[+train]	announce	Line 1 Under 	Express
+world	-334	62	-774	FRONT	[+train]	announce	Arrived: Main St.	
+world	-330	63	-798	FRONT	[+train]	trigger	LineALocalMain	00:32
+world	-330	63	-790	FRONT	[+train]	trigger	LineAExpressMain	00:42
+world	-330	63	-786	FRONT	[+train]	trigger	L1LocalMain	00:42
+world	-330	63	-778	FRONT	[+train]	trigger	L1ExpressMain	00:52
+world	-322	63	-802	FRONT	[+train]	station	00:08	continue
+world	-322	63	-798	FRONT	[+train]	station	00:08	continue
+world	-322	63	-790	FRONT	[+train]	station	00:08	continue
+world	-321	63	-786	FRONT	[+train]	station	00:08	continue
+world	-321	63	-778	FRONT	[+train]	station	00:08	continue
+world	-321	63	-774	FRONT	[+train]	station	00:08	continue
+world	-314	63	-802	FRONT	[+train]	eject		
+world	-313	63	-774	FRONT	[+train]	eject		
+world	-292	72	-754	FRONT	[+train]	trigger	LineSL1st	00:26
+world	-291	72	-754	FRONT	[+train]	announce	Next: Liberty St.	
+world	-290	72	-754	FRONT	[+train]	announce	To: Bay Area St.	
+world	-289	63	-802	FRONT	[+train]	destroy		
+world	-289	72	-754	FRONT	[+train]	announce	Line S Train	
+world	-286	63	-774	FRONT	[+train]	destroy		
+world	-278	72	-758	FRONT	[+train]	announce	Arrive: 1st Street	 St.
+world	-277	72	-758	FRONT	[+train]	announce	End of Line S 	Thanks!
+world	-276	72	-758	FRONT	[+train]	station	00:08	continue
+world	-276	72	-754	FRONT	[+train]	station	00:08	continue
+world	-263	72	-758	FRONT	[+train]	destroy		
+world	-247	73	-797	FRONT	[train:right]	spawn 00:30 4	1m	
+world	-245	58	-793	FRONT	[+train]	destroy		
+world	-245	73	-774	FRONT	[+train]	destroy		
+world	-241	58	-793	FRONT	[train:left]	spawn 00:35 9999	12m	
+world	-212	63	-781	FRONT	[train]	spawn 00:50 9999	9m	
+world	-211	63	-780	FRONT	[train]	spawn 01:00 9999	9m	
+world	-210	63	-787	FRONT	[train:left]	spawn 00:40 9999	9m	
+world	-210	63	-784	FRONT	[train:left]	spawn 00:50 9999	9m	
+world	-204	63	-787	FRONT	[+train]	station	0	reverse
+world	-204	63	-784	FRONT	[+train]	station	0	reverse
+world	-204	63	-781	FRONT	[+train]	station	0	reverse
+world	-203	63	-780	FRONT	[+train]	station	0	reverse
+world	-195	72	-520	FRONT	[+train]	announce	Next: 1st Street 	St.
+world	-194	72	-520	FRONT	[+train]	announce	To: 1st Street St.	
+world	-181	72	-523	FRONT	[+train]	announce	Arrive: Liberty St.	
+world	-179	72	-523	FRONT	[+train]	station	00:08	continue
+world	-179	72	-520	FRONT	[+train]	station	00:08	continue
+world	-170	72	-523	FRONT	[+train]	announce	To: Bay Area St.	
+world	-170	72	-520	FRONT	[+train]	announce	Arrive: Liberty St.	
+world	-169	72	-523	FRONT	[+train]	announce	Next: Bay Area St.	
+world	-160	72	-520	FRONT	[train:left]	spawn 00:35 9999	12m	
+world	-135	72	-393	FRONT	[train:left]	spawn 00:35 9999	12m	
+world	-134	72	-389	FRONT	[+train]	destroy		
+world	-131	72	-393	FRONT	[+train]	announce	Arrive: Bay Area 	St.
+world	-122	72	-393	FRONT	[+train]	station	00:08	continue
+world	-122	72	-389	FRONT	[+train]	station	00:08	continue
+world	-121	72	-389	FRONT	[+train]	announce	End of Line S. 	Thanks!
+world	-120	72	-389	FRONT	[+train]	announce	Arrive: Bay Area 	St.
+world	-111	72	-393	FRONT	[+train]	announce	Line S Train	
+world	-110	72	-393	FRONT	[+train]	announce	To: 1st Street St.	
+world	-109	72	-393	FRONT	[+train]	announce	Next: Liberty St.	
+world	-102	72	-520	FRONT	[+train]	property	speedlimit	0.8
+world	-100	72	-429	FRONT	[+train]	property	speedlimit	0.5
+world	-97	72	-521	FRONT	[+train]	property	speedlimit	0.5
+world	-97	72	-429	FRONT	[+train]	property	speedlimit	0.8

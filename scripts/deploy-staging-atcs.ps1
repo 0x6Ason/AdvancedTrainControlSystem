@@ -13,9 +13,9 @@ $dataTarget = [System.IO.Path]::GetFullPath(
     (Join-Path $pluginsRoot 'AdvancedTrainControlSystem'))
 $configTarget = [System.IO.Path]::GetFullPath((Join-Path $dataTarget 'config.yml'))
 $jarTarget = [System.IO.Path]::GetFullPath(
-    (Join-Path $pluginsRoot 'AdvancedTrainControlSystem-0.1.0-SNAPSHOT.jar'))
+    (Join-Path $pluginsRoot 'AdvancedTrainControlSystem-0.2.0-SNAPSHOT.jar'))
 $builtJar = [System.IO.Path]::GetFullPath(
-    (Join-Path $WorkspaceRoot 'build\libs\AdvancedTrainControlSystem-0.1.0-SNAPSHOT.jar'))
+    (Join-Path $WorkspaceRoot 'build\libs\AdvancedTrainControlSystem-0.2.0-SNAPSHOT.jar'))
 $pluginsPrefix = $pluginsRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) `
     + [System.IO.Path]::DirectorySeparatorChar
 $dataPrefix = $dataTarget.TrimEnd([System.IO.Path]::DirectorySeparatorChar) `
@@ -34,7 +34,7 @@ if (-not $jarTarget.StartsWith($pluginsPrefix, [System.StringComparison]::Ordina
     throw 'ATCS JAR target escaped the staging plugins directory'
 }
 if ([System.IO.Path]::GetFileName($jarTarget) `
-        -ne 'AdvancedTrainControlSystem-0.1.0-SNAPSHOT.jar') {
+        -ne 'AdvancedTrainControlSystem-0.2.0-SNAPSHOT.jar') {
     throw 'Unexpected ATCS JAR name'
 }
 if (-not (Test-Path -LiteralPath $builtJar -PathType Leaf)) {

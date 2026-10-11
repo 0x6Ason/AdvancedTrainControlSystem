@@ -1,91 +1,81 @@
-# Operational writes remain disabled until the network inventory and exact dependencies are verified.
-operating-mode: READ_ONLY
+# AdvancedTrainControlSystem configuration.
+#
+# Stations, lines, services and departure boards are defined in network.yml.
+# Passenger texts and board layouts are in messages.yml.
+# Apply changes with /atcs reload.
+config-version: 2
 
-database:
-  filename: railcontrol.db
-  busy-timeout-millis: 5000
-  backup-before-migration: true
+passenger:
+  # Passenger information is shown to riders with the atcs.passenger permission (everyone by default).
+  enabled: true
+  # Persistent bar in the line colour: line, service, destination, next stop and arrival estimate.
+  boss-bar: true
+  # Station name as a title when the train arrives.
+  arrival-title: true
+  title-fade-in-ticks: 5
+  title-stay-ticks: 50
+  title-fade-out-ticks: 15
+  # "Next station" and interchange messages in chat when the train departs.
+  chat-announcements: true
+  # Show "Now approaching" when the head of the train is this many blocks from the next stop's
+  # platform sign. 0 disables it.
+  approach-distance: 60
+  # Brief "Passing <station>" note when a train runs through a station without stopping.
+  show-passing: true
+  # What riders of trains without a service see at a known platform: NONE or TITLE.
+  unassigned-trains: TITLE
+  sounds:
+    # Any Minecraft sound key; leave empty to disable.
+    arrival: "minecraft:block.note_block.chime"
+    departure: ""
+    approaching: ""
+    # Sound category the client volume slider applies to: master, music, record, weather, block,
+    # hostile, neutral, player, ambient, voice.
+    category: ambient
+    volume: 0.8
+    pitch: 1.0
+
+boards:
+  refresh-ticks: 20
+  # Assumed stop length used in arrival estimates until real stop lengths have been learned.
+  default-dwell-seconds: 10
+
+timing:
+  # Between 0 and 1: how quickly learned travel times follow new measurements.
+  smoothing: 0.3
+  save-interval-minutes: 5
 
 integrations:
-  traincarts:
-    receiver-signs-enabled: true
+  bluemap:
+    enabled: true
+    marker-set-label: "Railway"
+    show-stations: true
+    show-lines: true
+    show-trains: true
+    train-refresh-ticks: 40
+    # Record the path each service's trains take so map lines follow the real track instead of
+    # straight lines between stations.
+    record-track-paths: true
+    line-width: 5
   signlink:
-    enabled: false
+    # Publishes %atcs_<station>_<n>% and related variables for SignLink displays.
+    enabled: true
+    departures-per-station: 3
 
-# ATCS uses TrainCarts' enabledWorlds/disabledWorlds configuration directly.
-# Only worlds that are currently loaded and enabled in TrainCarts are discovered or controlled.
+importer:
+  # Announcement prefixes that introduce a station name, as in "Arrived: Main St.".
+  arrival-prefixes: ["Arrived:", "Arrive:", "Arriving:", "Arrival:", "This is", "Now at"]
+  # Endings that mark a line of an ordinary sign as a station name board.
+  station-name-suffixes: ["St.", "Station", "Stn"]
+  # Endings dropped from a station name when deriving its id ("Main St." -> main).
+  id-strip-suffixes: ["St.", "St", "Station", "Stn"]
+  # How far (in blocks) from a station sign names and hints are looked for.
+  search-radius: 16
+  vertical-tolerance: 6
+  # Stop signs with the same name further apart than this become separate stations.
+  cluster-radius: 96
+  # Chunks inspected per server tick while scanning.
+  chunks-per-tick: 8
 
-inventory-scan:
-  # Only chunks that are already loaded are scanned. The scanner never generates or loads chunks.
-  chunks-per-tick: 4
-
-inventory-review:
-  # Aliases only create review warnings. ATCS never rewrites a sign automatically.
-  action-aliases:
-    annnounce: announce
-  flag-complex-spawn-patterns: true
-  launch-force:
-    # Zero disables the corresponding review boundary.
-    minimum: 0
-    maximum: 0
-  page-size: 8
-
-# Discovery only writes reviewable candidate snapshots. It never edits rails or
-# promotes records into the authoritative station/platform/track tables.
-infrastructure-discovery:
-  station-evidence:
-    arrival-prefixes:
-      - "Arrived:"
-      - "Arrive:"
-    horizontal-radius: 16
-    vertical-tolerance: 4
-  station-classification:
-    # When true, a legacy station sign without nearby passenger arrival evidence
-    # is treated as track motion control, not as a passenger platform.
-    platform-requires-arrival-evidence: true
-    # These instructions always produce track-control candidates, even when a
-    # nearby announcement looks like passenger arrival evidence.
-    reverse-instructions:
-      - reverse
-    through-instructions:
-      - continue
-  station-grouping:
-    horizontal-radius: 48
-    vertical-tolerance: 12
-  confidence:
-    named-station: 0.90
-    unnamed-station: 0.40
-    departure-point: 0.85
-    track-control: 0.70
-  rail:
-    # SAVED_CHUNKS inventories every existing rail-bearing chunk without generating terrain.
-    # LOADED_CHUNKS limits discovery to chunks already present in server memory.
-    # Signs are independent map overlays and are never used as rail scan seeds.
-    scope: SAVED_CHUNKS
-    chunk-snapshots-per-tick: 2
-    block-checks-per-tick: 16384
-    edge-nodes-per-tick: 4096
-    maximum-nodes: 500000
-
-passenger-hud:
-  enabled: true
-  refresh-ticks: 10
-  show-unmanaged-trains: true
-
-announcements:
-  enabled: true
-  default-language: en
-  log-rendered-events: false
-
-web:
-  enabled: true
-  bind-address: 127.0.0.1
-  port: 8765
-  backlog: 64
-  api-page-size: 100
-  network-max-elements: 500000
-  auth:
-    token-file: web-admin.token
-    session-minutes: 30
-    login-attempts-per-minute: 5
-    secure-cookie: false
+# Logs every platform observation and journey event to the console.
+debug: false

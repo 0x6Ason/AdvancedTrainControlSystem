@@ -1,53 +1,36 @@
 name: AdvancedTrainControlSystem
 version: '${version}'
-main: dev.advancedtrains.atcs.AdvancedTrainControlSystemPlugin
-description: Authoritative railway operations and passenger information for TrainCarts networks.
-api-version: '1.21.11'
+main: dev.advancedtrains.atcs.AtcsPlugin
+api-version: '1.21.4'
+description: Passenger information, departure boards and network maps for TrainCarts railways.
 authors: [jason]
 depend: [BKCommonLib, Train_Carts]
-softdepend: [SignLink]
+softdepend: [BlueMap, SignLink]
 
 commands:
   atcs:
-    description: AdvancedTrainControlSystem administration command.
+    description: AdvancedTrainControlSystem commands.
     usage: /atcs help
-    permission: atcs.command
-    aliases: [advancedtraincontrolsystem, traincontrol]
+    aliases: [traincontrol]
 
 permissions:
-  atcs.command:
-    description: Allows access to basic ATCS commands.
+  atcs.use:
+    description: Look up stations, lines, trains and departures.
+    default: true
+  atcs.passenger:
+    description: See passenger information (boss bar, arrival titles, announcements) while riding.
+    default: true
+  atcs.manage:
+    description: Edit the network, boards and train assignments; import, reload and status.
+    default: op
+  atcs.sign.build:
+    description: Build ATCS TrainCarts signs (atcs stop, atcs service, atcs clear).
     default: op
   atcs.admin:
-    description: Allows all ATCS administrative operations.
+    description: Everything in ATCS.
     default: op
     children:
-      atcs.command: true
-      atcs.announcement.test: true
-      atcs.receiver.build: true
-      atcs.scan: true
-      atcs.review: true
-      atcs.review.manage: true
-      atcs.discovery: true
-      atcs.hud: true
-  atcs.announcement.test:
-    description: Allows rendering test announcements.
-    default: op
-  atcs.receiver.build:
-    description: Allows building standardized ATCS TrainCarts receiver signs.
-    default: op
-  atcs.scan:
-    description: Allows read-only inventory scans of already loaded chunks.
-    default: op
-  atcs.review:
-    description: Allows inspection of the legacy sign review queue and preserved evidence.
-    default: op
-  atcs.review.manage:
-    description: Allows audited changes to legacy sign review decisions.
-    default: op
-  atcs.discovery:
-    description: Allows creation and inspection of infrastructure evidence and configured-scope rail snapshots.
-    default: op
-  atcs.hud:
-    description: Shows the continuous ATCS passenger action-bar display.
-    default: true
+      atcs.use: true
+      atcs.passenger: true
+      atcs.manage: true
+      atcs.sign.build: true

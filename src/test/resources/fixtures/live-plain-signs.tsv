@@ -1,0 +1,15 @@
+# Ordinary (non-TrainCarts) signs published by BlueMap sign markers on the reference server (2026-10).
+# world, x, y, z, side, line 1-4; tab separated.
+world	-823	57	-722	FRONT	Line A-E	Frostpeak St.		
+world	-390	62	-1534	FRONT	Line A-E	New Village St.		
+world	-354	67	-912	FRONT	Line A	Nerdy St.		
+world	-331	73	-804	FRONT	NewVil2Main			
+world	-486	58	-778	FRONT	Line 1	Nerdy Island St.		
+world	-331	73	-803	FRONT	NewVil2Main-M-L			
+world	-316	62	-803	FRONT	OldVil2Main-M-L			
+world	-314	63	-788	FRONT	Line 1	Undrgrnd Main St.		
+world	-823	57	417	FRONT	Line A	Overworld	Terminal St.	
+world	-129	63	-404	FRONT	Bay Area St.	(In-dev)		
+world	-823	57	-379	FRONT	Line 1	Golden Islands St.		
+world	-823	63	271	FRONT	Line A	Firework St.		
+world	-354	67	-1195	FRONT	Line A	Golden Beach St.		

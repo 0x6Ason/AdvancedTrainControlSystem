@@ -1,12 +1,13 @@
-import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-
 plugins {
     java
-    id("com.gradleup.shadow") version "8.3.9"
 }
 
 group = "dev.advancedtrains"
-version = "0.1.0-SNAPSHOT"
+version = "0.2.0-SNAPSHOT"
+
+// The oldest server API ATCS compiles against. Anything newer in the 1.21 line keeps working,
+// so stick to this API surface instead of bumping it for convenience.
+val paperApiVersion = "1.21.4-R0.1-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -16,34 +17,26 @@ repositories {
     maven("https://ci.mg-dev.eu/plugin/repository/everything/") {
         name = "MGDev"
     }
+    maven("https://repo.bluecolored.de/releases") {
+        name = "BlueColored"
+    }
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    compileOnly("io.papermc.paper:paper-api:$paperApiVersion")
 
-    // TrainCarts calls must stay behind the integration adapter. These APIs are provided by the server.
-    compileOnly("com.bergerkiller.bukkit:TrainCarts:2.0.0") {
-        isTransitive = false
-    }
-    compileOnly("com.bergerkiller.bukkit:BKCommonLib:2.0.1") {
-        isTransitive = false
-    }
-    compileOnly("com.bergerkiller.bukkit:SignLink:1.21.5-v1") {
-        isTransitive = false
-    }
+    // Provided by the server. Only the long-stable parts of these APIs are used, so any
+    // TrainCarts 2.x build works; never add an exact-version check at runtime.
+    compileOnly("com.bergerkiller.bukkit:TrainCarts:2.0.0") { isTransitive = false }
+    compileOnly("com.bergerkiller.bukkit:BKCommonLib:2.0.1") { isTransitive = false }
 
-    implementation("org.xerial:sqlite-jdbc:3.53.2.1") {
-        // Paper already provides SLF4J. Shipping another API copy can break the server class loader.
-        exclude(group = "org.slf4j", module = "slf4j-api")
-    }
-    implementation("com.google.code.gson:gson:2.11.0")
+    // Optional integrations, activated only when the plugin is installed.
+    compileOnly("com.bergerkiller.bukkit:SignLink:1.21.5-v1") { isTransitive = false }
+    compileOnly("de.bluecolored:bluemap-api:2.7.3")
 
     testImplementation(platform("org.junit:junit-bom:5.13.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
-    testImplementation(platform("net.kyori:adventure-bom:4.26.1"))
-    testImplementation("net.kyori:adventure-api")
-    testImplementation("net.kyori:adventure-text-serializer-plain")
+    testImplementation("io.papermc.paper:paper-api:$paperApiVersion")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -51,28 +44,16 @@ java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
     }
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
-    withSourcesJar()
 }
 
 val englishPolicyFiles = fileTree(projectDir) {
-    include(
-        "src/**/*.java",
-        "src/**/*.js",
-        "src/**/*.html",
-        "src/**/*.css",
-        "src/**/*.yml",
-        "src/**/*.yaml",
-        "*.md",
-        "plans/**/*.md"
-    )
+    include("src/**/*.java", "src/**/*.yml", "*.md", "docs/**/*.md")
     exclude("build/**")
 }
 
 val verifyEnglishTextPolicy by tasks.registering {
     group = "verification"
-    description = "Rejects CJK text in English-only source, UI, configuration, comments, and documentation."
+    description = "Rejects CJK text in source, bundled configuration, and documentation."
     inputs.files(englishPolicyFiles)
     doLast {
         val disallowedScripts = Regex("[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\u3040-\\u30FF\\uAC00-\\uD7AF]")
@@ -88,8 +69,7 @@ val verifyEnglishTextPolicy by tasks.registering {
                 }
             }
         if (violations.isNotEmpty()) {
-            throw GradleException(
-                "English-only text policy violations:\n" + violations.joinToString("\n"))
+            throw GradleException("English-only text policy violations:\n" + violations.joinToString("\n"))
         }
     }
 }
@@ -97,7 +77,7 @@ val verifyEnglishTextPolicy by tasks.registering {
 tasks.withType<JavaCompile>().configureEach {
     options.release.set(21)
     options.encoding = "UTF-8"
-    options.compilerArgs.add("-Xlint:all")
+    options.compilerArgs.addAll(listOf("-Xlint:all", "-Xlint:-processing", "-Xlint:-serial"))
 }
 
 tasks.processResources {
@@ -111,7 +91,8 @@ tasks.processResources {
 tasks.test {
     useJUnitPlatform()
     testLogging {
-        events("passed", "skipped", "failed")
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
 }
 
@@ -119,19 +100,7 @@ tasks.check {
     dependsOn(verifyEnglishTextPolicy)
 }
 
-tasks.named<ShadowJar>("shadowJar") {
-    archiveClassifier.set("")
-    mergeServiceFiles()
-    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
-    relocate("com.google.gson", "dev.advancedtrains.atcs.internal.gson")
+tasks.jar {
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
-}
-
-tasks.jar {
-    archiveClassifier.set("plain")
-}
-
-tasks.assemble {
-    dependsOn(tasks.shadowJar)
 }

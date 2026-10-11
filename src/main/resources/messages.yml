@@ -1,0 +1,63 @@
+# AdvancedTrainControlSystem passenger texts, in MiniMessage format:
+# https://docs.advntr.dev/minimessage/format.html
+#
+# Placeholders:
+#   <line> <line_short>     line name and badge text, e.g. "Line A Upperground" and "A"
+#   <line_color>...</line_color>   colours the enclosed text in the line colour
+#   <service>               service name, e.g. "Local"
+#   <destination>           final destination, or the service name on circular services
+#   <station> <platform>    the station (and platform) the train is at or arriving at
+#   <next>                  the next calling station
+#   <eta>                   estimated time to the next station (boss bar) or to arrival (boards)
+#   <interchanges>          other lines calling at the station
+#   <suspension>            the notice set with /atcs line suspend
+#
+# Set a message to "" to turn it off.
+
+passenger:
+  boss-bar:
+    running: "<line_color><b><line_short></b></line_color> <white><service> to <destination></white> <dark_gray>|</dark_gray> <gray>Next:</gray> <white><next></white><eta_suffix>"
+    eta-suffix: " <dark_gray>(<eta>)</dark_gray>"
+    at-station: "<line_color><b><line_short></b></line_color> <white><station></white> <dark_gray>|</dark_gray> <gray><service> to <destination></gray>"
+    terminating: "<line_color><b><line_short></b></line_color> <white><station></white> <dark_gray>|</dark_gray> <gray>This train terminates here</gray>"
+    not-in-service: "<line_color><b><line_short></b></line_color> <gray>Not in service</gray>"
+    suspended: "<red><b>Service suspended</b></red> <dark_gray>|</dark_gray> <white><suspension></white>"
+  boarding: "<gray>This is a</gray> <line_color><line></line_color> <gray><service> service to</gray> <white><destination></white>"
+  arrival-title: "<line_color><station></line_color>"
+  arrival-subtitle: "<gray><line> <dark_gray>·</dark_gray> <service> to <destination></gray>"
+  terminus-subtitle: "<gray>This train terminates here</gray>"
+  terminus-chat: "<gray>This train terminates here. Please take all your belongings with you.</gray>"
+  interchange-here: "<gray>Change here for</gray> <interchanges><gray>.</gray>"
+  next-station: "<line_color>»</line_color> <gray>Next station:</gray> <white><next></white>"
+  next-station-terminus: "<line_color>»</line_color> <gray>Next station:</gray> <white><next></white><gray>, where this train terminates.</gray>"
+  interchange-next: "<gray>Change at <next> for</gray> <interchanges><gray>.</gray>"
+  approaching: "<gray>Now approaching</gray> <white><next></white>"
+  passing: "<gray>Passing</gray> <white><station></white>"
+  unassigned-arrival-title: "<white><station></white>"
+  unassigned-arrival-subtitle: ""
+  # Separator between lines in <interchanges>.
+  interchange-separator: "<gray>, </gray>"
+
+board:
+  # Each board sign shows one departure on its four lines.
+  departure:
+    - "<line_color><b><line_short></b></line_color> <black><service></black>"
+    - "<black><destination></black>"
+    - "<status>"
+    - "<dark_gray>Platform <platform></dark_gray>"
+  status-due: "<dark_blue><eta></dark_blue>"
+  status-boarding: "<dark_green>Boarding</dark_green>"
+  status-arriving: "<dark_green>Arriving</dark_green>"
+  status-unknown: "<dark_gray>Expected</dark_gray>"
+  status-suspended: "<dark_red>Suspended</dark_red>"
+  # Shown on the remaining signs when there are fewer departures than signs.
+  empty:
+    - ""
+    - "<dark_gray>No further</dark_gray>"
+    - "<dark_gray>departures</dark_gray>"
+    - ""
+
+# Formats used for <eta>: under a minute and from one minute.
+time:
+  seconds: "<seconds>s"
+  minutes: "<minutes>:<seconds_padded>"

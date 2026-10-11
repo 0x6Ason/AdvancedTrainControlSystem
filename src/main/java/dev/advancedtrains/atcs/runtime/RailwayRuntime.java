@@ -1,0 +1,663 @@
+package dev.advancedtrains.atcs.runtime;
+
+import dev.advancedtrains.atcs.board.BoardService;
+import dev.advancedtrains.atcs.board.SignLinkPublisher;
+import dev.advancedtrains.atcs.config.AtcsSettings;
+import dev.advancedtrains.atcs.config.Messages;
+import dev.advancedtrains.atcs.map.MapLayer;
+import dev.advancedtrains.atcs.map.StationLocator;
+import dev.advancedtrains.atcs.network.BlockPos;
+import dev.advancedtrains.atcs.network.Board;
+import dev.advancedtrains.atcs.network.Network;
+import dev.advancedtrains.atcs.network.NetworkStore;
+import dev.advancedtrains.atcs.network.Platform;
+import dev.advancedtrains.atcs.network.PlatformRef;
+import dev.advancedtrains.atcs.network.Service;
+import dev.advancedtrains.atcs.network.ServiceKey;
+import dev.advancedtrains.atcs.network.Station;
+import dev.advancedtrains.atcs.network.Stop;
+import dev.advancedtrains.atcs.operation.Departures;
+import dev.advancedtrains.atcs.operation.EtaCalculator;
+import dev.advancedtrains.atcs.operation.JourneyEvent;
+import dev.advancedtrains.atcs.operation.JourneyPhase;
+import dev.advancedtrains.atcs.operation.JourneySnapshot;
+import dev.advancedtrains.atcs.operation.JourneyTracker;
+import dev.advancedtrains.atcs.operation.ServiceResolver;
+import dev.advancedtrains.atcs.operation.StopObservation;
+import dev.advancedtrains.atcs.operation.TrackPaths;
+import dev.advancedtrains.atcs.operation.TrainView;
+import dev.advancedtrains.atcs.operation.TravelTimes;
+import dev.advancedtrains.atcs.operation.TripLog;
+import dev.advancedtrains.atcs.passenger.PassengerDisplay;
+import dev.advancedtrains.atcs.util.Files2;
+import org.bukkit.Location;
+import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.scheduler.BukkitTask;
+import org.jspecify.annotations.Nullable;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
+
+/**
+ * Runs the railway: turns platform signals into journeys, keeps passenger displays, boards and maps
+ * up to date, and persists learned timings. Main thread only.
+ */
+public final class RailwayRuntime {
+    private static final Duration JOURNEY_EXPIRY = Duration.ofMinutes(30);
+
+    private final Plugin plugin;
+    private final Logger logger;
+    private final NetworkStore store;
+    private final TrainSource trains;
+    private final Clock clock;
+    private final Path timingsFile;
+    private final Path pathsFile;
+    private final Path tripsFile;
+    private final JourneyTracker tracker = new JourneyTracker();
+    private final TrackPaths paths = new TrackPaths();
+    private final TripLog trips = new TripLog();
+    private final BoardService boards;
+    private final Map<String, Set<BlockPos>> observedTriggers = new HashMap<>();
+    private final List<BukkitTask> tasks = new ArrayList<>();
+    /** Writes learned data in order, off the server thread; drained before the final save. */
+    private final ExecutorService writer = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "ATCS data writer");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private final TravelTimes times;
+    private final PassengerDisplay display;
+    private final ServiceRecorder recorder;
+    private AtcsSettings settings;
+    private Messages messages;
+    private EtaCalculator eta;
+    private @Nullable MapLayer map;
+    private @Nullable SignLinkPublisher signLink;
+    private boolean mapDirty = true;
+    private int drawnPathsVersion = -1;
+    private boolean debug;
+    private Map<BlockPos, ServiceKey> knownSpawnSigns;
+
+    public RailwayRuntime(
+            Plugin plugin,
+            NetworkStore store,
+            TrainSource trains,
+            AtcsSettings settings,
+            Messages messages,
+            Clock clock) {
+        this.plugin = plugin;
+        this.logger = plugin.getLogger();
+        this.store = store;
+        this.trains = trains;
+        this.clock = clock;
+        this.settings = settings;
+        this.messages = messages;
+        this.debug = settings.debug();
+        Path data = plugin.getDataFolder().toPath().resolve("data");
+        this.timingsFile = data.resolve("timings.yml");
+        this.pathsFile = data.resolve("track-paths.yml");
+        this.tripsFile = data.resolve("trips.yml");
+        this.times = new TravelTimes(settings.timing().smoothing());
+        this.eta = new EtaCalculator(times, settings.boards().defaultDwellSeconds());
+        this.display = new PassengerDisplay(settings.passenger(), messages);
+        this.boards = new BoardService(logger);
+        this.recorder = new ServiceRecorder(store::network);
+        this.knownSpawnSigns = store.network().spawnSigns();
+        store.addListener(network -> {
+            mapDirty = true;
+            boards.invalidate();
+            List<JourneyEvent> relocated = tracker.relocate(network, clock.instant());
+            if (debug && !relocated.isEmpty()) {
+                logger.info("[debug] network changed -> " + relocated);
+            }
+            assignFromNewSpawnSigns(network);
+        });
+    }
+
+    public void start(@Nullable MapLayer mapLayer, @Nullable SignLinkPublisher signLinkPublisher) {
+        loadData();
+        this.map = mapLayer;
+        this.signLink = signLinkPublisher;
+        mapDirty = true;
+        schedule();
+    }
+
+    public void stop() {
+        tasks.forEach(BukkitTask::cancel);
+        tasks.clear();
+        display.clear();
+        if (map != null) {
+            map.close();
+            map = null;
+        }
+        if (signLink != null) {
+            signLink.clear();
+            signLink = null;
+        }
+        writer.shutdown();
+        try {
+            if (!writer.awaitTermination(10, TimeUnit.SECONDS)) {
+                logger.warning("Learned data was still being written at shutdown");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
+        saveData(false);
+    }
+
+    /** Applies new settings and messages after {@code /atcs reload}. */
+    public void reconfigure(AtcsSettings newSettings, Messages newMessages,
+                            @Nullable MapLayer mapLayer, @Nullable SignLinkPublisher signLinkPublisher) {
+        tasks.forEach(BukkitTask::cancel);
+        tasks.clear();
+        if (map != null) {
+            map.close();
+        }
+        if (signLink != null) {
+            signLink.clear();
+        }
+        settings = newSettings;
+        messages = newMessages;
+        debug = newSettings.debug();
+        times.setSmoothing(newSettings.timing().smoothing());
+        eta = new EtaCalculator(times, newSettings.boards().defaultDwellSeconds());
+        display.configure(newSettings.passenger(), newMessages);
+        boards.invalidate();
+        map = mapLayer;
+        signLink = signLinkPublisher;
+        mapDirty = true;
+        schedule();
+    }
+
+    private void schedule() {
+        tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, this::checkApproaches, 10L, 10L));
+        tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, this::refreshPassengers, 20L, 20L));
+        long boardTicks = settings.boards().refreshTicks();
+        tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, this::refreshBoards, boardTicks, boardTicks));
+        long mapTicks = settings.blueMap().trainRefreshTicks();
+        tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, this::refreshMap, 40L, mapTicks));
+        long saveTicks = settings.timing().saveIntervalMinutes() * 60L * 20L;
+        tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, () -> saveData(true), saveTicks, saveTicks));
+        tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, this::expireJourneys, 1200L, 1200L));
+    }
+
+    // ---------------------------------------------------------------- adapter callbacks
+
+    /** A train entered or left the rail of a platform trigger sign. */
+    public void platformSignal(TrainHandle train, PlatformRef platform, BlockPos trigger, boolean entering) {
+        Network network = store.network();
+        if (network.platformAt(trigger).isEmpty() && network.station(platform.stationId()).isPresent()
+                && observedTriggers.computeIfAbsent(platform.stationId(), ignored -> new LinkedHashSet<>()).add(trigger)) {
+            mapDirty = true;
+        }
+        ServiceKey resolved = ServiceResolver.resolve(train.info(), network).orElse(null);
+        Instant now = clock.instant();
+        StopObservation observation = new StopObservation(train.name(), platform, trigger, entering, now);
+        List<JourneyEvent> events = tracker.observe(observation, resolved, network);
+        if (debug) {
+            logger.info("[debug] " + train.name() + (entering ? " entered " : " left ") + platform
+                    + " at " + trigger.coordinates() + " (service " + resolved + ") -> " + events);
+        }
+        handle(train, events);
+        recorder.onPlatform(train.name(), platform, entering);
+    }
+
+    /**
+     * A train was created, by a TrainCarts spawn sign at {@code spawnSign} if known. Trains from a
+     * spawn sign listed by a service are assigned to it, unless they already carry an assignment.
+     */
+    public void trainCreated(TrainHandle train, @Nullable BlockPos spawnSign) {
+        trips.started(train.name(), spawnSign);
+        if (debug) {
+            logger.info("[debug] " + train.name() + " created" + (spawnSign == null ? "" : " by spawn sign at " + spawnSign.coordinates()));
+        }
+        Network network = store.network();
+        boolean assigned = ServiceResolver.taggedService(train.info().tags())
+                .filter(key -> network.service(key).isPresent())
+                .isPresent();
+        if (spawnSign == null || assigned) {
+            return;
+        }
+        network.serviceSpawnedAt(spawnSign).ifPresent(service -> assign(train, service));
+    }
+
+    /** A train that had been unloaded is loaded again: the same journey continues, no new trip. */
+    public void trainReloaded(TrainHandle train) {
+        tracker.touch(train.name(), clock.instant());
+        if (debug) {
+            logger.info("[debug] " + train.name() + " reloaded");
+        }
+    }
+
+    /**
+     * Assigns running trains created by a spawn sign that a service newly lists, so that binding a
+     * spawn sign (or applying an import) takes effect immediately rather than with the next train.
+     * Existing bindings are not re-applied: a train cleared on purpose stays cleared.
+     */
+    private void assignFromNewSpawnSigns(Network network) {
+        Map<BlockPos, ServiceKey> current = network.spawnSigns();
+        Map<BlockPos, ServiceKey> added = new HashMap<>();
+        current.forEach((sign, service) -> {
+            if (!service.equals(knownSpawnSigns.get(sign))) {
+                added.put(sign, service);
+            }
+        });
+        knownSpawnSigns = current;
+        if (added.isEmpty()) {
+            return;
+        }
+        for (TrainHandle train : trains.loadedTrains()) {
+            BlockPos sign = trips.spawnSignOf(train.name());
+            ServiceKey service = sign == null ? null : added.get(sign);
+            if (service != null && ServiceResolver.resolve(train.info(), network).isEmpty()) {
+                assign(train, service);
+            }
+        }
+    }
+
+    public void trainRemoved(String name) {
+        trips.ended(name);
+        if (debug) {
+            logger.info("[debug] " + name + " removed");
+        }
+        tracker.forget(name);
+        paths.forget(name);
+        display.remove(name);
+        recorder.trainRemoved(name);
+    }
+
+    public void trainUnloaded(String name) {
+        paths.forget(name);
+        display.remove(name);
+    }
+
+    public void riderBoarded(TrainHandle train, Player player) {
+        display.boarded(player, view(train.name()).orElse(null), store.network());
+    }
+
+    public void riderLeft(Player player) {
+        display.removePlayer(player);
+    }
+
+    /** Whether head positions of this train are wanted for track-path recording. */
+    public boolean recordingPath(String trainName) {
+        return paths.isRecording(trainName);
+    }
+
+    public void headMoved(String trainName, String world, double x, double y, double z) {
+        paths.sample(trainName, world, x, y, z);
+    }
+
+    // ---------------------------------------------------------------- commands and queries
+
+    /** Assigns or clears a train's service explicitly and stores it on the train. */
+    public List<JourneyEvent> assign(TrainHandle train, @Nullable ServiceKey service) {
+        train.setAssignment(service);
+        List<JourneyEvent> events = tracker.assign(train.name(), service, store.network(), clock.instant());
+        if (debug) {
+            logger.info("[debug] " + train.name() + (service == null ? " unassigned" : " assigned " + service) + " -> " + events);
+        }
+        handle(train, events);
+        return events;
+    }
+
+    public Optional<JourneySnapshot> journey(String trainName) {
+        return tracker.snapshot(trainName);
+    }
+
+    public Optional<TrainView> view(String trainName) {
+        return tracker.snapshot(trainName)
+                .flatMap(journey -> TrainView.of(journey, store.network(), times, eta, clock.instant()));
+    }
+
+    public List<Departures.Departure> departures(String stationId, Predicate<String> platformFilter) {
+        return departures(stationId, platformFilter, tracker.snapshots());
+    }
+
+    private List<Departures.Departure> departures(String stationId, Predicate<String> platformFilter,
+                                                  Collection<JourneySnapshot> journeys) {
+        return Departures.from(stationId, platformFilter, journeys, store.network(), times, eta, clock.instant());
+    }
+
+    public TravelTimes times() {
+        return times;
+    }
+
+    public ServiceRecorder recorder() {
+        return recorder;
+    }
+
+    public TrackPaths paths() {
+        return paths;
+    }
+
+    public TripLog trips() {
+        return trips;
+    }
+
+    public Collection<JourneySnapshot> journeys() {
+        return tracker.snapshots();
+    }
+
+    public @Nullable MapLayer map() {
+        return map;
+    }
+
+    public boolean signLinkActive() {
+        return signLink != null;
+    }
+
+    public boolean debug() {
+        return debug;
+    }
+
+    public void setDebug(boolean enabled) {
+        debug = enabled;
+    }
+
+    public void redrawMap() {
+        mapDirty = true;
+    }
+
+    public void clearPaths(ServiceKey key) {
+        paths.clear(key);
+        mapDirty = true;
+    }
+
+    public StationLocator locator() {
+        return new Locator(store.network());
+    }
+
+    // ---------------------------------------------------------------- internals
+
+    private void handle(TrainHandle train, List<JourneyEvent> events) {
+        if (events.isEmpty()) {
+            return;
+        }
+        Network network = store.network();
+        for (JourneyEvent event : events) {
+            times.record(event, network);
+            trips.record(event);
+            if (settings.blueMap().recordTrackPaths()) {
+                paths.onEvent(event, network);
+            }
+            if (event instanceof JourneyEvent.ServiceChanged changed && changed.to() != null) {
+                Optional<ServiceKey> tagged = ServiceResolver.taggedService(train.info().tags());
+                if (tagged.isPresent() && !tagged.get().equals(changed.to())) {
+                    // Keep the train's tag in step when it continues as another service.
+                    train.setAssignment(changed.to());
+                }
+            }
+        }
+        TrainView view = view(train.name()).orElse(null);
+        List<Player> riders = train.riders();
+        if (riders.isEmpty()) {
+            return;
+        }
+        for (int index = 0; index < events.size(); index++) {
+            JourneyEvent event = events.get(index);
+            if (event instanceof JourneyEvent.Departed && laterArrival(events, index)) {
+                continue;
+            }
+            display.announce(event, view, riders, network);
+        }
+        display.refresh(train.name(), view, riders, network);
+    }
+
+    private static boolean laterArrival(List<JourneyEvent> events, int index) {
+        for (int later = index + 1; later < events.size(); later++) {
+            if (events.get(later) instanceof JourneyEvent.Arrived
+                    || events.get(later) instanceof JourneyEvent.UnassignedArrived) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void checkApproaches() {
+        double distance = settings.passenger().approachDistance();
+        if (distance <= 0 || !settings.passenger().enabled()) {
+            return;
+        }
+        Network network = store.network();
+        Locator locator = new Locator(network);
+        double limit = distance * distance;
+        Instant now = clock.instant();
+        for (TrainHandle train : trains.loadedTrains()) {
+            JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+            if (journey == null || journey.service() == null
+                    || (journey.phase() != JourneyPhase.IN_TRANSIT && journey.phase() != JourneyPhase.IDLE)) {
+                continue;
+            }
+            Service service = network.service(journey.service()).orElse(null);
+            if (service == null) {
+                continue;
+            }
+            int next = journey.nextCallingIndex(service);
+            Location head = next < 0 ? null : train.headLocation();
+            if (head == null || head.getWorld() == null) {
+                continue;
+            }
+            Stop stop = service.stop(next);
+            boolean near = locator.positions(stop).stream().anyMatch(position ->
+                    position.world().equals(head.getWorld().getName())
+                            && position.distanceSquared(head.getX(), head.getY(), head.getZ()) <= limit);
+            if (near) {
+                tracker.markApproaching(train.name(), network, now).ifPresent(event -> {
+                    if (debug) {
+                        logger.info("[debug] " + train.name() + " approaching " + stop.stationId());
+                    }
+                    handle(train, List.of(event));
+                });
+            }
+        }
+    }
+
+    private void refreshPassengers() {
+        Network network = store.network();
+        Set<String> loaded = new HashSet<>();
+        for (TrainHandle train : trains.loadedTrains()) {
+            loaded.add(train.name());
+            List<Player> riders = train.riders();
+            if (riders.isEmpty()) {
+                display.remove(train.name());
+                continue;
+            }
+            display.refresh(train.name(), view(train.name()).orElse(null), riders, network);
+        }
+        for (String name : display.trainsWithBars()) {
+            if (!loaded.contains(name)) {
+                display.remove(name);
+            }
+        }
+    }
+
+    private void refreshBoards() {
+        Network network = store.network();
+        if (network.boards().isEmpty() && signLink == null) {
+            return;
+        }
+        Collection<JourneySnapshot> journeys = tracker.snapshots();
+        Map<String, List<Departures.Departure>> byStation = new HashMap<>();
+        try {
+            boards.update(network, messages, (Board board, Integer count) -> departures(
+                    board.stationId(), board::includesPlatform, journeys).stream().limit(count).toList());
+            if (signLink != null) {
+                signLink.publish(network, messages, settings.signLink().departuresPerStation(), stationId ->
+                        byStation.computeIfAbsent(stationId, id -> departures(id, platform -> true, journeys)));
+            }
+        } catch (RuntimeException exception) {
+            logger.log(Level.WARNING, "Could not update departure displays", exception);
+        }
+    }
+
+    private void refreshMap() {
+        MapLayer layer = map;
+        if (layer == null) {
+            return;
+        }
+        Network network = store.network();
+        try {
+            if (mapDirty || drawnPathsVersion != paths.version()) {
+                layer.showNetwork(network, paths, new Locator(network));
+                mapDirty = false;
+                drawnPathsVersion = paths.version();
+            }
+            List<MapLayer.TrainMarker> markers = new ArrayList<>();
+            for (TrainHandle train : trains.loadedTrains()) {
+                TrainView view = view(train.name()).orElse(null);
+                Location head = view == null ? null : train.headLocation();
+                if (head == null || head.getWorld() == null) {
+                    continue;
+                }
+                String next = view.nextStationId().map(network::stationName).orElse("");
+                String label = view.line().shortName() + " " + view.service().name() + " » " + view.destinationName(network);
+                String detail = view.completed() ? "Not in service" : next.isEmpty() ? "" : "Next: " + next;
+                markers.add(new MapLayer.TrainMarker(train.name(), head.getWorld().getName(),
+                        head.getX(), head.getY(), head.getZ(), label, detail, view.line().color()));
+            }
+            layer.showTrains(markers);
+        } catch (RuntimeException | LinkageError exception) {
+            logger.log(Level.WARNING, layer.name() + " update failed; map output disabled until reload", exception);
+            map = null;
+            try {
+                layer.close();
+            } catch (RuntimeException | LinkageError ignored) {
+                // Already failing; nothing more to do.
+            }
+        }
+    }
+
+    private void expireJourneys() {
+        Set<String> loaded = trains.loadedTrains().stream().map(TrainHandle::name).collect(Collectors.toSet());
+        tracker.expire(clock.instant().minus(JOURNEY_EXPIRY), loaded::contains);
+    }
+
+    private void loadData() {
+        times.load(readYaml(timingsFile));
+        paths.load(readYaml(pathsFile));
+        trips.load(readYaml(tripsFile));
+    }
+
+    private YamlConfiguration readYaml(Path file) {
+        YamlConfiguration yaml = new YamlConfiguration();
+        if (Files.exists(file)) {
+            try {
+                yaml.loadFromString(Files.readString(file, StandardCharsets.UTF_8));
+            } catch (IOException | InvalidConfigurationException exception) {
+                logger.warning("Ignoring unreadable " + file.getFileName() + " (it will be relearned): "
+                        + exception.getMessage());
+            }
+        }
+        return yaml;
+    }
+
+    private void saveData(boolean async) {
+        Map<Path, String> pending = new HashMap<>();
+        if (times.dirty()) {
+            YamlConfiguration yaml = new YamlConfiguration();
+            yaml.options().setHeader(List.of("Learned automatically by ATCS. Safe to delete; it is relearned."));
+            times.save(yaml);
+            pending.put(timingsFile, yaml.saveToString());
+        }
+        if (paths.dirty()) {
+            YamlConfiguration yaml = new YamlConfiguration();
+            yaml.options().setHeader(List.of("Recorded automatically by ATCS. Safe to delete; it is recorded again."));
+            paths.save(yaml);
+            pending.put(pathsFile, yaml.saveToString());
+        }
+        if (trips.dirty()) {
+            YamlConfiguration yaml = new YamlConfiguration();
+            yaml.options().setHeader(List.of("Train trips observed by ATCS, used by /atcs import services. Safe to delete."));
+            trips.save(yaml);
+            pending.put(tripsFile, yaml.saveToString());
+        }
+        if (pending.isEmpty()) {
+            return;
+        }
+        Runnable write = () -> pending.forEach((file, content) -> {
+            try {
+                Files2.writeAtomically(file, content);
+            } catch (IOException exception) {
+                logger.log(Level.WARNING, "Could not save " + file.getFileName(), exception);
+            }
+        });
+        if (async && !writer.isShutdown()) {
+            writer.execute(write);
+        } else {
+            write.run();
+        }
+    }
+
+    /** Positions of stations and stops, from bound triggers and observed ATCS stop signs. */
+    private final class Locator implements StationLocator {
+        private final Network network;
+
+        private Locator(Network network) {
+            this.network = network;
+        }
+
+        @Override
+        public Optional<BlockPos> station(Station station) {
+            Optional<BlockPos> configured = station.markerPosition();
+            if (configured.isPresent()) {
+                return configured;
+            }
+            Set<BlockPos> observed = observedTriggers.get(station.id());
+            return observed == null || observed.isEmpty() ? Optional.empty() : Optional.of(observed.iterator().next());
+        }
+
+        @Override
+        public Optional<BlockPos> stop(Station station, Stop stop) {
+            if (stop.platformId() != null) {
+                Optional<BlockPos> platform = station.platform(stop.platformId())
+                        .flatMap(value -> value.triggers().stream().findFirst());
+                if (platform.isPresent()) {
+                    return platform;
+                }
+            }
+            return station(station);
+        }
+
+        private List<BlockPos> positions(Stop stop) {
+            Station station = network.station(stop.stationId()).orElse(null);
+            if (station == null) {
+                return List.of();
+            }
+            List<BlockPos> result = new ArrayList<>();
+            for (Platform platform : station.platforms().values()) {
+                if (stop.platformId() == null || stop.platformId().equals(platform.id())) {
+                    result.addAll(platform.triggers());
+                }
+            }
+            if (result.isEmpty()) {
+                result.addAll(observedTriggers.getOrDefault(station.id(), Set.of()));
+            }
+            return result;
+        }
+    }
+}
