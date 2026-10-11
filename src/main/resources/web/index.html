@@ -5,69 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Railway</title>
-<link rel="stylesheet" href="app.css">
+<style>html,body{margin:0;height:100%;background:#fff}@media (prefers-color-scheme:dark){html,body{background:#121212}}</style>
 </head>
 <body>
-<header class="sign">
-  <div class="sign-left">
-    <h1 id="title">Railway</h1>
-    <div class="sign-bullets" id="header-bullets" aria-label="Lines"></div>
-  </div>
-  <div class="sign-right">
-    <span class="chip" id="status-chip">WAITING</span>
-    <span class="sign-note" id="status-text"></span>
-  </div>
-</header>
-
-<main class="layout">
-  <section class="map-wrap" aria-label="Network map">
-    <svg id="map" role="img" aria-label="Schematic network map"></svg>
-    <div class="map-tools">
-      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
-      <button type="button" id="zoom-out" aria-label="Zoom out">&minus;</button>
-      <button type="button" id="zoom-fit" aria-label="Fit map">&#8689;</button>
-    </div>
-    <div id="legend" class="legend"></div>
-    <div id="tooltip" class="tooltip" hidden></div>
-    <div id="map-empty" class="map-empty" hidden></div>
-  </section>
-
-  <aside class="panel">
-    <nav class="tabs" role="tablist">
-      <button type="button" role="tab" data-tab="plan" aria-selected="true">Trip</button>
-      <button type="button" role="tab" data-tab="stations" aria-selected="false">Stations</button>
-      <button type="button" role="tab" data-tab="trains" aria-selected="false">Trains</button>
-    </nav>
-
-    <section class="tab" id="tab-plan" role="tabpanel">
-      <form id="plan-form" autocomplete="off">
-        <label class="field"><span>From</span><input id="from" list="station-names" placeholder="Station" required></label>
-        <label class="field"><span>To</span><input id="to" list="station-names" placeholder="Station" required></label>
-        <datalist id="station-names"></datalist>
-        <div class="form-row">
-          <button type="button" class="button secondary" id="swap" aria-label="Swap stations">&#8645; Swap</button>
-          <button type="submit" class="button">Plan trip</button>
-        </div>
-      </form>
-      <div id="plan-result" class="plan-result"></div>
-    </section>
-
-    <section class="tab" id="tab-stations" role="tabpanel" hidden>
-      <input id="station-search" type="search" placeholder="Find a station" aria-label="Find a station">
-      <div id="station-detail" class="station-detail" hidden></div>
-      <ul id="station-list" class="station-list"></ul>
-    </section>
-
-    <section class="tab" id="tab-trains" role="tabpanel" hidden>
-      <div id="train-summary" class="section-head"></div>
-      <ul id="train-list" class="train-list"></ul>
-    </section>
-  </aside>
-</main>
-
-<script src="layout.js"></script>
-<script src="planner.js"></script>
-<script src="map.js"></script>
-<script src="app.js"></script>
+<div id="app"></div>
+<script>
+/* Loads the current version of the site. Web servers such as BlueMap's let browsers keep this
+ * page for a day, so it never changes: it asks for the version number, which is never cached,
+ * and loads the files stamped with it. */
+(function () {
+  'use strict';
+  function start(version) {
+    var v = encodeURIComponent(version);
+    var css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'app.css?v=' + v;
+    document.head.appendChild(css);
+    ['layout.js', 'planner.js', 'map.js', 'app.js'].forEach(function (name) {
+      var script = document.createElement('script');
+      script.src = name + '?v=' + v;
+      script.async = false;
+      document.head.appendChild(script);
+    });
+  }
+  fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
+    .then(function (response) { return response.json(); })
+    .then(function (data) { start(data.version || String(Date.now())); })
+    .catch(function () { start(String(Date.now())); });
+})();
+</script>
 </body>
 </html>

@@ -291,9 +291,17 @@ become underscores.
 
 ## Website
 
-ATCS writes a small website: a schematic map of the network with the trains moving on it, the next
-departures of every station, and a trip planner that uses the travel times learned from your
-trains. It is plain static files, so any web server can serve it.
+ATCS writes a small website: a schematic map of the network, the next departures of every
+station, the trains in service, and a realtime trip planner. It is plain static files, so any web
+server can serve it.
+
+The planner follows the actual trains: it projects every running train over its next stops from
+its live position and the travel and stop times learned from your trains, then picks the earliest
+arrival, allowing time for each change. It names the train to board and counts down to it, and it
+plans again with every update. A line with no train running is planned with an assumed wait and
+marked as an estimate. On the map, scroll or pinch to zoom, drag to pan, double-click to zoom
+in. Updates reach browsers straight away even though BlueMap's web server lets them cache files
+for a day: the page and the plaque only read a version number and load files stamped with it.
 
 - With BlueMap installed, nothing needs configuring: the files go to BlueMap's web root under
   `atcs/`, the site is at `<your BlueMap address>/atcs/`, and BlueMap's own page gets a plaque

@@ -134,6 +134,9 @@ public final class WebModel {
             entry.put("fraction", fraction(journey, running.service(), times, now));
             entry.put("eta", running.etaNext().isPresent() ? round(running.etaNext().getAsDouble()) : null);
             entry.put("at", journey.currentStationId());
+            entry.put("platform", journey.platform() == null ? null : journey.platform().platformId());
+            entry.put("since", journey.phase() == JourneyPhase.AT_STOP && journey.arrivedAt() != null
+                    ? round(Math.max(0, Duration.between(journey.arrivedAt(), now).toMillis() / 1000.0)) : null);
             trains.add(entry);
         }
         root.put("trains", trains);

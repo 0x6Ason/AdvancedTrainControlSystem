@@ -31,8 +31,9 @@ TrainCarts server, configured with files and in-game commands.
   drives levers while a train is at, approaching or just past a station, or between two stations,
   for lamps, track diagrams and barriers without any wiring along the track.
 - Service recording by riding a train.
-- A website (schematic map with moving trains, departures, trip planner), written as static files
-  into BlueMap's web root or any folder, with a link from BlueMap's page.
+- A website (schematic network map, departures, trains in service, realtime trip planner over the
+  actual running trains), written as static files into BlueMap's web root or any folder, with a
+  plaque on BlueMap's page linking to it.
 
 ### Changed
 

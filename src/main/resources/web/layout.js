@@ -27,16 +27,13 @@
 
   function sign(value) { return value > 0 ? 1 : value < 0 ? -1 : 0; }
 
-  /* A→B as one straight stroke or a diagonal followed by a straight. The diagonal always leaves
-   * the station with the lexically smaller id, so parallel lines bend the same way. */
-  function octilinear(a, b, diagonalFirst) {
+  /* A→B as one straight stroke or a diagonal followed by a straight. */
+  function octilinear(a, b) {
     var du = b.u - a.u, dv = b.v - a.v;
     var adu = Math.abs(du), adv = Math.abs(dv);
     if (du === 0 || dv === 0 || adu === adv) return [{ u: a.u, v: a.v }, { u: b.u, v: b.v }];
     var d = Math.min(adu, adv);
-    var corner = diagonalFirst
-      ? { u: a.u + sign(du) * d, v: a.v + sign(dv) * d }
-      : { u: b.u - sign(du) * d, v: b.v - sign(dv) * d };
+    var corner = { u: a.u + sign(du) * d, v: a.v + sign(dv) * d };
     return [{ u: a.u, v: a.v }, corner, { u: b.u, v: b.v }];
   }
 
@@ -77,7 +74,7 @@
     });
 
     // Every stretch of track per line, from the stop orders of its services.
-    var edgeLines = {};   // pair key -> [line ids]
+    var edgeLines = {};
     var lines = network.lines.map(function (line) {
       var pairs = {};
       line.services.forEach(function (service) {
@@ -112,7 +109,7 @@
         var sharing = edgeLines[key];
         var index = sharing.indexOf(line.id);
         var offset = (index - (sharing.length - 1) / 2) * (STROKE + GAP);
-        var points = offsetPath(octilinear(a, b, true), offset);
+        var points = offsetPath(octilinear(a, b), offset);
         points.forEach(extend);
         line.edges.push({ a: ids[0], b: ids[1], points: points });
       });
@@ -139,27 +136,47 @@
     };
   }
 
+  function pieces(points) {
+    var lengths = [], total = 0;
+    for (var i = 0; i < points.length - 1; i++) {
+      var l = Math.hypot(points[i + 1].u - points[i].u, points[i + 1].v - points[i].v);
+      lengths.push(l);
+      total += l;
+    }
+    return { lengths: lengths, total: total };
+  }
+
+  /* The piece of a polyline a fraction (0..1) along it, and how far into that piece. */
+  function locate(points, fraction) {
+    var measured = pieces(points);
+    var target = Math.max(0, Math.min(1, fraction)) * measured.total;
+    for (var k = 0; k < measured.lengths.length; k++) {
+      if (target <= measured.lengths[k] || k === measured.lengths.length - 1) {
+        return { index: k, t: measured.lengths[k] ? Math.min(1, target / measured.lengths[k]) : 0 };
+      }
+      target -= measured.lengths[k];
+    }
+    return { index: 0, t: 0 };
+  }
+
   /* A point a fraction (0..1) along a polyline. */
   function along(points, fraction) {
     if (!points || !points.length) return null;
-    var total = 0, lengths = [];
-    for (var i = 0; i < points.length - 1; i++) {
-      var l = Math.hypot(points[i + 1].u - points[i].u, points[i + 1].v - points[i].v);
-      lengths.push(l); total += l;
-    }
-    if (!total) return points[0];
-    var target = Math.max(0, Math.min(1, fraction)) * total;
-    for (var k = 0; k < lengths.length; k++) {
-      if (target <= lengths[k] || k === lengths.length - 1) {
-        var t = lengths[k] ? target / lengths[k] : 0;
-        return { u: points[k].u + (points[k + 1].u - points[k].u) * t, v: points[k].v + (points[k + 1].v - points[k].v) * t };
-      }
-      target -= lengths[k];
-    }
-    return points[points.length - 1];
+    if (points.length === 1) return points[0];
+    var at = locate(points, fraction);
+    var a = points[at.index], b = points[at.index + 1];
+    return { u: a.u + (b.u - a.u) * at.t, v: a.v + (b.v - a.v) * at.t };
   }
 
-  var api = { build: build, along: along, CELL: CELL, STROKE: STROKE };
+  /* The direction, in degrees, of a polyline a fraction along it. */
+  function heading(points, fraction) {
+    if (!points || points.length < 2) return null;
+    var at = locate(points, fraction);
+    var a = points[at.index], b = points[at.index + 1];
+    return Math.atan2(b.v - a.v, b.u - a.u) * 180 / Math.PI;
+  }
+
+  var api = { build: build, along: along, heading: heading, CELL: CELL, STROKE: STROKE };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ATCSLayout = api;
 })(typeof window !== 'undefined' ? window : globalThis);
