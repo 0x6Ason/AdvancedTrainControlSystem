@@ -9,10 +9,13 @@ import dev.advancedtrains.atcs.network.Stop;
 import dev.advancedtrains.atcs.operation.TrackPaths;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /** Works out what a map should draw, independent of any particular map plugin. */
 public final class MapGeometry {
@@ -41,11 +44,16 @@ public final class MapGeometry {
     }
 
     /**
-     * Connections between consecutive stops of every service. Both directions of a line between
-     * the same two stations are drawn once, preferring a recorded path.
+     * Every recorded segment of every service, so each direction runs along its own track and
+     * meets the next segment at the platform. Identical paths (a local and an express on the same
+     * stretch) are drawn once per line. A station pair without any recorded path is drawn as one
+     * straight line.
      */
     public static List<Segment> segments(Network network, TrackPaths paths, StationLocator locator) {
-        Map<String, Segment> segments = new LinkedHashMap<>();
+        List<Segment> segments = new ArrayList<>();
+        Map<String, Set<TrackPaths.Path>> drawn = new HashMap<>();
+        Set<String> recordedPairs = new HashSet<>();
+        Map<String, Segment> straight = new LinkedHashMap<>();
         for (Line line : network.lines().values()) {
             for (Service service : line.services().values()) {
                 for (int index = 0; index < service.size(); index++) {
@@ -55,27 +63,34 @@ public final class MapGeometry {
                     }
                     Stop from = service.stop(index);
                     Stop to = service.stop(next);
-                    String a = from.stationId();
-                    String b = to.stationId();
-                    if (a.equals(b)) {
+                    if (from.stationId().equals(to.stationId())) {
                         continue;
                     }
-                    String id = line.id() + "_" + (a.compareTo(b) < 0 ? a + "_" + b : b + "_" + a);
-                    Segment existing = segments.get(id);
-                    if (existing != null && existing.recorded()) {
-                        continue;
-                    }
+                    String pair = pairId(line, from.stationId(), to.stationId());
                     Optional<TrackPaths.Path> recorded = paths.path(service, index);
                     if (recorded.isPresent()) {
-                        segments.put(id, new Segment(id, line, recorded.get().world(), recorded.get().points(), true));
-                    } else if (existing == null) {
+                        recordedPairs.add(pair);
+                        if (drawn.computeIfAbsent(line.id(), ignored -> new HashSet<>()).add(recorded.get())) {
+                            segments.add(new Segment(line.id() + "_" + service.key().serviceId() + "_" + index,
+                                    line, recorded.get().world(), recorded.get().points(), true));
+                        }
+                    } else if (!straight.containsKey(pair)) {
                         straight(network, locator, from, to).ifPresent(points ->
-                                segments.put(id, new Segment(id, line, points.world(), points.points(), false)));
+                                straight.put(pair, new Segment(pair, line, points.world(), points.points(), false)));
                     }
                 }
             }
         }
-        return List.copyOf(segments.values());
+        for (Map.Entry<String, Segment> entry : straight.entrySet()) {
+            if (!recordedPairs.contains(entry.getKey())) {
+                segments.add(entry.getValue());
+            }
+        }
+        return List.copyOf(segments);
+    }
+
+    private static String pairId(Line line, String a, String b) {
+        return line.id() + "_" + (a.compareTo(b) < 0 ? a + "_" + b : b + "_" + a);
     }
 
     private static Optional<TrackPaths.Path> straight(Network network, StationLocator locator, Stop from, Stop to) {
