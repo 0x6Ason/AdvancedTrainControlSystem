@@ -17,6 +17,7 @@ import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import dev.advancedtrains.atcs.traincarts.AtcsSignAction;
 import dev.advancedtrains.atcs.traincarts.SignLevers;
+import dev.advancedtrains.atcs.web.WebSite;
 import dev.advancedtrains.atcs.traincarts.TrainCartsListener;
 import dev.advancedtrains.atcs.traincarts.TrainCartsTrains;
 import org.bukkit.World;
@@ -66,7 +67,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
 
             TrainCartsTrains trains = new TrainCartsTrains();
             runtime = new RailwayRuntime(this, store, trains, trains, new SignLevers(), settings, messages, Clock.systemUTC());
-            runtime.start(createMap(), createSignLink());
+            runtime.start(createMap(), createSignLink(), createWeb());
             importer = new ImportService(this, store, runtime.trips()::trips,
                     settings.importer().settings(), settings.importer().chunksPerTick());
 
@@ -129,7 +130,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             problems.add("Could not read network.yml: " + exception.getMessage());
         }
         store.network().issues().forEach(issue -> problems.add("Network: " + issue));
-        runtime.reconfigure(settings, messages, createMap(), createSignLink());
+        runtime.reconfigure(settings, messages, createMap(), createSignLink(), createWeb());
         importer.configure(settings.importer().settings(), settings.importer().chunksPerTick());
         return problems;
     }
@@ -175,6 +176,8 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
                 + ", chat " + onOff(passenger.chatAnnouncements()) + ")" : ""));
         lines.add("BlueMap: " + integration("BlueMap", settings.blueMap().enabled(), runtime.map() != null && runtime.map().ready())
                 + "; SignLink: " + integration("SignLink", settings.signLink().enabled(), runtime.signLinkActive()));
+        lines.add("Website: " + (!runtime.webConfigured() ? "off"
+                : runtime.webFolder().map(folder -> "written to " + folder).orElse("waiting for a folder (BlueMap not loaded yet?)")));
         lines.add("Debug logging: " + onOff(runtime.debug()));
         return lines;
     }
@@ -241,6 +244,18 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             return new BlueMapLayer(this, settings.blueMap(), getLogger());
         } catch (LinkageError error) {
             getLogger().log(Level.WARNING, "This BlueMap version is not supported; map output disabled", error);
+            return null;
+        }
+    }
+
+    private @Nullable WebSite createWeb() {
+        if (!settings.web().enabled()) {
+            return null;
+        }
+        try {
+            return new WebSite(this, settings.web(), getLogger());
+        } catch (LinkageError error) {
+            getLogger().log(Level.WARNING, "This BlueMap version is not supported; website disabled", error);
             return null;
         }
     }

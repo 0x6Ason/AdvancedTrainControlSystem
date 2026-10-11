@@ -177,10 +177,12 @@ levers go on, and optionally for which trains:
 | empty or `at` | a train stands at (or runs through) the station or platform |
 | `approach` | a train has been announced as approaching it (`passenger.approach-distance`) |
 | `after` | a train has left it and has not reached its next stop |
+| `to <station>` | a train has left it and the other station is its next stop |
+| `between <station>` | a train runs between the two stations, in either direction |
 
 Add a line or service to count only its trains: `at 5`, `approach a/north`, `after 5/cw`. For a
-track diagram, give every station an `at` sign and every stretch of track an `after` sign for the
-station it starts at, naming the service so each direction has its own lamps.
+track diagram, give every station an `at` sign and every stretch of track a `to` sign (one per
+direction) or a `between` sign (one for both), for example `liberty` / `to ysysign`.
 
 The levers switch the moment ATCS sees the train arrive, leave or come within approach distance, and
 are checked every second. Signs work in loaded chunks; when a chunk unloads its levers keep their
@@ -234,7 +236,7 @@ All in `plugins/AdvancedTrainControlSystem/`:
 
 | File | |
 |---|---|
-| `config.yml` | Behaviour: what passengers see, sounds, boards, BlueMap, SignLink, importer |
+| `config.yml` | Behaviour: what passengers see, sounds, boards, BlueMap, SignLink, website, importer |
 | `messages.yml` | Every passenger text and the board layout, in [MiniMessage](https://docs.advntr.dev/minimessage/format.html) |
 | `network.yml` | Stations, lines, services and boards. Edit in game or by hand, then `/atcs reload` |
 | `import-proposal.yml` | Written by `/atcs import write` for review |
@@ -286,6 +288,21 @@ a segment has been recorded it is drawn as a thinner straight line.
 **SignLink** — publishes `%atcs_<station>_<n>%` (a summary of the n-th departure) and
 `%atcs_<station>_<n>_line%`, `_service`, `_dest`, `_eta` and `_platform`, where dashes in station ids
 become underscores.
+
+## Website
+
+ATCS writes a small website: a schematic map of the network with the trains moving on it, the next
+departures of every station, and a trip planner that uses the travel times learned from your
+trains. It is plain static files, so any web server can serve it.
+
+- With BlueMap installed, nothing needs configuring: the files go to BlueMap's web root under
+  `atcs/`, the site is at `<your BlueMap address>/atcs/`, and BlueMap's own page gets a plaque
+  linking to it.
+- Without BlueMap, set `integrations.web.folder` to a folder your web server serves.
+
+The map needs station positions: ATCS takes them from the platform signs trains stop at, or from
+`/atcs station locate`. Live data is rewritten every `integrations.web.refresh-seconds`.
+Links to a station or a trip can be shared, for example `/atcs/#plan=liberty,main`.
 
 ## Troubleshooting
 

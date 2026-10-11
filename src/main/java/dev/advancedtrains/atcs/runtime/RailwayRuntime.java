@@ -34,6 +34,8 @@ import dev.advancedtrains.atcs.operation.TravelTimes;
 import dev.advancedtrains.atcs.operation.TripLog;
 import dev.advancedtrains.atcs.passenger.PassengerDisplay;
 import dev.advancedtrains.atcs.util.Files2;
+import dev.advancedtrains.atcs.web.WebModel;
+import dev.advancedtrains.atcs.web.WebSite;
 import org.bukkit.Location;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -79,6 +81,7 @@ public final class RailwayRuntime {
     private final NetworkStore store;
     private final TrainSource trains;
     private final @Nullable TrainSpawner spawner;
+    private static final int WEB_DEPARTURES = 4;
     private final ChunkKeeper chunkKeeper;
     private final IndicatorService indicators;
     private final FleetManager fleets = new FleetManager();
@@ -108,6 +111,9 @@ public final class RailwayRuntime {
     private @Nullable MapLayer map;
     private @Nullable SignLinkPublisher signLink;
     private boolean mapDirty = true;
+    private @Nullable WebSite web;
+    private boolean webDirty = true;
+    private int webWrites;
     private int drawnPathsVersion = -1;
     private boolean debug;
     private Map<BlockPos, ServiceKey> knownSpawnSigns;
@@ -146,6 +152,7 @@ public final class RailwayRuntime {
         this.knownSpawnSigns = store.network().spawnSigns();
         store.addListener(network -> {
             mapDirty = true;
+            webDirty = true;
             boards.invalidate();
             List<JourneyEvent> relocated = tracker.relocate(network, clock.instant());
             if (debug && !relocated.isEmpty()) {
@@ -156,10 +163,13 @@ public final class RailwayRuntime {
         });
     }
 
-    public void start(@Nullable MapLayer mapLayer, @Nullable SignLinkPublisher signLinkPublisher) {
+    public void start(@Nullable MapLayer mapLayer, @Nullable SignLinkPublisher signLinkPublisher,
+                      @Nullable WebSite webSite) {
         loadData();
         this.map = mapLayer;
         this.signLink = signLinkPublisher;
+        this.web = webSite;
+        webDirty = true;
         mapDirty = true;
         refreshHeldChunks(store.network());
         schedule();
@@ -179,6 +189,10 @@ public final class RailwayRuntime {
             signLink.clear();
             signLink = null;
         }
+        if (web != null) {
+            web.close();
+            web = null;
+        }
         writer.shutdown();
         try {
             if (!writer.awaitTermination(10, TimeUnit.SECONDS)) {
@@ -191,8 +205,8 @@ public final class RailwayRuntime {
     }
 
     /** Applies new settings and messages after {@code /atcs reload}. */
-    public void reconfigure(AtcsSettings newSettings, Messages newMessages,
-                            @Nullable MapLayer mapLayer, @Nullable SignLinkPublisher signLinkPublisher) {
+    public void reconfigure(AtcsSettings newSettings, Messages newMessages, @Nullable MapLayer mapLayer,
+                            @Nullable SignLinkPublisher signLinkPublisher, @Nullable WebSite webSite) {
         tasks.forEach(BukkitTask::cancel);
         tasks.clear();
         if (map != null) {
@@ -210,6 +224,11 @@ public final class RailwayRuntime {
         boards.invalidate();
         map = mapLayer;
         signLink = signLinkPublisher;
+        if (web != null) {
+            web.close();
+        }
+        web = webSite;
+        webDirty = true;
         mapDirty = true;
         schedule();
     }
@@ -226,6 +245,10 @@ public final class RailwayRuntime {
         tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, this::expireJourneys, 1200L, 1200L));
         long fleetTicks = settings.spawning().checkSeconds() * 20L;
         tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, this::fleetTick, 60L, fleetTicks));
+        if (web != null) {
+            long webTicks = settings.web().refreshSeconds() * 20L;
+            tasks.add(plugin.getServer().getScheduler().runTaskTimer(plugin, this::refreshWeb, 40L, webTicks));
+        }
     }
 
     /**
@@ -563,6 +586,16 @@ public final class RailwayRuntime {
         return map;
     }
 
+    /** Where the website is written, when it is. */
+    public Optional<Path> webFolder() {
+        WebSite site = web;
+        return site != null && site.ready() ? Optional.ofNullable(site.folder()) : Optional.empty();
+    }
+
+    public boolean webConfigured() {
+        return web != null;
+    }
+
     public boolean signLinkActive() {
         return signLink != null;
     }
@@ -721,6 +754,26 @@ public final class RailwayRuntime {
         } catch (RuntimeException exception) {
             logger.log(Level.WARNING, "Could not update departure displays", exception);
         }
+    }
+
+    /** Writes the website's data files: the network when it changed (and now and then for learned times), the trains always. */
+    private void refreshWeb() {
+        WebSite site = web;
+        if (site == null || !site.ready()) {
+            return;
+        }
+        Network network = store.network();
+        Instant now = clock.instant();
+        if (webDirty || webWrites % 20 == 0) {
+            webDirty = false;
+            String json = WebModel.network(settings.web().title(), settings.web().refreshSeconds(), network,
+                    new Locator(network), times, settings.boards().defaultDwellSeconds(), now);
+            writer.execute(() -> site.write("network.json", json));
+        }
+        webWrites++;
+        String live = WebModel.live(network, tracker.snapshots(), journey -> view(journey.trainId()),
+                station -> departures(station, platform -> true), times, WEB_DEPARTURES, now);
+        writer.execute(() -> site.write("live.json", live));
     }
 
     private void refreshMap() {

@@ -28,9 +28,11 @@ TrainCarts server, configured with files and in-game commands.
   announcements; lines and services suggested from observed train trips, including spawn signs,
   express variants and turn-arounds; reviewed through `import-proposal.yml`.
 - ATCS TrainCarts signs: `atcs stop`, `atcs service`, `atcs clear`, and `atcs indicator`, which
-  drives levers while a train is at, approaching or just past a station, for lamps, track diagrams
-  and barriers without any wiring along the track.
+  drives levers while a train is at, approaching or just past a station, or between two stations,
+  for lamps, track diagrams and barriers without any wiring along the track.
 - Service recording by riding a train.
+- A website (schematic map with moving trains, departures, trip planner), written as static files
+  into BlueMap's web root or any folder, with a link from BlueMap's page.
 
 ### Changed
 

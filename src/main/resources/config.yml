@@ -61,6 +61,17 @@ integrations:
     # Publishes %atcs_<station>_<n>% and related variables for SignLink displays.
     enabled: true
     departures-per-station: 3
+  web:
+    # Writes the railway website (network map, live trains, departures, trip planner) as static
+    # files. With BlueMap installed and no folder set, they go to BlueMap's web root under /atcs,
+    # so the site is at <your BlueMap address>/atcs/ and BlueMap's page gets a "Railway" button.
+    enabled: true
+    # A folder served by your own web server, relative to the server directory or absolute.
+    folder: ""
+    title: "Railway"
+    # How often trains and departures are written, in seconds.
+    refresh-seconds: 3
+    bluemap-button: true
 
 trains:
   # Name trains after their service when ATCS assigns one, for example A-to-main-2 instead of

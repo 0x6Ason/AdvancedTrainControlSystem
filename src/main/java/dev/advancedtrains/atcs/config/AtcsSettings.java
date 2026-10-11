@@ -22,6 +22,7 @@ public record AtcsSettings(
         Timing timing,
         BlueMap blueMap,
         SignLink signLink,
+        Web web,
         Importer importer,
         Assignment assignment,
         Trains trains,
@@ -67,6 +68,14 @@ public record AtcsSettings(
     }
 
     public record SignLink(boolean enabled, int departuresPerStation) {
+    }
+
+    /**
+     * The railway website: a folder of static files that any web server can serve.
+     *
+     * @param folder where to write; empty for BlueMap's web root plus {@code /atcs}
+     */
+    public record Web(boolean enabled, String folder, String title, int refreshSeconds, boolean blueMapButton) {
     }
 
     public record Importer(StationImporter.Settings settings, int chunksPerTick) {
@@ -142,6 +151,13 @@ public record AtcsSettings(
                 reader.bool("integrations.signlink.enabled", true),
                 reader.integer("integrations.signlink.departures-per-station", 3, 1, 10));
 
+        Web web = new Web(
+                reader.bool("integrations.web.enabled", true),
+                reader.string("integrations.web.folder", ""),
+                reader.string("integrations.web.title", "Railway"),
+                reader.integer("integrations.web.refresh-seconds", 3, 1, 60),
+                reader.bool("integrations.web.bluemap-button", true));
+
         StationImporter.Settings defaults = StationImporter.Settings.defaults();
         Importer importer = new Importer(new StationImporter.Settings(
                 reader.strings("importer.arrival-prefixes", defaults.arrivalPrefixes()),
@@ -164,7 +180,7 @@ public record AtcsSettings(
                 reader.bool("spawning.keep-spawn-chunks-loaded", true),
                 reader.integer("spawning.check-seconds", 5, 1, 600));
 
-        return new AtcsSettings(passenger, boards, timing, blueMap, signLink, importer, assignment, trains, spawning,
+        return new AtcsSettings(passenger, boards, timing, blueMap, signLink, web, importer, assignment, trains, spawning,
                 reader.bool("debug", false), List.copyOf(warnings));
     }
 

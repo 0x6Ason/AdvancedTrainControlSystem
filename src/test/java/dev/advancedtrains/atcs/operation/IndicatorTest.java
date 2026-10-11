@@ -31,11 +31,11 @@ class IndicatorTest {
 
     @Test
     void parsesStationPlatformModeAndFilter() {
-        assertEquals(new Indicator(Indicator.Mode.AT, "main", null, null, null), Indicator.parse("Main", ""));
-        assertEquals(new Indicator(Indicator.Mode.AT, "main", "2", null, null), Indicator.parse("main:2", "at"));
-        assertEquals(new Indicator(Indicator.Mode.APPROACH, "main", null, "a", null), Indicator.parse("main", "approach a"));
-        assertEquals(new Indicator(Indicator.Mode.AFTER, "main", "1", null, NORTH), Indicator.parse("main:1", "after a/north"));
-        assertEquals(new Indicator(Indicator.Mode.AT, "main", null, null, LOOP), Indicator.parse("main", "5/cw"),
+        assertEquals(new Indicator(Indicator.Mode.AT, "main", null, null, null, null), Indicator.parse("Main", ""));
+        assertEquals(new Indicator(Indicator.Mode.AT, "main", "2", null, null, null), Indicator.parse("main:2", "at"));
+        assertEquals(new Indicator(Indicator.Mode.APPROACH, "main", null, null, "a", null), Indicator.parse("main", "approach a"));
+        assertEquals(new Indicator(Indicator.Mode.AFTER, "main", "1", null, null, NORTH), Indicator.parse("main:1", "after a/north"));
+        assertEquals(new Indicator(Indicator.Mode.AT, "main", null, null, null, LOOP), Indicator.parse("main", "5/cw"),
                 "a filter alone keeps the default mode");
         assertThrows(IllegalArgumentException.class, () -> Indicator.parse("", "at"));
         assertThrows(IllegalArgumentException.class, () -> Indicator.parse("main", "at a extra"));
@@ -45,7 +45,7 @@ class IndicatorTest {
 
     private static void assertInstanceOfIndicatorSign() {
         AtcsSign sign = AtcsSign.parse("atcs indicator", "main:2", "approach 5/cw");
-        assertEquals(new AtcsSign.IndicatorSign(new Indicator(Indicator.Mode.APPROACH, "main", "2", null, LOOP)), sign);
+        assertEquals(new AtcsSign.IndicatorSign(new Indicator(Indicator.Mode.APPROACH, "main", "2", null, null, LOOP)), sign);
     }
 
     @Test
@@ -85,6 +85,29 @@ class IndicatorTest {
         assertFalse(Indicator.parse("s2", "approach").active(List.of(arrived), network), "arrived: approach ends");
         assertFalse(Indicator.parse("s1", "after").active(List.of(arrived), network));
         assertTrue(Indicator.parse("s2", "").active(List.of(arrived), network));
+    }
+
+    @Test
+    void lightsBetweenTwoStationsInOneOrBothDirections() {
+        assertEquals(new Indicator(Indicator.Mode.TO, "s1", null, "s2", null, null), Indicator.parse("s1", "to s2"));
+        assertEquals(new Indicator(Indicator.Mode.BETWEEN, "s1", "1", "s2", "a", null), Indicator.parse("s1:1", "between s2 a"));
+        assertThrows(IllegalArgumentException.class, () -> Indicator.parse("s1", "to"));
+        assertThrows(IllegalArgumentException.class, () -> Indicator.parse("s1", "between s1"));
+
+        JourneySnapshot northbound = new JourneySnapshot("t1", NORTH, JourneyPhase.IN_TRANSIT, 0, null,
+                platform("s1", "1"), -1, T0, T0, T0, T0);
+        JourneySnapshot southbound = new JourneySnapshot("t2", SOUTH, JourneyPhase.IN_TRANSIT, 1, null,
+                platform("s2", "2"), -1, T0, T0, T0, T0);
+        assertTrue(Indicator.parse("s1", "to s2").active(List.of(northbound), network));
+        assertFalse(Indicator.parse("s1", "to s3").active(List.of(northbound), network), "next stop is s2");
+        assertFalse(Indicator.parse("s1", "to s2").active(List.of(southbound), network), "wrong direction");
+        assertTrue(Indicator.parse("s1", "between s2").active(List.of(southbound), network), "either direction");
+        assertTrue(Indicator.parse("s2", "between s1").active(List.of(northbound), network));
+        assertFalse(Indicator.parse("s1:2", "to s2").active(List.of(northbound), network), "left from platform 1");
+        assertFalse(Indicator.parse("s2", "to s3").active(List.of(southbound), network));
+        JourneySnapshot arrived = new JourneySnapshot("t1", NORTH, JourneyPhase.AT_STOP, 1, platform("s2", "1"),
+                platform("s2", "1"), -1, T0, T0, T0, T0);
+        assertFalse(Indicator.parse("s1", "to s2").active(List.of(arrived), network), "arrived: off");
     }
 
     @Test

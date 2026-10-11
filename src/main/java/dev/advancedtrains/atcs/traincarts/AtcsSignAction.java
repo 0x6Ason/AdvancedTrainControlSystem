@@ -101,6 +101,9 @@ public final class AtcsSignAction extends SignAction {
                         && network.station(rule.stationId()).orElseThrow().platform(rule.platformId()).isEmpty()) {
                     warn(event, network.stationName(rule.stationId()) + " has no platform '" + rule.platformId() + "' yet");
                 }
+                if (rule.otherStationId() != null && network.station(rule.otherStationId()).isEmpty()) {
+                    warn(event, "Station '" + rule.otherStationId() + "' does not exist yet; create it with /atcs station create");
+                }
                 if (rule.service() != null && network.service(rule.service()).isEmpty()) {
                     warn(event, "Service '" + rule.service() + "' does not exist yet; create it with /atcs service create");
                 } else if (rule.lineId() != null && network.line(rule.lineId()).isEmpty()) {
