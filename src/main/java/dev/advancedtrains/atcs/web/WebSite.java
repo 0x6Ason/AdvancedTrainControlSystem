@@ -27,15 +27,21 @@ import java.util.zip.CRC32;
  * BlueMap's page through its API.
  *
  * <p>Web servers such as BlueMap's let browsers keep every file for a day. The entry points
- * ({@code index.html} and {@code bluemap-button.js}) therefore never change from one version to
+ * ({@code index.html} and {@code railway-plaque.js}) therefore never change from one version to
  * the next: they read {@code version.json}, which they fetch past the cache, and load the other
  * files stamped with that version.
  */
 public final class WebSite {
     public static final String DATA_FOLDER = "data";
     private static final List<String> PAGE_FILES = List.of(
-            "index.html", "app.css", "app.js", "layout.js", "planner.js", "map.js", "bluemap-button.js", "plaque.js");
-    private static final String BUTTON_SCRIPT = "atcs/bluemap-button.js";
+            "index.html", "app.css", "app.js", "layout.js", "planner.js", "map.js", "railway-plaque.js", "plaque.js");
+    /** Files earlier versions wrote; removed so no page can load them again. */
+    private static final List<String> RETIRED_FILES = List.of("bluemap-button.js");
+    /**
+     * Registered with BlueMap under a name no browser has cached with other content. BlueMap loads
+     * it as a plain script tag, which browsers take from their cache even on a hard reload.
+     */
+    private static final String BUTTON_SCRIPT = "atcs/railway-plaque.js";
 
     private final AtcsSettings.Web settings;
     private final Logger logger;
@@ -97,6 +103,9 @@ public final class WebSite {
             Files.createDirectories(target.resolve(DATA_FOLDER));
             for (Map.Entry<String, byte[]> file : files.entrySet()) {
                 Files.write(target.resolve(file.getKey()), file.getValue());
+            }
+            for (String retired : RETIRED_FILES) {
+                Files.deleteIfExists(target.resolve(retired));
             }
             String version = Long.toHexString(checksum.getValue()).toLowerCase(Locale.ROOT);
             writeAtomically(target.resolve("version.json"), "{\"version\":\"" + version + "\"}");

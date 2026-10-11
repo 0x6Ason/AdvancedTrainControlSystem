@@ -1,6 +1,7 @@
-/* Loaded by BlueMap's page. BlueMap's web server lets browsers keep files for a day, so this file
- * never changes: it asks for the current version number, which is never cached, and loads the
- * plaque stamped with it. */
+/* Loaded by BlueMap's page, which injects registered scripts as plain script tags: browsers serve
+ * them from their cache for a day (BlueMap's Cache-Control), even across a hard reload. So this
+ * file never changes: it asks for the current version number, which is never cached, and loads
+ * the plaque stamped with it. Its name must never be reused for different content. */
 (function () {
   'use strict';
   if (window.ATCS_PLAQUE_LOADED) return;
