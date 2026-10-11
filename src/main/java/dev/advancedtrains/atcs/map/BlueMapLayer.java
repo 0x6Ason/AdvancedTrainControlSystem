@@ -11,6 +11,7 @@ import de.bluecolored.bluemap.api.math.Color;
 import dev.advancedtrains.atcs.config.AtcsSettings;
 import dev.advancedtrains.atcs.network.Line;
 import dev.advancedtrains.atcs.network.Network;
+import dev.advancedtrains.atcs.network.Transfer;
 import dev.advancedtrains.atcs.operation.TrackPaths;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
@@ -101,6 +102,28 @@ public final class BlueMapLayer implements MapLayer {
                         .centerPosition()
                         .build();
                 set(sets, segment.world()).put("line_" + segment.id(), marker);
+            }
+        }
+        if (settings.showLines()) {
+            // Walking transfers: a thin grey line between the two stations.
+            for (Transfer transfer : network.transfers()) {
+                var from = network.station(transfer.a()).flatMap(locator::station);
+                var to = network.station(transfer.b()).flatMap(locator::station);
+                if (from.isEmpty() || to.isEmpty() || !from.get().world().equals(to.get().world())) {
+                    continue;
+                }
+                LineMarker marker = LineMarker.builder()
+                        .label("Walk: " + network.stationName(transfer.a()) + " - " + network.stationName(transfer.b()))
+                        .line(de.bluecolored.bluemap.api.math.Line.builder()
+                                .addPoint(new Vector3d(from.get().x() + 0.5, from.get().y() + 1, from.get().z() + 0.5))
+                                .addPoint(new Vector3d(to.get().x() + 0.5, to.get().y() + 1, to.get().z() + 0.5))
+                                .build())
+                        .lineColor(new Color(90, 90, 90, 0.9f))
+                        .lineWidth(2)
+                        .depthTestEnabled(false)
+                        .centerPosition()
+                        .build();
+                set(sets, from.get().world()).put("walk_" + transfer.a() + "_" + transfer.b(), marker);
             }
         }
         if (settings.showStations()) {

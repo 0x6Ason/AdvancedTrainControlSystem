@@ -6,6 +6,7 @@ import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.Platform;
 import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.network.Station;
+import dev.advancedtrains.atcs.network.Transfer;
 import dev.advancedtrains.atcs.operation.TrainView;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.JoinConfiguration;
@@ -14,8 +15,11 @@ import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.OptionalDouble;
 
 /** Builds the MiniMessage placeholders documented in {@code messages.yml}. */
@@ -68,16 +72,39 @@ public final class Placeholders {
     }
 
     /** The other lines calling at a station, each in its own colour. */
+    /**
+     * The other lines passengers can change to at a station: those calling there, then those at
+     * stations a walking transfer away, each walk named once ("Line 1 (walk to Main St.)").
+     */
     public static Optional<Component> interchanges(Network network, String stationId, Line current, Messages messages) {
-        List<Component> others = network.linesCallingAt(stationId).stream()
-                .filter(line -> !line.id().equals(current.id()))
-                .map(line -> (Component) Component.text(line.name(), TextColor.color(line.color())))
-                .toList();
-        if (others.isEmpty()) {
-            return Optional.empty();
+        JoinConfiguration separator = JoinConfiguration.separator(messages.render("passenger.interchange-separator"));
+        Set<String> listed = new HashSet<>();
+        listed.add(current.id());
+        List<Component> parts = new ArrayList<>();
+        for (Line line : network.linesCallingAt(stationId)) {
+            if (listed.add(line.id())) {
+                parts.add(lineName(line));
+            }
         }
-        return Optional.of(Component.join(
-                JoinConfiguration.separator(messages.render("passenger.interchange-separator")), others));
+        for (Transfer transfer : network.transfersAt(stationId)) {
+            String other = transfer.other(stationId);
+            List<Component> walking = new ArrayList<>();
+            for (Line line : network.linesCallingAt(other)) {
+                if (listed.add(line.id())) {
+                    walking.add(lineName(line));
+                }
+            }
+            if (!walking.isEmpty()) {
+                parts.add(messages.render("passenger.interchange-walk",
+                        Placeholder.component("lines", Component.join(separator, walking)),
+                        Placeholder.unparsed("station", stationName(network, other))));
+            }
+        }
+        return parts.isEmpty() ? Optional.empty() : Optional.of(Component.join(separator, parts));
+    }
+
+    private static Component lineName(Line line) {
+        return Component.text(line.name(), TextColor.color(line.color()));
     }
 
     static String platformName(Network network, @Nullable String stationId, @Nullable String platformId) {

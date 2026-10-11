@@ -48,6 +48,7 @@ public final class AtcsCommand implements TabExecutor {
                 TrainCommands.train(support),
                 TrainCommands.trains(support),
                 TrainCommands.departures(support),
+                TransferCommands.build(support),
                 BoardCommands.build(support),
                 ImportCommands.build(support));
     }

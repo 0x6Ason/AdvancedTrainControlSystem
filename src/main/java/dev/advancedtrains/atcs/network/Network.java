@@ -24,6 +24,8 @@ public final class Network {
     private final Map<String, Station> stations;
     private final Map<String, Line> lines;
     private final Map<String, Board> boards;
+    private final List<Transfer> transfers;
+    private final Map<String, List<Transfer>> transfersByStation;
     private final Map<BlockPos, PlatformRef> triggers;
     private final Map<BlockPos, String> boardSigns;
     private final Map<BlockPos, ServiceKey> spawnSigns;
@@ -122,6 +124,20 @@ public final class Network {
             }
         }
         this.boardSigns = Collections.unmodifiableMap(boardIndex);
+
+        this.transfers = List.copyOf(builder.transfers.values());
+        Map<String, List<Transfer>> walkIndex = new HashMap<>();
+        for (Transfer transfer : transfers) {
+            for (String stationId : List.of(transfer.a(), transfer.b())) {
+                if (!stations.containsKey(stationId)) {
+                    problems.add("Transfer " + transfer.a() + " - " + transfer.b() + " names unknown station '" + stationId + "'");
+                }
+                walkIndex.computeIfAbsent(stationId, ignored -> new ArrayList<>()).add(transfer);
+            }
+        }
+        Map<String, List<Transfer>> frozen = new HashMap<>();
+        walkIndex.forEach((stationId, list) -> frozen.put(stationId, List.copyOf(list)));
+        this.transfersByStation = Collections.unmodifiableMap(frozen);
         this.issues = List.copyOf(problems);
     }
 
@@ -134,6 +150,7 @@ public final class Network {
         builder.stations.putAll(stations);
         builder.lines.putAll(lines);
         builder.boards.putAll(boards);
+        transfers.forEach(transfer -> builder.transfers.put(transfer.key(), transfer));
         return builder;
     }
 
@@ -173,6 +190,21 @@ public final class Network {
 
     public Optional<Board> board(String id) {
         return Optional.ofNullable(boards.get(id));
+    }
+
+    /** Walking transfers between stations. */
+    public List<Transfer> transfers() {
+        return transfers;
+    }
+
+    /** The walking transfers that start or end at a station. */
+    public List<Transfer> transfersAt(String stationId) {
+        return transfersByStation.getOrDefault(stationId, List.of());
+    }
+
+    public Optional<Transfer> transfer(String first, String second) {
+        String key = Transfer.key(first, second);
+        return transfers.stream().filter(transfer -> transfer.key().equals(key)).findFirst();
     }
 
     public Optional<PlatformRef> platformAt(BlockPos position) {
@@ -218,8 +250,20 @@ public final class Network {
         private final Map<String, Station> stations = new LinkedHashMap<>();
         private final Map<String, Line> lines = new LinkedHashMap<>();
         private final Map<String, Board> boards = new LinkedHashMap<>();
+        private final Map<String, Transfer> transfers = new LinkedHashMap<>();
 
         private Builder() {
+        }
+
+        /** Adds a walking transfer, replacing one between the same two stations. */
+        public Builder transfer(Transfer transfer) {
+            transfers.put(transfer.key(), transfer);
+            return this;
+        }
+
+        public Builder removeTransfer(String first, String second) {
+            transfers.remove(Transfer.key(first, second));
+            return this;
         }
 
         public Builder station(Station station) {

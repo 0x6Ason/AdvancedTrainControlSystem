@@ -1,7 +1,8 @@
 /* Realtime trip planner. Every running train is projected forward over its stops from its live
  * position and arrival estimate, using the travel and stop times ATCS has learned. The earliest
- * arrival is then found over those actual trains, with a margin for each change. A line with no
- * train running (or none left today) is planned with an assumed wait and flagged as an estimate.
+ * arrival is then found over those actual trains, with a margin for each change, and over the
+ * walking transfers between nearby stations. A line with no train running (or none left today)
+ * is planned with an assumed wait and flagged as an estimate.
  *
  * All times are seconds relative to the moment the live data describes. Works in the browser and
  * in Node. */
@@ -143,7 +144,7 @@
       stops.push({ station: call.station, arr: call.arr });
     }
     return {
-      train: step.train, estimated: step.estimated,
+      type: 'ride', train: step.train, estimated: step.estimated,
       key: key, line: entry.line, service: entry.service,
       from: board.station, to: alight.station, platform: board.platform || null,
       arrives: board.arr, departs: board.dep, arrival: alight.arr,
@@ -177,6 +178,14 @@
       });
     });
 
+    var walks = {};
+    (network.transfers || []).forEach(function (transfer) {
+      var seconds = typeof transfer.walk === 'number' && transfer.walk > 0 ? transfer.walk : 120;
+      var outside = transfer.outside !== false;
+      (walks[transfer.a] = walks[transfer.a] || []).push({ to: transfer.b, seconds: seconds, outside: outside });
+      (walks[transfer.b] = walks[transfer.b] || []).push({ to: transfer.a, seconds: seconds, outside: outside });
+    });
+
     var best = {}, steps = {}, done = {}, open = [fromId];
     best[fromId] = { t: now, legs: 0 };
 
@@ -200,6 +209,11 @@
       if (station === toId) break;
       var at = best[station].t, legs = best[station].legs;
       var ready = at + (station === fromId ? 0 : TRANSFER);
+
+      // Walking to a nearby station; it is not a change of train.
+      (walks[station] || []).forEach(function (walk) {
+        relax(walk.to, at + walk.seconds, legs, { from: station, walk: walk });
+      });
 
       // The trains that will actually call here.
       (callsAt[station] || []).forEach(function (call) {
@@ -233,14 +247,24 @@
     while (cursor !== fromId && guard++ < 64) {
       var step = steps[cursor];
       if (!step) return null;
-      legsOut.unshift(buildLeg(step, byKey));
+      if (step.walk) {
+        legsOut.unshift({
+          type: 'walk', from: step.from, to: cursor, seconds: step.walk.seconds, outside: step.walk.outside,
+          departs: best[step.from].t, arrival: best[cursor].t, calls: 0,
+          hops: [{ walk: true, a: step.from, b: cursor }]
+        });
+      } else {
+        legsOut.unshift(buildLeg(step, byKey));
+      }
       cursor = step.from;
     }
+    var rides = legsOut.filter(function (leg) { return leg.type === 'ride'; }).length;
     return {
       legs: legsOut,
       departs: legsOut[0].departs,
       arrival: best[toId].t,
-      transfers: legsOut.length - 1,
+      transfers: Math.max(0, rides - 1),
+      walks: legsOut.length - rides,
       estimated: legsOut.some(function (leg) { return leg.estimated; })
     };
   }

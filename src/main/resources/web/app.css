@@ -141,6 +141,14 @@ body {
 .line-path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .line-path.suspended { stroke-dasharray: 12 9; opacity: .5; }
 .lines.dimmed .line-path { opacity: .18; }
+/* Walking transfers: dotted when passengers leave the station (as on the Hong Kong MTR map),
+ * solid for a passage inside it. */
+.transfer { fill: none; stroke: var(--station); }
+.transfer.outside { stroke-width: 5; stroke-linecap: round; stroke-dasharray: 0.1 9; }
+.transfer.inside { stroke-width: 4; }
+.transfers.dimmed .transfer { opacity: .25; }
+.route-walk-outline { fill: none; stroke: var(--halo); stroke-width: 15; stroke-linecap: round; }
+.route-walk { fill: none; stroke: var(--station); stroke-width: 7; stroke-linecap: round; stroke-dasharray: 0.1 12; }
 .route-outline { fill: none; stroke: var(--halo); stroke-linecap: round; stroke-linejoin: round; }
 .route-path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .station { cursor: pointer; }
@@ -149,6 +157,8 @@ body {
 .station:hover circle, .station.selected circle { r: 10; }
 .station.selected circle { fill: var(--warn); stroke: var(--station); stroke-width: 3.5; }
 .station.dim, .label.dim { opacity: .25; }
+.station.endpoint circle { r: 11; fill: var(--interchange-fill); stroke: var(--station); stroke-width: 4; }
+.label.endpoint { font-size: 15px; }
 .label { font: 700 13px var(--font); fill: var(--label); paint-order: stroke; stroke: var(--halo); stroke-width: 5px; stroke-linejoin: round; pointer-events: none; }
 .label.interchange { font-size: 14px; }
 
@@ -225,6 +235,14 @@ body {
 .leg details li { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--rule-soft); }
 .leg details li:last-child { border-bottom: 0; }
 .leg.end h3 { margin-top: 5px; }
+.walker { display: block; flex: none; color: var(--text); }
+.leg.walk::before { background: radial-gradient(circle, var(--text) 2.2px, transparent 2.6px) center top / 6px 10px repeat-y; }
+.walks { list-style: none; margin: 12px 0 0; padding: 0; border-top: 1px solid var(--rule-soft); }
+.walks li { border-bottom: 1px solid var(--rule-soft); }
+.walks button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.walks button:hover .walk-text b { text-decoration: underline; }
+.walk-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.walk-text small { color: var(--muted); font-size: 12.5px; }
 .end-mark { width: 28px; height: 28px; background: var(--ink); border: 7px solid var(--paper); box-shadow: 0 0 0 2px var(--rule); }
 
 .station-list, .train-list { list-style: none; margin: 14px 0 0; padding: 0; border-top: 2px solid var(--rule); }

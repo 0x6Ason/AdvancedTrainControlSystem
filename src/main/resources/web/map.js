@@ -19,11 +19,41 @@
     return points.map(function (p, i) { return (i ? 'L' : 'M') + p.u.toFixed(1) + ' ' + p.v.toFixed(1); }).join(' ');
   }
 
-  function overlaps(a, b) {
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  var BEND = 28;   // radius of the rounded bends, as on subway diagrams
+
+  function point(p) { return p.u.toFixed(1) + ' ' + p.v.toFixed(1); }
+
+  /* A polyline with every bend rounded off. */
+  function roundedPath(points, radius) {
+    if (points.length < 3) return pathData(points);
+    var d = 'M' + point(points[0]);
+    for (var i = 1; i < points.length - 1; i++) {
+      var p = points[i - 1], c = points[i], n = points[i + 1];
+      var l1 = Math.hypot(c.u - p.u, c.v - p.v), l2 = Math.hypot(n.u - c.u, n.v - c.v);
+      var r = Math.min(radius, l1 / 2, l2 / 2);
+      if (!l1 || !l2 || r <= 0) { d += ' L' + point(c); continue; }
+      var a = { u: c.u - (c.u - p.u) / l1 * r, v: c.v - (c.v - p.v) / l1 * r };
+      var b = { u: c.u + (n.u - c.u) / l2 * r, v: c.v + (n.v - c.v) / l2 * r };
+      d += ' L' + point(a) + ' Q' + point(c) + ' ' + point(b);
+    }
+    return d + ' L' + point(points[points.length - 1]);
   }
 
-  /* Black or white, whichever reads better on the colour. */
+  /* A station name as one or two lines of text around its label point. */
+  function labelText(group, station) {
+    var label = station.label, lines = label.lines || [station.name], height = label.lineHeight || 18;
+    var text = el('text', {
+      'class': 'label' + (station.interchange ? ' interchange' : ''),
+      x: label.x, y: label.y, 'text-anchor': label.anchor
+    }, group);
+    lines.forEach(function (line, i) {
+      var span = el('tspan', { x: label.x, y: (label.y + (i - (lines.length - 1) / 2) * height).toFixed(1), dy: '0.36em' }, text);
+      span.textContent = line;
+    });
+    return text;
+  }
+
+    /* Black or white, whichever reads better on the colour. */
   function textOn(hex) {
     var m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
     if (!m) return '#fff';
@@ -228,7 +258,7 @@
     function draw() {
       clear(svg);
       groups = {};
-      ['lines', 'route', 'stations', 'labels'].forEach(function (name) {
+      ['lines', 'transfers', 'route', 'stations', 'labels'].forEach(function (name) {
         groups[name] = el('g', { 'class': name }, svg);
       });
       lineById = {};
@@ -241,48 +271,27 @@
         line.edges.forEach(function (edge) {
           el('path', {
             'class': 'line-path' + (line.suspended ? ' suspended' : ''),
-            d: pathData(edge.points),
+            d: roundedPath(edge.points, BEND),
             stroke: line.color,
             'stroke-width': layout.stroke
           }, groups.lines);
         });
       });
 
-      var placedLabels = [];
-      var stationList = Object.keys(layout.stations).map(function (id) { return layout.stations[id]; });
-      stationList.sort(function (a, b) { return a.v - b.v || a.u - b.u; });
-      stationList.forEach(function (station) {
+      // Walking transfers: dotted when passengers leave the station, solid inside it.
+      layout.transfers.forEach(function (transfer) {
+        var path = el('path', { 'class': 'transfer ' + (transfer.outside ? 'outside' : 'inside'), d: pathData(transfer.points) }, groups.transfers);
+        el('title', {}, path).textContent = 'Walk between ' + layout.stations[transfer.a].name + ' and ' + layout.stations[transfer.b].name;
+      });
+
+      Object.keys(layout.stations).forEach(function (id) {
+        var station = layout.stations[id];
         var group = el('g', { 'class': 'station' + (station.interchange ? ' interchange' : ''), 'data-id': station.id }, groups.stations);
-        el('circle', { cx: station.u, cy: station.v, r: station.interchange ? 8.5 : 5.5 }, group);
+        el('circle', { cx: station.u, cy: station.v, r: station.r }, group);
         el('title', {}, group).textContent = station.name;
         group.addEventListener('click', function () { if (options.onStation) options.onStation(station.id); });
         stationNodes[station.id] = group;
-
-        var width = station.name.length * 7.6 + 10, height = 18;
-        var candidates = [
-          { x: station.u + 16, y: station.v - height / 2, anchor: 'start', dx: 16, dy: 0 },
-          { x: station.u - 16 - width, y: station.v - height / 2, anchor: 'end', dx: -16, dy: 0 },
-          { x: station.u - width / 2, y: station.v + 16, anchor: 'middle', dx: 0, dy: 16 + height / 2 },
-          { x: station.u - width / 2, y: station.v - 16 - height, anchor: 'middle', dx: 0, dy: -16 - height / 2 }
-        ];
-        var chosen = candidates[0];
-        for (var c = 0; c < candidates.length; c++) {
-          var box = { x: candidates[c].x, y: candidates[c].y, w: width, h: height };
-          var clash = placedLabels.some(function (other) { return overlaps(box, other); })
-            || stationList.some(function (other) {
-              return other !== station && other.u > box.x - 12 && other.u < box.x + box.w + 12 && other.v > box.y - 12 && other.v < box.y + box.h + 12;
-            });
-          if (!clash) { chosen = candidates[c]; break; }
-        }
-        placedLabels.push({ x: chosen.x, y: chosen.y, w: width, h: height });
-        var label = el('text', {
-          'class': 'label' + (station.interchange ? ' interchange' : ''),
-          x: station.u + chosen.dx, y: station.v + chosen.dy,
-          dy: '0.36em',
-          'text-anchor': chosen.anchor
-        }, groups.labels);
-        label.textContent = station.name;
-        labelNodes[station.id] = label;
+        labelNodes[station.id] = labelText(groups.labels, station);
       });
     }
 
@@ -291,10 +300,10 @@
       layout = newLayout;
       draw();
       var bounds = layout.bounds || { minU: 0, maxU: 100, minV: 0, maxV: 100 };
-      var margin = layout.cell * 1.5;
+      var margin = layout.cell * 0.6;
       home = {
-        x: bounds.minU - margin, y: bounds.minV - margin * 0.7,
-        w: bounds.maxU - bounds.minU + margin * 2.6, h: bounds.maxV - bounds.minV + margin * 1.4
+        x: bounds.minU - margin, y: bounds.minV - margin,
+        w: bounds.maxU - bounds.minU + margin * 2, h: bounds.maxV - bounds.minV + margin * 2
       };
       if (first || fitted || !view) fit(); else apply();
       if (selected) select(selected, false);
@@ -302,11 +311,13 @@
 
     // ---- Trip highlight and selection --------------------------------------------------------
 
+    /* Draws a planned trip over the dimmed map and marks where it starts and ends. */
     function highlight(legs) {
       if (!groups) return;
       var hops = [];
       (legs || []).forEach(function (leg) { (leg.hops || []).forEach(function (hop) { hops.push(hop); }); });
-      var signature = JSON.stringify(hops);
+      var ends = legs && legs.length ? [legs[0].from, legs[legs.length - 1].to] : [];
+      var signature = JSON.stringify([hops, ends]);
       if (signature === highlighted) return;
       highlighted = signature;
       clear(groups.route);
@@ -314,17 +325,28 @@
       hops.forEach(function (hop) {
         onRoute[hop.a] = true;
         onRoute[hop.b] = true;
+        var a = layout.stations[hop.a], b = layout.stations[hop.b];
+        if (hop.walk) {
+          if (!a || !b) return;
+          var walk = [{ u: a.u, v: a.v }, { u: b.u, v: b.v }];
+          el('path', { 'class': 'route-walk-outline', d: pathData(walk) }, groups.route);
+          el('path', { 'class': 'route-walk', d: pathData(walk) }, groups.route);
+          return;
+        }
         var points = layout.path(hop.line, hop.a, hop.b);
         if (!points) return;
         var line = lineById[hop.line];
-        el('path', { 'class': 'route-outline', d: pathData(points), 'stroke-width': layout.stroke + 10 }, groups.route);
-        el('path', { 'class': 'route-path', d: pathData(points), stroke: line ? line.color : 'currentColor', 'stroke-width': layout.stroke + 3 }, groups.route);
+        el('path', { 'class': 'route-outline', d: roundedPath(points, BEND), 'stroke-width': layout.stroke + 10 }, groups.route);
+        el('path', { 'class': 'route-path', d: roundedPath(points, BEND), stroke: line ? line.color : 'currentColor', 'stroke-width': layout.stroke + 3 }, groups.route);
       });
       var dim = hops.length > 0;
       groups.lines.classList.toggle('dimmed', dim);
+      groups.transfers.classList.toggle('dimmed', dim);
       Object.keys(stationNodes).forEach(function (id) {
         stationNodes[id].classList.toggle('dim', dim && !onRoute[id]);
+        stationNodes[id].classList.toggle('endpoint', ends.indexOf(id) >= 0);
         labelNodes[id].classList.toggle('dim', dim && !onRoute[id]);
+        labelNodes[id].classList.toggle('endpoint', ends.indexOf(id) >= 0);
       });
     }
 

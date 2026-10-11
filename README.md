@@ -213,6 +213,8 @@ platform. The layout is in `messages.yml`.
 | `/atcs service create\|stops\|record\|spawn\|unspawn\|fleet\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services |
 | `/atcs train info [train]` | atcs.use | The train you ride or look at |
 | `/atcs train assign\|unassign\|auto`, `/atcs trains` | atcs.manage | Assignments |
+| `/atcs transfer list` | atcs.use | Walking transfers |
+| `/atcs transfer add\|remove` | atcs.manage | Edit walking transfers |
 | `/atcs board create\|add\|unbind\|remove\|list` | atcs.manage | Departure boards |
 | `/atcs import scan\|stations\|services\|write\|apply\|reset` | atcs.manage | Set-up from the world |
 | `/atcs status`, `/atcs reload`, `/atcs debug` | atcs.manage | Administration |
@@ -289,11 +291,41 @@ a segment has been recorded it is drawn as a thinner straight line.
 `%atcs_<station>_<n>_line%`, `_service`, `_dest`, `_eta` and `_platform`, where dashes in station ids
 become underscores.
 
+## Walking transfers
+
+Two stations a short walk apart can be linked, so passengers change between them on foot:
+
+```
+/atcs transfer add 1st-street main            walking time estimated from the distance
+/atcs transfer add 1st-street main 0:45       or given (m:ss or seconds)
+/atcs transfer add depot-east depot-west inside
+```
+
+`outside` (the default) means passengers leave one station through the gates and enter the other;
+`inside` is a passage that stays within the stations. In `network.yml`:
+
+```yaml
+transfers:
+- between: [1st-street, main]
+  walk: 45          # seconds; leave it out to estimate it from the distance
+  outside: true
+```
+
+The website map draws the link as a dotted line (a solid connector for `inside`), as the Hong Kong
+MTR map does, and the trip planner walks it when that is quicker. Arrival announcements mention
+the lines at the other end: *Change here for Line A, Line 1 (walk to Main St.).*
+
 ## Website
 
 ATCS writes a small website: a schematic map of the network, the next departures of every
 station, the trains in service, and a realtime trip planner. It is plain static files, so any web
 server can serve it.
+
+The map is drawn as a subway diagram from your stations' positions and stop orders: stations sit
+on an evenly spaced grid, every line runs through its stops in their real order at 45-degree
+angles with rounded bends, no line is drawn through a station it does not serve, and labels are
+kept clear of lines (long names may wrap onto two lines). Stations keep their real north-south
+and east-west order; distances are not to scale.
 
 The planner follows the actual trains: it projects every running train over its next stops from
 its live position and the travel and stop times learned from your trains, then picks the earliest

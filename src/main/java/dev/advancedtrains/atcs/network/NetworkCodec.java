@@ -27,6 +27,9 @@ public final class NetworkCodec {
             "Edit with /atcs commands in game, or edit this file and run /atcs reload.",
             "Stops are written as station, station:platform, or ~station for a station a",
             "service runs through without stopping. Triggers and board signs are world,x,y,z.",
+            "Transfers are walks between nearby stations: between: [a, b], walk in seconds or",
+            "m:ss (left out: estimated from the distance), outside: false for a passage that",
+            "stays inside the stations.",
             "Full reference: see the plugin README.");
 
     public record ReadResult(Network network, List<String> errors) {
@@ -75,7 +78,60 @@ public final class NetworkCodec {
                 }
             }
         }
+        Set<String> walks = new HashSet<>();
+        for (Transfer transfer : readTransfers(root, errors)) {
+            if (!walks.add(transfer.key())) {
+                errors.add("transfers: " + transfer.a() + " and " + transfer.b() + " are connected twice; the first is used");
+            } else {
+                builder.transfer(transfer);
+            }
+        }
         return new ReadResult(builder.build(), errors);
+    }
+
+    private static List<Transfer> readTransfers(ConfigurationSection root, List<String> errors) {
+        List<Transfer> transfers = new ArrayList<>();
+        if (!root.isSet("transfers")) {
+            return transfers;
+        }
+        if (!root.isList("transfers")) {
+            errors.add("transfers: expected a list of { between: [station, station], walk: seconds, outside: true|false }");
+            return transfers;
+        }
+        List<?> items = root.getList("transfers", List.of());
+        for (int index = 0; index < items.size(); index++) {
+            String path = "transfers[" + (index + 1) + "]";
+            if (!(items.get(index) instanceof Map<?, ?> item)) {
+                errors.add(path + ": expected { between: [station, station], walk: seconds }");
+                continue;
+            }
+            if (!(item.get("between") instanceof List<?> between) || between.size() != 2) {
+                errors.add(path + ": 'between' must list exactly two stations");
+                continue;
+            }
+            Integer walk = null;
+            Object rawWalk = item.get("walk");
+            if (rawWalk != null) {
+                try {
+                    walk = (int) Fleet.parseEvery(String.valueOf(rawWalk)).getSeconds();
+                } catch (IllegalArgumentException exception) {
+                    errors.add(path + ": walk " + exception.getMessage());
+                    continue;
+                }
+            }
+            Object rawOutside = item.get("outside");
+            if (rawOutside != null && !(rawOutside instanceof Boolean)) {
+                errors.add(path + ": outside must be true or false");
+                continue;
+            }
+            try {
+                transfers.add(new Transfer(String.valueOf(between.get(0)), String.valueOf(between.get(1)), walk,
+                        rawOutside == null || (Boolean) rawOutside));
+            } catch (IllegalArgumentException exception) {
+                errors.add(path + ": " + exception.getMessage());
+            }
+        }
+        return transfers;
     }
 
     /** Reads a {@code stations:} section. Also used for import proposals. */
@@ -360,6 +416,20 @@ public final class NetworkCodec {
                 node.set("platforms", board.platforms());
             }
             node.set("signs", board.signs().stream().map(BlockPos::format).toList());
+        }
+
+        if (!network.transfers().isEmpty()) {
+            List<Map<String, Object>> transfers = new ArrayList<>();
+            for (Transfer transfer : network.transfers()) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("between", List.of(transfer.a(), transfer.b()));
+                if (transfer.walk() != null) {
+                    item.put("walk", transfer.walk());
+                }
+                item.put("outside", transfer.outside());
+                transfers.add(item);
+            }
+            root.set("transfers", transfers);
         }
         return root.saveToString();
     }

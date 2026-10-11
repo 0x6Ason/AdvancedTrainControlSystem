@@ -170,6 +170,7 @@ final class StationCommands {
                 builder.line(updated);
             }
             boards.forEach(board -> builder.removeBoard(board.id()));
+            current.transfersAt(station.id()).forEach(transfer -> builder.removeTransfer(transfer.a(), transfer.b()));
             return builder.build();
         });
         Chat.success(context.sender(), "Removed station " + station.id());

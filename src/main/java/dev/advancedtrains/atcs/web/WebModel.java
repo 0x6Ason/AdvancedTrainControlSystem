@@ -10,6 +10,7 @@ import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.network.Station;
 import dev.advancedtrains.atcs.network.Stop;
+import dev.advancedtrains.atcs.network.Transfer;
 import dev.advancedtrains.atcs.operation.Departures;
 import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.operation.JourneySnapshot;
@@ -72,7 +73,33 @@ public final class WebModel {
             lines.add(entry);
         }
         root.put("lines", lines);
+        List<Object> transfers = new ArrayList<>();
+        for (Transfer transfer : network.transfers()) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("a", transfer.a());
+            entry.put("b", transfer.b());
+            entry.put("walk", walkSeconds(network, transfer, locator));
+            entry.put("estimated", transfer.walk() == null);
+            entry.put("outside", transfer.outside());
+            transfers.add(entry);
+        }
+        root.put("transfers", transfers);
         return GSON.toJson(root);
+    }
+
+    /** The configured walking time, or one estimated from where the stations are. */
+    static int walkSeconds(Network network, Transfer transfer, StationLocator locator) {
+        if (transfer.walk() != null) {
+            return transfer.walk();
+        }
+        Optional<BlockPos> from = network.station(transfer.a()).flatMap(locator::station);
+        Optional<BlockPos> to = network.station(transfer.b()).flatMap(locator::station);
+        if (from.isPresent() && to.isPresent() && from.get().world().equals(to.get().world())) {
+            BlockPos a = from.get(), b = to.get();
+            double distance = Math.sqrt(Math.pow(a.x() - b.x(), 2) + Math.pow(a.y() - b.y(), 2) + Math.pow(a.z() - b.z(), 2));
+            return Transfer.estimateSeconds(distance, transfer.outside());
+        }
+        return 120;
     }
 
     private static Map<String, Object> service(Network network, Service service, TravelTimes times) {

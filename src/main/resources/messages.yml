@@ -9,7 +9,7 @@
 #   <station> <platform>    the station (and platform) the train is at or arriving at
 #   <next>                  the next calling station
 #   <eta>                   estimated time to the next station (boss bar) or to arrival (boards)
-#   <interchanges>          other lines calling at the station
+#   <interchanges>          other lines calling at the station, and lines a walking transfer away
 #   <suspension>            the notice set with /atcs line suspend
 #
 # Set a message to "" to turn it off.
@@ -37,6 +37,8 @@ passenger:
   unassigned-arrival-subtitle: ""
   # Separator between lines in <interchanges>.
   interchange-separator: "<gray>, </gray>"
+  # Lines reached through a walking transfer, as part of <interchanges>. <lines>, <station>.
+  interchange-walk: "<lines> <gray>(walk to <station>)</gray>"
 
 board:
   # Each board sign shows one departure on its four lines.

@@ -192,8 +192,12 @@
     detail.innerHTML = '<header><span class="bullets">' + (station.lines || []).map(function (l) { return bullet(lineIndex[l], true); }).join('') + '</span>'
       + '<h2>' + escapeHtml(station.name) + '</h2><button type="button" class="close" aria-label="Close">&times;</button></header>'
       + '<div class="body"><div id="station-departures">' + renderDepartures(id) + '</div>'
+      + renderWalks(id)
       + '<div class="detail-actions"><button type="button" data-plan="from">Trip from here</button><button type="button" data-plan="to">Trip to here</button></div></div>';
     detail.querySelector('.close').addEventListener('click', clearStation);
+    detail.querySelectorAll('[data-walk]').forEach(function (button) {
+      button.addEventListener('click', function () { showStation(button.getAttribute('data-walk'), true); });
+    });
     detail.querySelectorAll('[data-plan]').forEach(function (button) {
       button.addEventListener('click', function () {
         $(button.getAttribute('data-plan')).value = station.name;
@@ -204,6 +208,26 @@
     if (map) map.select(id);
     if (!keepTab) showTab('stations');
     setHash();
+  }
+
+  var WALKER = '<svg class="walker" viewBox="0 0 28 28" width="28" height="28" aria-hidden="true"><circle cx="14" cy="14" r="14" fill="currentColor"/>'
+    + '<g fill="none" stroke="var(--paper)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M14.5 10.5l-1.2 6 3 3.5 1 4M13.3 16.5l-2.8 3.2-2 4M12.8 12.2l-2.6 2.6-.4 3M14.7 11l2.7 2.6 2.6.8"/></g>'
+    + '<circle cx="15.6" cy="7.2" r="2" fill="var(--paper)"/></svg>';
+
+  function walkTime(seconds) { return ATCSPlanner.formatDuration(seconds) + ' walk'; }
+
+  /* The stations a walking transfer away from a station, each a button that opens it. */
+  function renderWalks(stationId) {
+    var walks = (network.transfers || []).filter(function (t) { return t.a === stationId || t.b === stationId; });
+    if (!walks.length) return '';
+    return '<ul class="walks">' + walks.map(function (t) {
+      var other = t.a === stationId ? t.b : t.a;
+      var lines = (stationIndex[other] && stationIndex[other].lines || []).map(function (l) { return bullet(lineIndex[l], true); }).join('');
+      return '<li><button type="button" data-walk="' + escapeHtml(other) + '">' + WALKER + '<span class="walk-text"><b>' + escapeHtml(stationName(other))
+        + '</b><small>' + escapeHtml(walkTime(t.walk) + (t.outside ? ', outside the station' : ', inside the station')) + '</small></span>'
+        + '<span class="bullets">' + lines + '</span></button></li>';
+    }).join('') + '</ul>';
   }
 
   function clearStation() {
@@ -320,8 +344,14 @@
     }
     var stops = plan.legs.reduce(function (n, leg) { return n + leg.calls; }, 0);
     var legs = plan.legs.map(function (leg, i) {
+      if (leg.type === 'walk') {
+        return '<li class="leg walk">' + WALKER + '<div><h3>Walk to ' + escapeHtml(stationName(leg.to)) + '</h3>'
+          + '<p class="where">' + escapeHtml(walkTime(leg.seconds)) + (leg.outside ? ', leaving the station through the gates' : ', inside the station') + '</p>'
+          + '<p>Arrive in ' + countdown(leg.arrival, 'now') + '</p></div></li>';
+      }
       var toward = leg.service.destination ? ' toward ' + escapeHtml(leg.service.destination) : '';
-      var board = '<p class="where">' + (i === 0 ? 'Board at ' : 'Change at ') + escapeHtml(stationName(leg.from))
+      var walkedHere = i > 0 && plan.legs[i - 1].type === 'walk';
+      var board = '<p class="where">' + (i === 0 || walkedHere ? 'Board at ' : 'Change at ') + escapeHtml(stationName(leg.from))
         + (leg.platform ? ' <span class="platform">' + escapeHtml(leg.platform) + '</span>' : '') + '</p>';
       var ride = '<p>' + plural(leg.calls, 'stop') + ' to ' + escapeHtml(stationName(leg.to)) + ', arriving in ' + countdown(leg.arrival, 'now') + '</p>';
       var becomes = leg.becomes ? '<p class="note">At ' + escapeHtml(stationName(leg.becomes.at)) + ' the train continues as '
@@ -337,7 +367,8 @@
     result.innerHTML = '<div class="plan-summary"><div class="eyebrow">' + (live ? 'Live · arrive in' : 'Arrive in') + '</div>'
       + '<div class="time">' + countdown(plan.arrival, '0:00') + '</div>'
       + '<div class="meta">' + escapeHtml(stationName(planFrom)) + ' &rarr; ' + escapeHtml(stationName(planTo)) + '</div>'
-      + '<div class="sub">Arrive ' + clockTime(plan.arrival) + ' · ' + (plan.transfers ? plural(plan.transfers, 'change') : 'No changes') + ' · ' + plural(stops, 'stop') + '</div></div>'
+      + '<div class="sub">Arrive ' + clockTime(plan.arrival) + ' · ' + (plan.transfers ? plural(plan.transfers, 'change') : 'No changes')
+      + (plan.walks ? ' · ' + plural(plan.walks, 'walk') : '') + (stops ? ' · ' + plural(stops, 'stop') : '') + '</div></div>'
       + '<ol class="legs">' + legs + finish + '</ol>'
       + (live ? '' : '<p class="note">No live data, so waiting times are assumed.</p>');
     if (map) map.highlight(plan.legs);
