@@ -35,7 +35,9 @@ TrainCarts server, configured with files and in-game commands.
   actual running trains), written as static files into BlueMap's web root or any folder, with a
   plaque on BlueMap's page linking to it. The map is laid out as a subway diagram: an even grid
   that keeps every station's real order, 45-degree lines with rounded bends, no line through a
-  station it does not serve.
+  station it does not serve. The trip planner offers several routes (express or local, fewer
+  changes, walking or not) with live countdowns; on phones the panel is a draggable sheet over the
+  map.
 - Walking transfers between nearby stations (`/atcs transfer`, `transfers:` in network.yml): a
   dotted connector on the map, walked by the trip planner, and mentioned in arrival
   announcements.

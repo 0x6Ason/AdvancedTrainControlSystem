@@ -328,11 +328,18 @@ kept clear of lines (long names may wrap onto two lines). Stations keep their re
 and east-west order; distances are not to scale.
 
 The planner follows the actual trains: it projects every running train over its next stops from
-its live position and the travel and stop times learned from your trains, then picks the earliest
-arrival, allowing time for each change. It names the train to board and counts down to it, and it
-plans again with every update. A line with no train running is planned with an assumed wait and
-marked as an estimate. On the map, scroll or pinch to zoom, drag to pan, double-click to zoom
-in. Updates reach browsers straight away even though BlueMap's web server lets them cache files
+its live position and the travel and stop times learned from your trains, allowing time for each
+change. Like a journey planner it offers a few routes, each as a card with its lines, when to
+board and a countdown to arrival: the fastest, the best trip starting on each line or service at
+the origin (an express and a local, say), fewer changes, or walking or not, tagged *Fastest*,
+*Leaves first*, *Fewest changes* or *Less walking*. Routes that are worse in every respect, far
+slower, or double back through a station are left out. The picked route is drawn on the map and
+stays picked while the plan updates with every refresh. A line with no train running is planned
+with an assumed wait and marked as an estimate.
+
+On the map, scroll or pinch to zoom, drag to pan, double-click to zoom in; taps find the nearest
+station within a finger's reach. On phones the panel is a sheet over the map that can be dragged
+between three heights, and the map keeps its place whatever the sheet does. Updates reach browsers straight away even though BlueMap's web server lets them cache files
 for a day: the page and the plaque only read a version number and load files stamped with it.
 
 - With BlueMap installed, nothing needs configuring: the files go to BlueMap's web root under

@@ -1,9 +1,13 @@
 /* The railway site: loads the network once and the live data every few seconds, draws the map,
- * plans trips in real time and shows departures and running trains.
+ * offers trip options in real time and shows departures and running trains.
  *
  * The page markup is built here rather than in index.html, so a browser holding an old copy of
  * index.html still gets the current page. Every time shown is a countdown element carrying the
- * moment it counts to; a one-second tick only rewrites those numbers. */
+ * moment it counts to; a one-second tick only rewrites those numbers.
+ *
+ * On phones the panel is a bottom sheet laid over the map (peek, half, full). It never changes
+ * the map's size, so the map does not move when the sheet's content changes; the part it covers
+ * is passed to the map, which fits and reveals within what can be seen. */
 (function () {
   'use strict';
 
@@ -12,8 +16,8 @@
     + '  <div class="sign-left"><h1 id="title">Railway</h1><div class="sign-bullets" id="header-bullets" aria-label="Lines"></div></div>'
     + '  <div class="sign-right"><span class="chip" id="status-chip">WAITING</span><span class="sign-note" id="status-text"></span></div>'
     + '</header>'
-    + '<main class="layout">'
-    + '  <section class="map-wrap" id="map-wrap" aria-label="Network map" tabindex="0">'
+    + '<main class="layout" id="layout">'
+    + '  <section class="map-wrap" id="map-wrap" aria-label="Network map">'
     + '    <svg id="map" role="img" aria-label="Schematic network map"></svg>'
     + '    <div class="map-tools">'
     + '      <button type="button" id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>'
@@ -25,26 +29,32 @@
     + '    <div id="legend" class="legend"></div>'
     + '    <div id="map-empty" class="map-empty" hidden></div>'
     + '  </section>'
-    + '  <aside class="panel">'
-    + '    <nav class="tabs" role="tablist">'
+    + '  <aside class="panel" id="panel">'
+    + '    <div class="grip" id="grip" aria-hidden="true"><span></span></div>'
+    + '    <nav class="tabs" id="tabs" role="tablist">'
     + '      <button type="button" role="tab" data-tab="plan" aria-selected="true">Trip</button>'
     + '      <button type="button" role="tab" data-tab="stations" aria-selected="false">Stations</button>'
     + '      <button type="button" role="tab" data-tab="trains" aria-selected="false">Trains</button>'
     + '    </nav>'
     + '    <section class="tab" id="tab-plan" role="tabpanel">'
-    + '      <form id="plan-form" autocomplete="off">'
-    + '        <label class="field"><span>From</span><input id="from" list="station-names" placeholder="Station" required></label>'
-    + '        <label class="field"><span>To</span><input id="to" list="station-names" placeholder="Station" required></label>'
-    + '        <datalist id="station-names"></datalist>'
-    + '        <div class="form-row">'
-    + '          <button type="button" class="button secondary" id="swap" aria-label="Swap stations">&#8645; Swap</button>'
-    + '          <button type="submit" class="button">Plan trip</button>'
+    + '      <form id="plan-form" class="trip-form" autocomplete="off">'
+    + '        <div class="trip-fields">'
+    + '          <div class="trip-field" data-field="from"><span class="mark from" aria-hidden="true"></span>'
+    + '            <input id="from" placeholder="From" aria-label="From" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggest" enterkeyhint="next" spellcheck="false" autocapitalize="off" autocorrect="off">'
+    + '            <button type="button" class="clear" data-clear="from" aria-label="Clear" hidden>&times;</button></div>'
+    + '          <div class="trip-field" data-field="to"><span class="mark to" aria-hidden="true"></span>'
+    + '            <input id="to" placeholder="To" aria-label="To" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggest" enterkeyhint="go" spellcheck="false" autocapitalize="off" autocorrect="off">'
+    + '            <button type="button" class="clear" data-clear="to" aria-label="Clear" hidden>&times;</button></div>'
     + '        </div>'
+    + '        <button type="button" class="swap" id="swap" aria-label="Swap stations" title="Swap stations">'
+    + '          <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M6 3v13M6 16l-3-3M6 16l3-3M14 17V4M14 4l-3 3M14 4l3 3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"/></svg>'
+    + '        </button>'
+    + '        <ul id="suggest" class="suggest" role="listbox" hidden></ul>'
     + '      </form>'
     + '      <div id="plan-result" class="plan-result" aria-live="polite"></div>'
     + '    </section>'
     + '    <section class="tab" id="tab-stations" role="tabpanel" hidden>'
-    + '      <input id="station-search" type="search" placeholder="Find a station" aria-label="Find a station">'
+    + '      <input id="station-search" type="search" placeholder="Find a station" aria-label="Find a station" enterkeyhint="search" spellcheck="false" autocapitalize="off">'
     + '      <div id="station-detail" class="station-detail" hidden></div>'
     + '      <ul id="station-list" class="station-list"></ul>'
     + '    </section>'
@@ -57,8 +67,10 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var network = null, map = null, live = null, liveBase = Date.now();
-  var selectedStation = null, plan = null, planFrom = null, planTo = null, refreshSeconds = 3;
+  var selectedStation = null, refreshSeconds = 3;
+  var planFrom = null, planTo = null, trips = [], plan = null, chosen = null;
   var stationIndex = {}, lineIndex = {}, serviceIndex = {};
+  var phone = window.matchMedia ? window.matchMedia('(max-width: 820px)') : { matches: false };
 
   function fetchJson(name) {
     if (window.ATCS_DATA && window.ATCS_DATA[name]) return Promise.resolve(window.ATCS_DATA[name]);
@@ -111,6 +123,96 @@
     updateStatus();
   }
 
+  // ---- Bottom sheet (phones) -------------------------------------------------------------------
+
+  var sheet = { state: 'half', height: 0, drag: null };
+
+  function sheetHeights() {
+    var total = $('layout').clientHeight || window.innerHeight;
+    var tabs = $('tabs').offsetHeight + $('grip').offsetHeight;
+    return { peek: tabs + 64, half: Math.round(Math.max(tabs + 160, total * 0.5)), full: Math.max(tabs + 160, total - 44) };
+  }
+
+  function applySheetHeight(height, animate) {
+    var panel = $('panel');
+    panel.classList.toggle('animate', !!animate);
+    panel.style.height = Math.round(height) + 'px';
+    sheet.height = height;
+    if (map) map.setInsets(0, height);
+  }
+
+  function setSheet(state, animate) {
+    if (!phone.matches) return;
+    sheet.state = state;
+    $('panel').setAttribute('data-sheet', state);
+    applySheetHeight(sheetHeights()[state], animate !== false);
+  }
+
+  function layoutChanged() {
+    var panel = $('panel');
+    if (phone.matches) {
+      setSheet(sheet.state, false);
+    } else {
+      panel.style.height = '';
+      panel.removeAttribute('data-sheet');
+      if (map) map.setInsets(0, 0);
+    }
+  }
+
+  /* Drag the grip or the tabs to move the sheet; flick to throw it to the next height. */
+  function sheetDrag() {
+    var handles = [$('grip'), $('tabs')];
+    handles.forEach(function (handle) {
+      handle.addEventListener('pointerdown', function (event) {
+        if (!phone.matches || (event.pointerType === 'mouse' && event.button !== 0)) return;
+        sheet.drag = { id: event.pointerId, y: event.clientY, start: sheet.height, moved: false, last: event.clientY, time: event.timeStamp, speed: 0, handle: handle };
+      });
+    });
+    window.addEventListener('pointermove', function (event) {
+      var drag = sheet.drag;
+      if (!drag || drag.id !== event.pointerId) return;
+      var dy = event.clientY - drag.y;
+      if (!drag.moved) {
+        if (Math.abs(dy) < 8) return;
+        drag.moved = true;
+        try { drag.handle.setPointerCapture(event.pointerId); } catch (ignored) { /* not supported */ }
+      }
+      var heights = sheetHeights();
+      var dt = Math.max(1, event.timeStamp - drag.time);
+      drag.speed = (event.clientY - drag.last) / dt;
+      drag.last = event.clientY;
+      drag.time = event.timeStamp;
+      applySheetHeight(Math.max(heights.peek, Math.min(heights.full, drag.start - dy)), false);
+      event.preventDefault();
+    }, { passive: false });
+    function end(event) {
+      var drag = sheet.drag;
+      if (!drag || drag.id !== event.pointerId) return;
+      sheet.drag = null;
+      if (!drag.moved) {
+        if (drag.handle === $('grip')) setSheet(sheet.state === 'full' ? 'half' : sheet.state === 'half' ? 'full' : 'half');
+        return;
+      }
+      // The click a drag may end with must not switch tabs; later taps must still work.
+      var handle = drag.handle;
+      handle.addEventListener('click', swallow, true);
+      setTimeout(function () { handle.removeEventListener('click', swallow, true); }, 350);
+      var heights = sheetHeights(), order = ['peek', 'half', 'full'];
+      var target;
+      if (drag.speed < -0.5) {
+        target = order.filter(function (s) { return heights[s] > sheet.height + 1; })[0] || 'full';
+      } else if (drag.speed > 0.5) {
+        target = order.filter(function (s) { return heights[s] < sheet.height - 1; }).pop() || 'peek';
+      } else {
+        target = order.reduce(function (best, s) { return Math.abs(heights[s] - sheet.height) < Math.abs(heights[best] - sheet.height) ? s : best; }, 'half');
+      }
+      setSheet(target);
+    }
+    function swallow(event) { event.stopPropagation(); event.preventDefault(); }
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+  }
+
   // ---- Network -------------------------------------------------------------------------------
 
   function index() {
@@ -130,20 +232,36 @@
     }).join('');
   }
 
+  function stationBullets(id) {
+    return ((stationIndex[id] && stationIndex[id].lines) || []).map(function (l) { return bullet(lineIndex[l], true); }).join('');
+  }
+
   function renderStationList(filter) {
-    var query = (filter || '').trim().toLowerCase();
-    var items = network.stations.slice().sort(function (a, b) { return a.name.localeCompare(b.name); })
-      .filter(function (station) { return !query || station.name.toLowerCase().indexOf(query) >= 0 || station.id.indexOf(query) >= 0; });
+    var items = matches(filter, 100);
     $('station-list').innerHTML = items.map(function (station) {
       return '<li data-id="' + escapeHtml(station.id) + '"><span class="name">' + escapeHtml(station.name) + '</span><span class="bullets">'
-        + (station.lines || []).map(function (id) { return bullet(lineIndex[id], true); }).join('') + '</span></li>';
+        + stationBullets(station.id) + '</span></li>';
     }).join('') || '<li class="empty">No station matches.</li>';
   }
 
-  function fillDatalist() {
-    $('station-names').innerHTML = network.stations.map(function (station) {
-      return '<option value="' + escapeHtml(station.name) + '"></option>';
-    }).join('');
+  function fold(text) { return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+
+  /* Stations matching what was typed: names starting with it first, then a word starting with
+   * it, then containing it. Everything, in name order, when nothing was typed. */
+  function matches(query, limit) {
+    var q = fold(query);
+    var list = network.stations.map(function (station) {
+      var name = fold(station.name), rank;
+      if (!q) rank = 0;
+      else if (name.indexOf(q) === 0) rank = 0;
+      else if ((' ' + name).indexOf(' ' + q) >= 0) rank = 1;
+      else if (name.indexOf(q) >= 0) rank = 2;
+      else if (station.id.indexOf(q.replace(/ /g, '-')) >= 0) rank = 3;
+      else return null;
+      return { station: station, rank: rank };
+    }).filter(Boolean);
+    list.sort(function (a, b) { return a.rank - b.rank || a.station.name.localeCompare(b.station.name); });
+    return list.slice(0, limit).map(function (item) { return item.station; });
   }
 
   function exactStation(text) {
@@ -156,15 +274,58 @@
     return null;
   }
 
-  function looseStation(text) {
-    var exact = exactStation(text);
-    if (exact) return exact;
-    var query = (text || '').trim().toLowerCase();
-    if (!query) return null;
-    var starts = network.stations.filter(function (s) { return s.name.toLowerCase().indexOf(query) === 0; });
-    if (starts.length === 1) return starts[0].id;
-    var contains = network.stations.filter(function (s) { return s.name.toLowerCase().indexOf(query) >= 0; });
-    return contains.length === 1 ? contains[0].id : null;
+  // ---- Station suggestions for the trip fields -------------------------------------------------
+
+  var suggest = { field: null, items: [], active: -1 };
+
+  function openSuggest(field) {
+    if (!network) return;
+    suggest.field = field;
+    suggest.items = matches($(field).value, 8);
+    suggest.active = $(field).value.trim() && suggest.items.length ? 0 : -1;
+    var list = $('suggest');
+    list.innerHTML = suggest.items.map(function (station, i) {
+      return '<li role="option" data-id="' + escapeHtml(station.id) + '"' + (i === suggest.active ? ' aria-selected="true"' : '') + '>'
+        + '<span class="name">' + escapeHtml(station.name) + '</span><span class="bullets">' + stationBullets(station.id) + '</span></li>';
+    }).join('') || '<li class="empty">No station matches.</li>';
+    var row = document.querySelector('.trip-field[data-field="' + field + '"]');
+    list.style.top = (row.offsetTop + row.offsetHeight) + 'px';
+    list.hidden = false;
+    $(field).setAttribute('aria-expanded', 'true');
+  }
+
+  function closeSuggest() {
+    $('suggest').hidden = true;
+    ['from', 'to'].forEach(function (field) { $(field).setAttribute('aria-expanded', 'false'); });
+    suggest.field = null;
+  }
+
+  function moveSuggest(step) {
+    if ($('suggest').hidden || !suggest.items.length) return;
+    suggest.active = (suggest.active + step + suggest.items.length) % suggest.items.length;
+    $('suggest').querySelectorAll('li[data-id]').forEach(function (li, i) {
+      if (i === suggest.active) { li.setAttribute('aria-selected', 'true'); li.scrollIntoView({ block: 'nearest' }); } else li.removeAttribute('aria-selected');
+    });
+  }
+
+  function chooseStation(field, id) {
+    $(field).value = stationName(id);
+    updateClearButtons();
+    closeSuggest();
+    var other = field === 'from' ? 'to' : 'from';
+    if (!exactStation($(other).value)) {
+      $(other).focus();
+      openSuggest(other);
+    } else {
+      $(field).blur();
+    }
+    onPlanInput();
+  }
+
+  function updateClearButtons() {
+    ['from', 'to'].forEach(function (field) {
+      document.querySelector('[data-clear="' + field + '"]').hidden = !$(field).value;
+    });
   }
 
   // ---- Stations and departures ---------------------------------------------------------------
@@ -189,7 +350,7 @@
     var station = stationIndex[id];
     var detail = $('station-detail');
     detail.hidden = false;
-    detail.innerHTML = '<header><span class="bullets">' + (station.lines || []).map(function (l) { return bullet(lineIndex[l], true); }).join('') + '</span>'
+    detail.innerHTML = '<header><span class="bullets">' + stationBullets(id) + '</span>'
       + '<h2>' + escapeHtml(station.name) + '</h2><button type="button" class="close" aria-label="Close">&times;</button></header>'
       + '<div class="body"><div id="station-departures">' + renderDepartures(id) + '</div>'
       + renderWalks(id)
@@ -200,13 +361,22 @@
     });
     detail.querySelectorAll('[data-plan]').forEach(function (button) {
       button.addEventListener('click', function () {
-        $(button.getAttribute('data-plan')).value = station.name;
+        var field = button.getAttribute('data-plan'), other = field === 'from' ? 'to' : 'from';
+        $(field).value = station.name;
+        updateClearButtons();
         showTab('plan');
+        if (!exactStation($(other).value)) {
+          setSheet('full');
+          $(other).focus();
+          openSuggest(other);
+        }
         onPlanInput();
       });
     });
-    if (map) map.select(id);
     if (!keepTab) showTab('stations');
+    if (phone.matches && sheet.state === 'peek') setSheet('half');
+    if (map) map.select(id);
+    $('tab-stations').scrollTop = 0;
     setHash();
   }
 
@@ -214,6 +384,7 @@
     + '<g fill="none" stroke="var(--paper)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'
     + '<path d="M14.5 10.5l-1.2 6 3 3.5 1 4M13.3 16.5l-2.8 3.2-2 4M12.8 12.2l-2.6 2.6-.4 3M14.7 11l2.7 2.6 2.6.8"/></g>'
     + '<circle cx="15.6" cy="7.2" r="2" fill="var(--paper)"/></svg>';
+  var WALKER_SMALL = WALKER.replace('width="28" height="28"', 'width="22" height="22"');
 
   function walkTime(seconds) { return ATCSPlanner.formatDuration(seconds) + ' walk'; }
 
@@ -223,10 +394,9 @@
     if (!walks.length) return '';
     return '<ul class="walks">' + walks.map(function (t) {
       var other = t.a === stationId ? t.b : t.a;
-      var lines = (stationIndex[other] && stationIndex[other].lines || []).map(function (l) { return bullet(lineIndex[l], true); }).join('');
       return '<li><button type="button" data-walk="' + escapeHtml(other) + '">' + WALKER + '<span class="walk-text"><b>' + escapeHtml(stationName(other))
         + '</b><small>' + escapeHtml(walkTime(t.walk) + (t.outside ? ', outside the station' : ', inside the station')) + '</small></span>'
-        + '<span class="bullets">' + lines + '</span></button></li>';
+        + '<span class="bullets">' + stationBullets(other) + '</span></button></li>';
     }).join('') + '</ul>';
   }
 
@@ -256,10 +426,10 @@
   }
 
   function renderTrains() {
-    var trains = live && live.trains ? live.trains.slice() : [];
-    trains.sort(function (a, b) { return (a.line + a.name).localeCompare(b.line + b.name); });
-    $('train-summary').textContent = trains.length ? plural(trains.length, 'train') + ' in service' : (live ? 'No trains in service' : 'Waiting for live data');
-    $('train-list').innerHTML = trains.map(function (train) {
+    var list = live && live.trains ? live.trains.slice() : [];
+    list.sort(function (a, b) { return (a.line + a.name).localeCompare(b.line + b.name); });
+    $('train-summary').textContent = list.length ? plural(list.length, 'train') + ' in service' : (live ? 'No trains in service' : 'Waiting for live data');
+    $('train-list').innerHTML = list.map(function (train) {
       var entry = serviceIndex[train.key];
       return '<li>' + bullet(lineIndex[train.line], true) + '<div class="name">' + escapeHtml(train.name) + '<div class="dest">'
         + escapeHtml((entry ? entry.service.name + ' to ' : 'To ') + train.destination) + '</div></div>'
@@ -267,10 +437,11 @@
     }).join('');
   }
 
-  // ---- Trip planner ---------------------------------------------------------------------------
+  // ---- Trip options --------------------------------------------------------------------------
 
-  /* Plans as soon as both fields name a station exactly, for example after picking from the list. */
+  /* Plans as soon as both fields name a station exactly, for example after picking one. */
   function onPlanInput() {
+    updateClearButtons();
     var fromText = $('from').value.trim(), toText = $('to').value.trim();
     if (!fromText || !toText) {
       if (planFrom || planTo) clearPlan();
@@ -280,48 +451,75 @@
     if (from && to && from !== to && (from !== planFrom || to !== planTo)) {
       planFrom = from;
       planTo = to;
-      runPlan();
+      chosen = null;
+      runPlan(true);
+    } else if (from && to && from === to) {
+      $('plan-result').innerHTML = '<p class="plan-error">Those are the same station.</p>';
     }
-  }
-
-  function submitPlan() {
-    var from = looseStation($('from').value), to = looseStation($('to').value);
-    var result = $('plan-result');
-    if (!from || !to) {
-      result.innerHTML = '<p class="plan-error">' + (!from ? 'Pick the starting station from the list.' : 'Pick the destination from the list.') + '</p>';
-      return;
-    }
-    if (from === to) {
-      result.innerHTML = '<p class="plan-error">Those are the same station.</p>';
-      return;
-    }
-    $('from').value = stationName(from);
-    $('to').value = stationName(to);
-    planFrom = from;
-    planTo = to;
-    runPlan();
   }
 
   function clearPlan() {
+    trips = [];
     plan = null;
     planFrom = null;
     planTo = null;
+    chosen = null;
     $('plan-result').innerHTML = '';
     if (map) map.highlight(null);
     setHash();
   }
 
-  /* Plans again from the latest live data; called on every update while a trip is shown. */
-  function runPlan() {
+  /* Plans again from the latest live data; called on every update while a trip is shown. A trip
+   * picked by the visitor stays picked while it is still on offer. */
+  function runPlan(fresh) {
     if (!planFrom || !planTo || !network) return;
-    plan = ATCSPlanner.plan(network, planFrom, planTo, live, now());
+    trips = ATCSPlanner.options(network, planFrom, planTo, live, now(), 4);
+    plan = trips.filter(function (t) { return t.signature === chosen; })[0] || trips[0] || null;
+    if (plan && !trips.some(function (t) { return t.signature === chosen; })) chosen = null;
     renderPlan();
+    if (fresh && plan && map) {
+      if (phone.matches) setSheet('half');
+      map.showRoute(plan.legs);
+    }
     setHash();
   }
 
-  function legWhen(leg, index) {
+  var TAGS = { 'fastest': 'Fastest', 'leaves-first': 'Leaves first', 'fewest-changes': 'Fewest changes', 'least-walking': 'Less walking' };
+
+  function firstRide(trip) {
+    for (var i = 0; i < trip.legs.length; i++) if (trip.legs[i].type === 'ride') return trip.legs[i];
+    return null;
+  }
+
+  function routeChain(trip) {
+    return trip.legs.map(function (leg) {
+      return leg.type === 'walk' ? '<span class="link walk">' + WALKER_SMALL + '<small>' + escapeHtml(ATCSPlanner.formatClock(leg.seconds)) + '</small></span>'
+        : '<span class="link">' + bullet(leg.line, true) + '<small>' + escapeHtml(leg.service.name) + '</small></span>';
+    }).join('<span class="chev" aria-hidden="true"></span>');
+  }
+
+  function routeWhen(trip) {
+    var ride = firstRide(trip);
+    var walkFirst = trip.legs[0].type === 'walk';
+    var lead = walkFirst ? 'Walk now, then ' : '';
+    if (!ride) return 'Walk now';
+    if (ride.estimated) return lead + (walkFirst ? 'no' : 'No') + ' train in sight yet';
+    if (ride.arrives <= now() + 0.5) return lead + (walkFirst ? 'train' : 'Train') + ' boarding, leaves in ' + countdown(ride.departs, 'now');
+    return lead + (walkFirst ? 'train' : 'Train') + ' in ' + countdown(ride.arrives, 'now')
+      + (ride.platform ? ' <span class="platform">' + escapeHtml(ride.platform) + '</span>' : '');
+  }
+
+  function routeFacts(trip) {
+    var facts = [trip.transfers ? plural(trip.transfers, 'change') : (trip.walks ? 'No changes' : 'Direct')];
+    if (trip.walkSeconds) facts.push(walkTime(trip.walkSeconds));
+    var stops = trip.legs.reduce(function (n, leg) { return n + leg.calls; }, 0);
+    if (stops) facts.push(plural(stops, 'stop'));
+    return facts.join(' · ');
+  }
+
+  function legWhen(leg, index, trip) {
     if (leg.estimated) {
-      var ready = index === 0 ? now() : plan.legs[index - 1].arrival;
+      var ready = index === 0 ? now() : trip.legs[index - 1].arrival;
       return '<p class="est">No train on this line can be seen yet. Assuming one in about '
         + escapeHtml(ATCSPlanner.formatDuration(leg.departs - ready)) + '.</p>';
     }
@@ -329,6 +527,32 @@
       return '<p class="live"><b>' + escapeHtml(leg.train) + '</b> is at the platform, leaving in ' + countdown(leg.departs, 'now') + '</p>';
     }
     return '<p class="live"><b>' + escapeHtml(leg.train) + '</b> arrives in ' + countdown(leg.arrives, 'now') + '</p>';
+  }
+
+  function renderLegs(trip, open) {
+    var legs = trip.legs.map(function (leg, i) {
+      if (leg.type === 'walk') {
+        return '<li class="leg walk">' + WALKER + '<div><h3>Walk to ' + escapeHtml(stationName(leg.to)) + '</h3>'
+          + '<p class="where">' + escapeHtml(walkTime(leg.seconds)) + (leg.outside ? ', leaving the station through the gates' : ', inside the station') + '</p>'
+          + '<p>Arrive in ' + countdown(leg.arrival, 'now') + '</p></div></li>';
+      }
+      var toward = leg.service.destination ? ' toward ' + escapeHtml(leg.service.destination) : '';
+      var walkedHere = i > 0 && trip.legs[i - 1].type === 'walk';
+      var board = '<p class="where">' + (i === 0 || walkedHere ? 'Board at ' : 'Change at ') + escapeHtml(stationName(leg.from))
+        + (leg.platform ? ' <span class="platform">' + escapeHtml(leg.platform) + '</span>' : '') + '</p>';
+      var ride = '<p>' + plural(leg.calls, 'stop') + ' to ' + escapeHtml(stationName(leg.to)) + ', arriving in ' + countdown(leg.arrival, 'now') + '</p>';
+      var becomes = leg.becomes ? '<p class="note">At ' + escapeHtml(stationName(leg.becomes.at)) + ' the train continues as '
+        + escapeHtml(leg.becomes.line.name + ' ' + leg.becomes.service.name) + '. Stay on board.</p>' : '';
+      var next = leg === firstRide(trip) && trip.following ? '<p class="note">Following train in ' + countdown(trip.following, 'now') + '</p>' : '';
+      var list = leg.stops.length > 1 ? '<details data-leg="' + i + '"' + (open[i] ? ' open' : '') + '><summary>Stops</summary><ol>'
+        + leg.stops.map(function (stop) { return '<li><span>' + escapeHtml(stationName(stop.station)) + '</span>' + countdown(stop.arr, 'now') + '</li>'; }).join('')
+        + '</ol></details>' : '';
+      return '<li class="leg" style="--leg-color:' + escapeHtml(leg.line.color) + '">' + bullet(leg.line)
+        + '<div><h3>' + escapeHtml(leg.line.name + ' ' + leg.service.name) + toward + '</h3>' + board + legWhen(leg, i, trip) + next + ride + becomes + list + '</div></li>';
+    }).join('');
+    var finish = '<li class="leg end"><span class="end-mark" aria-hidden="true"></span><div><h3>' + escapeHtml(stationName(planTo))
+      + '</h3><p>Arrive ' + clockTime(trip.arrival) + '</p></div></li>';
+    return '<ol class="legs">' + legs + finish + '</ol>';
   }
 
   function renderPlan() {
@@ -342,36 +566,35 @@
       if (map) map.highlight(null);
       return;
     }
-    var stops = plan.legs.reduce(function (n, leg) { return n + leg.calls; }, 0);
-    var legs = plan.legs.map(function (leg, i) {
-      if (leg.type === 'walk') {
-        return '<li class="leg walk">' + WALKER + '<div><h3>Walk to ' + escapeHtml(stationName(leg.to)) + '</h3>'
-          + '<p class="where">' + escapeHtml(walkTime(leg.seconds)) + (leg.outside ? ', leaving the station through the gates' : ', inside the station') + '</p>'
-          + '<p>Arrive in ' + countdown(leg.arrival, 'now') + '</p></div></li>';
-      }
-      var toward = leg.service.destination ? ' toward ' + escapeHtml(leg.service.destination) : '';
-      var walkedHere = i > 0 && plan.legs[i - 1].type === 'walk';
-      var board = '<p class="where">' + (i === 0 || walkedHere ? 'Board at ' : 'Change at ') + escapeHtml(stationName(leg.from))
-        + (leg.platform ? ' <span class="platform">' + escapeHtml(leg.platform) + '</span>' : '') + '</p>';
-      var ride = '<p>' + plural(leg.calls, 'stop') + ' to ' + escapeHtml(stationName(leg.to)) + ', arriving in ' + countdown(leg.arrival, 'now') + '</p>';
-      var becomes = leg.becomes ? '<p class="note">At ' + escapeHtml(stationName(leg.becomes.at)) + ' the train continues as '
-        + escapeHtml(leg.becomes.line.name + ' ' + leg.becomes.service.name) + '. Stay on board.</p>' : '';
-      var list = leg.stops.length > 1 ? '<details data-leg="' + i + '"' + (open[i] ? ' open' : '') + '><summary>Stops</summary><ol>'
-        + leg.stops.map(function (stop) { return '<li><span>' + escapeHtml(stationName(stop.station)) + '</span>' + countdown(stop.arr, 'now') + '</li>'; }).join('')
-        + '</ol></details>' : '';
-      return '<li class="leg" style="--leg-color:' + escapeHtml(leg.line.color) + '">' + bullet(leg.line)
-        + '<div><h3>' + escapeHtml(leg.line.name + ' ' + leg.service.name) + toward + '</h3>' + board + legWhen(leg, i) + ride + becomes + list + '</div></li>';
+    var cards = trips.map(function (trip) {
+      var picked = trip === plan;
+      var tags = trip.tags.map(function (tag) { return '<span class="tag' + (tag === 'fastest' ? ' strong' : '') + '">' + TAGS[tag] + '</span>'; });
+      if (trip.estimated) tags.push('<span class="tag soft">Estimate</span>');
+      return '<li class="route' + (picked ? ' picked' : '') + '">'
+        + '<button type="button" class="route-card" data-route="' + escapeHtml(trip.signature) + '" aria-expanded="' + picked + '">'
+        + '<span class="route-top"><span class="chain">' + routeChain(trip) + '</span>'
+        + '<span class="arrive"><b>' + countdown(trip.arrival, '0:00') + '</b><small>arrive ' + clockTime(trip.arrival) + '</small></span></span>'
+        + '<span class="route-when">' + routeWhen(trip) + '</span>'
+        + '<span class="route-facts">' + escapeHtml(routeFacts(trip)) + (tags.length ? ' ' + tags.join('') : '') + '</span>'
+        + '</button>'
+        + (picked ? '<div class="route-detail">' + renderLegs(trip, open) + '</div>' : '')
+        + '</li>';
     }).join('');
-    var finish = '<li class="leg end"><span class="end-mark" aria-hidden="true"></span><div><h3>' + escapeHtml(stationName(planTo))
-      + '</h3><p>Arrive ' + clockTime(plan.arrival) + '</p></div></li>';
-    result.innerHTML = '<div class="plan-summary"><div class="eyebrow">' + (live ? 'Live · arrive in' : 'Arrive in') + '</div>'
-      + '<div class="time">' + countdown(plan.arrival, '0:00') + '</div>'
-      + '<div class="meta">' + escapeHtml(stationName(planFrom)) + ' &rarr; ' + escapeHtml(stationName(planTo)) + '</div>'
-      + '<div class="sub">Arrive ' + clockTime(plan.arrival) + ' · ' + (plan.transfers ? plural(plan.transfers, 'change') : 'No changes')
-      + (plan.walks ? ' · ' + plural(plan.walks, 'walk') : '') + (stops ? ' · ' + plural(stops, 'stop') : '') + '</div></div>'
-      + '<ol class="legs">' + legs + finish + '</ol>'
+    result.innerHTML = '<div class="routes-head"><span>' + escapeHtml(stationName(planFrom)) + ' &rarr; ' + escapeHtml(stationName(planTo)) + '</span>'
+      + '<span>' + plural(trips.length, 'route') + (live ? ' · live' : '') + '</span></div>'
+      + '<ol class="routes">' + cards + '</ol>'
       + (live ? '' : '<p class="note">No live data, so waiting times are assumed.</p>');
     if (map) map.highlight(plan.legs);
+  }
+
+  function pickRoute(signature) {
+    var trip = trips.filter(function (t) { return t.signature === signature; })[0];
+    if (!trip) return;
+    if (trip === plan && chosen === signature) return;
+    chosen = signature;
+    plan = trip;
+    renderPlan();
+    if (map) map.showRoute(plan.legs);
   }
 
   // ---- Tabs, link, status ---------------------------------------------------------------------
@@ -403,9 +626,10 @@
       if (stationIndex[ids[0]] && stationIndex[ids[1]] && ids[0] !== ids[1]) {
         $('from').value = stationIndex[ids[0]].name;
         $('to').value = stationIndex[ids[1]].name;
+        updateClearButtons();
         planFrom = ids[0];
         planTo = ids[1];
-        runPlan();
+        runPlan(true);
       }
     }
     if (params.station && stationIndex[params.station]) showStation(params.station, !!params.plan);
@@ -437,13 +661,13 @@
       liveBase = Date.now();
       renderTrains();
       refreshStationDetail();
-      if (planFrom && planTo) runPlan();
+      if (planFrom && planTo) runPlan(false);
       updateStatus();
     }).catch(function () { updateStatus(); });
   }
 
   function signature(data) {
-    return JSON.stringify([data.title, data.stations, data.lines.map(function (l) {
+    return JSON.stringify([data.title, data.stations, data.transfers, data.lines.map(function (l) {
       return [l.id, l.color, l.name, l.short, l.suspended, l.services.map(function (s) { return [s.key, s.name, s.circular, s.stops]; })];
     })]);
   }
@@ -462,41 +686,103 @@
     }
     map.setLayout(layout);
     renderHeader();
-    fillDatalist();
     renderStationList($('station-search').value);
     if (selectedStation && stationIndex[selectedStation]) showStation(selectedStation, true);
-    if (planFrom && planTo) runPlan();
+    if (planFrom && planTo) runPlan(false);
   }
 
   function boot() {
     var root = $('app') || document.body;
     root.innerHTML = PAGE;
-    map = ATCSMap.create($('map'), $('map-wrap'), { onStation: function (id) { showStation(id); } });
+    map = ATCSMap.create($('map'), $('map-wrap'), {
+      onStation: function (id) {
+        closeSuggest();
+        if (phone.matches && sheet.state !== 'half') setSheet('half');
+        showStation(id);
+      },
+      onBackground: function () {
+        closeSuggest();
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        if (phone.matches && sheet.state !== 'peek') setSheet('peek');
+      }
+    });
+    layoutChanged();
+    if (phone.addEventListener) phone.addEventListener('change', layoutChanged);
+    window.addEventListener('resize', function () { if (phone.matches && !sheet.drag) setSheet(sheet.state, false); });
+    sheetDrag();
 
     document.querySelectorAll('.tabs [role="tab"]').forEach(function (tab) {
-      tab.addEventListener('click', function () { showTab(tab.getAttribute('data-tab')); });
+      tab.addEventListener('click', function () {
+        showTab(tab.getAttribute('data-tab'));
+        if (phone.matches && sheet.state === 'peek') setSheet('half');
+      });
     });
-    $('plan-form').addEventListener('submit', function (event) { event.preventDefault(); submitPlan(); });
-    $('from').addEventListener('input', onPlanInput);
-    $('to').addEventListener('input', onPlanInput);
+
+    ['from', 'to'].forEach(function (field) {
+      var input = $(field);
+      input.addEventListener('focus', function () {
+        if (phone.matches) setSheet('full');
+        openSuggest(field);
+      });
+      input.addEventListener('input', function () { openSuggest(field); onPlanInput(); });
+      input.addEventListener('blur', function () { setTimeout(function () { if (suggest.field === field && document.activeElement !== input) closeSuggest(); }, 180); });
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'ArrowDown') { event.preventDefault(); if ($('suggest').hidden) openSuggest(field); else moveSuggest(1); }
+        else if (event.key === 'ArrowUp') { event.preventDefault(); moveSuggest(-1); }
+        else if (event.key === 'Escape') { closeSuggest(); }
+        else if (event.key === 'Enter') {
+          event.preventDefault();
+          var pick = suggest.field === field && suggest.items[Math.max(0, suggest.active)];
+          if (pick && input.value.trim()) chooseStation(field, pick.id);
+        }
+      });
+    });
+    var list = $('suggest');
+    list.addEventListener('mousedown', function (event) { event.preventDefault(); });
+    list.addEventListener('click', function (event) {
+      var item = event.target.closest('li[data-id]');
+      if (item && suggest.field) chooseStation(suggest.field, item.getAttribute('data-id'));
+    });
+    document.querySelectorAll('[data-clear]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var field = button.getAttribute('data-clear');
+        $(field).value = '';
+        onPlanInput();
+        $(field).focus();
+        openSuggest(field);
+      });
+    });
+    $('plan-form').addEventListener('submit', function (event) { event.preventDefault(); });
     $('swap').addEventListener('click', function () {
       var from = $('from').value;
       $('from').value = $('to').value;
       $('to').value = from;
       planFrom = null;
       planTo = null;
+      closeSuggest();
       onPlanInput();
     });
+    $('plan-result').addEventListener('click', function (event) {
+      var card = event.target.closest('[data-route]');
+      if (card) pickRoute(card.getAttribute('data-route'));
+    });
+
+    $('station-search').addEventListener('focus', function () { if (phone.matches) setSheet('full'); });
     $('station-search').addEventListener('input', function () { renderStationList($('station-search').value); });
     $('station-list').addEventListener('click', function (event) {
       var item = event.target.closest('li[data-id]');
-      if (item) showStation(item.getAttribute('data-id'), true);
+      if (!item) return;
+      $('station-search').blur();
+      if (phone.matches) setSheet('half');
+      showStation(item.getAttribute('data-id'), true);
     });
     $('zoom-in').addEventListener('click', function () { map.zoomBy(1.4); });
     $('zoom-out').addEventListener('click', function () { map.zoomBy(1 / 1.4); });
     $('zoom-fit').addEventListener('click', function () { map.fit(); });
-    $('map-wrap').addEventListener('keydown', function (event) {
-      if (event.target !== $('map-wrap')) return;
+    document.addEventListener('keydown', function (event) {
+      var target = event.target;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.key === '+' || event.key === '=') { map.zoomBy(1.4); event.preventDefault(); }
       else if (event.key === '-' || event.key === '_') { map.zoomBy(1 / 1.4); event.preventDefault(); }
       else if (event.key === '0') { map.fit(); event.preventDefault(); }

@@ -1,6 +1,9 @@
 /* Draws the schematic network map as SVG: lines, stations, labels and a highlighted trip. The map
  * only redraws when the network or the planned trip changes.
- * Navigation: wheel or pinch to zoom, drag to pan, double-click to zoom in. */
+ * Navigation: wheel or pinch to zoom, drag to pan, double-click to zoom in. Taps are matched to
+ * the nearest station within a finger's reach (or on its label), so small dots are easy to hit.
+ * Panels covering part of the map (the bottom sheet on phones) are set as insets, and fitting or
+ * revealing a station uses only the part that can be seen. */
 (function (root) {
   'use strict';
 
@@ -87,6 +90,9 @@
     var layout = null, lineById = {}, stationNodes = {}, labelNodes = {}, groups = null;
     var home = null, view = null, fitted = true, framePending = false;
     var highlighted = '', selected = null;
+    // The part of the map covered by panels, in pixels (the bottom sheet on phones).
+    var inset = { top: 0, bottom: 0 };
+    var size = null;
 
     // ---- View ------------------------------------------------------------------------------
 
@@ -100,39 +106,60 @@
       requestAnimationFrame(function () { framePending = false; apply(); });
     }
 
-    function aspect() {
+    function measure() {
       var rect = svg.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1.6;
+      return { left: rect.left, top: rect.top, width: rect.width || 1, height: rect.height || 1 };
+    }
+
+    /* Map units per screen pixel. */
+    function scale() { return view ? view.w / measure().width : 1; }
+
+    /* Shows the box {x, y, w, h} as large as possible in the part of the map nothing covers. */
+    function frame(box, maxZoomWidth) {
+      var rect = measure();
+      var visible = Math.max(80, rect.height - inset.top - inset.bottom);
+      var s = Math.max(box.w / rect.width, box.h / visible, (maxZoomWidth || 0) / rect.width);
+      view = {
+        w: rect.width * s, h: rect.height * s,
+        x: box.x + box.w / 2 - rect.width * s / 2,
+        y: box.y + box.h / 2 - (inset.top + visible / 2) * s
+      };
+      size = { width: rect.width, height: rect.height };
+      apply();
     }
 
     function fit() {
       if (!home) return;
-      var ratio = aspect();
-      view = { x: home.x, y: home.y, w: home.w, h: home.h };
-      if (view.w / view.h < ratio) {
-        var w = view.h * ratio; view.x -= (w - view.w) / 2; view.w = w;
-      } else {
-        var h = view.w / ratio; view.y -= (h - view.h) / 2; view.h = h;
-      }
+      frame(home);
       fitted = true;
-      apply();
     }
 
+    /* After a resize the map keeps its scale and its centre, so nothing jumps. */
     function resized() {
       if (!view) return;
       if (fitted) { fit(); return; }
-      var middle = view.y + view.h / 2;
-      view.h = view.w / aspect();
-      view.y = middle - view.h / 2;
+      var rect = measure();
+      if (size && Math.abs(size.width - rect.width) < 0.5 && Math.abs(size.height - rect.height) < 0.5) return;
+      var s = size ? view.w / size.width : view.w / rect.width;
+      var cx = view.x + view.w / 2, cy = view.y + view.h / 2;
+      view.w = rect.width * s;
+      view.h = rect.height * s;
+      view.x = cx - view.w / 2;
+      view.y = cy - view.h / 2;
+      size = { width: rect.width, height: rect.height };
       apply();
+    }
+
+    function setInsets(top, bottom) {
+      inset = { top: Math.max(0, top || 0), bottom: Math.max(0, bottom || 0) };
     }
 
     /* Scales the view by `factor` around the screen point (px, py). */
     function zoomAt(factor, px, py) {
       if (!view || !home) return;
-      var rect = svg.getBoundingClientRect();
-      var fx = rect.width ? (px - rect.left) / rect.width : 0.5;
-      var fy = rect.height ? (py - rect.top) / rect.height : 0.5;
+      var rect = measure();
+      var fx = (px - rect.left) / rect.width;
+      var fy = (py - rect.top) / rect.height;
       var w = Math.max(home.w / 14, Math.min(home.w * 3, view.w / factor));
       var h = w * (view.h / view.w);
       view.x += (view.w - w) * fx;
@@ -143,8 +170,8 @@
     }
 
     function zoomBy(factor) {
-      var rect = svg.getBoundingClientRect();
-      zoomAt(factor, rect.left + rect.width / 2, rect.top + rect.height / 2);
+      var rect = measure();
+      zoomAt(factor, rect.left + rect.width / 2, rect.top + inset.top + (rect.height - inset.top - inset.bottom) / 2);
       apply();
     }
 
@@ -169,31 +196,58 @@
       wheel.y = event.clientY;
     }, { passive: false });
 
-    // Drag to pan, two fingers to zoom. The pointer is captured only once a drag has begun, so
-    // a plain click still reaches the station under it.
-    var pointers = {}, press = null, dragging = false, pinchDistance = 0, suppressClick = false;
+    // ---- Taps ------------------------------------------------------------------------------
+
+    /* The station under a screen point: within a finger's reach of its dot, or on its label. */
+    function stationAt(clientX, clientY, touch) {
+      if (!layout || !view) return null;
+      var rect = measure(), s = view.w / rect.width;
+      var mx = view.x + (clientX - rect.left) * s, my = view.y + (clientY - rect.top) * s;
+      var reach = (touch ? 24 : 12) * s, best = null, bestDistance = Infinity;
+      Object.keys(layout.stations).forEach(function (id) {
+        var station = layout.stations[id];
+        var d = Math.hypot(station.u - mx, station.v - my) - station.r;
+        var box = station.label && station.label.box;
+        if (box && mx >= box.x - 4 * s && mx <= box.x + box.w + 4 * s && my >= box.y - 4 * s && my <= box.y + box.h + 4 * s) d = Math.min(d, 0);
+        if (d <= reach && d < bestDistance) { best = id; bestDistance = d; }
+      });
+      return best;
+    }
+
+    // Drag to pan, two fingers to zoom. A press that hardly moves is a tap.
+    var pointers = {}, press = null, dragging = false, pinchDistance = 0;
 
     function distance(ids) {
       var a = pointers[ids[0]], b = pointers[ids[1]];
       return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
+    function startPress(id, x, y, type) {
+      press = { id: id, x: x, y: y, vx: view ? view.x : 0, vy: view ? view.y : 0, type: type, tap: true };
+      dragging = false;
+    }
+
     svg.addEventListener('pointerdown', function (event) {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
-      suppressClick = false;
       pointers[event.pointerId] = { x: event.clientX, y: event.clientY };
       var ids = Object.keys(pointers);
       if (ids.length === 1) {
-        press = { id: event.pointerId, x: event.clientX, y: event.clientY, vx: view ? view.x : 0, vy: view ? view.y : 0 };
-        dragging = false;
+        startPress(event.pointerId, event.clientX, event.clientY, event.pointerType);
       } else if (ids.length === 2) {
+        if (press) press.tap = false;
         press = null;
         pinchDistance = distance(ids);
       }
     });
 
     svg.addEventListener('pointermove', function (event) {
-      if (!pointers[event.pointerId] || !view) return;
+      if (!pointers[event.pointerId]) {
+        if (event.pointerType === 'mouse' && !event.buttons) {
+          svg.classList.toggle('over-station', !!stationAt(event.clientX, event.clientY, false));
+        }
+        return;
+      }
+      if (!view) return;
       pointers[event.pointerId] = { x: event.clientX, y: event.clientY };
       var ids = Object.keys(pointers);
       if (ids.length >= 2) {
@@ -203,44 +257,60 @@
           requestApply();
         }
         pinchDistance = d;
-        suppressClick = true;
         return;
       }
       if (!press || press.id !== event.pointerId) return;
       if (!dragging) {
-        if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 5) return;
+        var threshold = press.type === 'mouse' ? 4 : 10;
+        if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < threshold) return;
         dragging = true;
+        press.tap = false;
+        // Continue from here, so the map does not jump by the threshold.
+        press.x = event.clientX;
+        press.y = event.clientY;
+        press.vx = view.x;
+        press.vy = view.y;
         try { svg.setPointerCapture(event.pointerId); } catch (ignored) { /* not supported */ }
         svg.classList.add('dragging');
       }
-      var rect = svg.getBoundingClientRect();
-      var scale = rect.width ? view.w / rect.width : 1;
-      view.x = press.vx - (event.clientX - press.x) * scale;
-      view.y = press.vy - (event.clientY - press.y) * scale;
+      var s = scale();
+      view.x = press.vx - (event.clientX - press.x) * s;
+      view.y = press.vy - (event.clientY - press.y) * s;
       fitted = false;
       requestApply();
     });
 
     function release(event) {
       if (!pointers[event.pointerId]) return;
+      var wasTap = event.type === 'pointerup' && press && press.id === event.pointerId && press.tap && Object.keys(pointers).length === 1;
+      var tapType = press ? press.type : 'mouse';
       delete pointers[event.pointerId];
-      if (dragging) suppressClick = true;
-      if (!Object.keys(pointers).length) {
+      var left = Object.keys(pointers);
+      if (left.length === 1) {
+        // One finger of a pinch lifted: the other one pans from where it is.
+        var p = pointers[left[0]];
+        startPress(left[0], p.x, p.y, 'touch');
+        press.tap = false;
+      } else if (!left.length) {
         press = null;
         dragging = false;
         pinchDistance = 0;
         svg.classList.remove('dragging');
       }
+      if (wasTap) {
+        var id = stationAt(event.clientX, event.clientY, tapType !== 'mouse');
+        if (id) {
+          if (options.onStation) options.onStation(id);
+        } else if (options.onBackground) {
+          options.onBackground();
+        }
+      }
     }
     svg.addEventListener('pointerup', release);
     svg.addEventListener('pointercancel', release);
-    svg.addEventListener('click', function (event) {
-      if (suppressClick) {
-        suppressClick = false;
-        event.stopPropagation();
-        event.preventDefault();
-      }
-    }, true);
+    // A finger lifted outside the map must not leave a pointer behind.
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
     svg.addEventListener('dblclick', function (event) {
       event.preventDefault();
       zoomAt(1.8, event.clientX, event.clientY);
@@ -289,7 +359,6 @@
         var group = el('g', { 'class': 'station' + (station.interchange ? ' interchange' : ''), 'data-id': station.id }, groups.stations);
         el('circle', { cx: station.u, cy: station.v, r: station.r }, group);
         el('title', {}, group).textContent = station.name;
-        group.addEventListener('click', function () { if (options.onStation) options.onStation(station.id); });
         stationNodes[station.id] = group;
         labelNodes[station.id] = labelText(groups.labels, station);
       });
@@ -350,22 +419,48 @@
       });
     }
 
-    /* Marks a station; brings it into view only when it is off screen. */
+    /* Marks a station; brings it into the uncovered part of the map only when it is not there. */
     function select(id, reveal) {
       selected = id;
       Object.keys(stationNodes).forEach(function (key) { stationNodes[key].classList.toggle('selected', key === id); });
       var station = id && layout ? layout.stations[id] : null;
       if (!station || !view || reveal === false) return;
-      var mx = view.w * 0.12, my = view.h * 0.12;
-      if (station.u < view.x + mx || station.u > view.x + view.w - mx || station.v < view.y + my || station.v > view.y + view.h - my) {
+      var rect = measure(), s = view.w / rect.width;
+      var top = view.y + (inset.top + 40) * s, bottom = view.y + (rect.height - inset.bottom - 40) * s;
+      var left = view.x + 40 * s, right = view.x + view.w - 40 * s;
+      if (station.u < left || station.u > right || station.v < top || station.v > bottom) {
+        var visible = rect.height - inset.top - inset.bottom;
         view.x = station.u - view.w / 2;
-        view.y = station.v - view.h / 2;
+        view.y = station.v - (inset.top + visible / 2) * s;
         fitted = false;
         apply();
       }
     }
 
-    return { setLayout: setLayout, fit: fit, zoomBy: zoomBy, highlight: highlight, select: select };
+    /* Frames a planned trip in the uncovered part of the map. */
+    function showRoute(legs) {
+      if (!layout || !legs || !legs.length) return;
+      var minU = Infinity, minV = Infinity, maxU = -Infinity, maxV = -Infinity;
+      function add(p) {
+        minU = Math.min(minU, p.u); maxU = Math.max(maxU, p.u);
+        minV = Math.min(minV, p.v); maxV = Math.max(maxV, p.v);
+      }
+      legs.forEach(function (leg) {
+        (leg.hops || []).forEach(function (hop) {
+          [hop.a, hop.b].forEach(function (id) { if (layout.stations[id]) add(layout.stations[id]); });
+          if (!hop.walk) (layout.path(hop.line, hop.a, hop.b) || []).forEach(add);
+        });
+      });
+      if (!isFinite(minU)) return;
+      var pad = layout.cell * 0.8;
+      frame({ x: minU - pad, y: minV - pad, w: maxU - minU + pad * 2, h: maxV - minV + pad * 2 }, home ? home.w / 5 : 0);
+      fitted = false;
+    }
+
+    return {
+      setLayout: setLayout, fit: fit, zoomBy: zoomBy, highlight: highlight, select: select,
+      showRoute: showRoute, setInsets: setInsets
+    };
   }
 
   root.ATCSMap = { create: create, textOn: textOn, bullet: bullet };

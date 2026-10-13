@@ -2,7 +2,8 @@
  * position and arrival estimate, using the travel and stop times ATCS has learned. The earliest
  * arrival is then found over those actual trains, with a margin for each change, and over the
  * walking transfers between nearby stations. A line with no train running (or none left today)
- * is planned with an assumed wait and flagged as an estimate.
+ * is planned with an assumed wait and flagged as an estimate. options() offers several trips,
+ * as a journey planner does: express or local, fewer changes, walking or not.
  *
  * All times are seconds relative to the moment the live data describes. Works in the browser and
  * in Node. */
@@ -152,17 +153,11 @@
     };
   }
 
-  /*
-   * The trip from `fromId` to `toId` arriving soonest, leaving no earlier than `now`.
-   * Returns null when the stations are not connected.
-   */
-  function plan(network, fromId, toId, live, now) {
-    if (!network || !fromId || !toId || fromId === toId) return null;
-    now = Math.max(0, now || 0);
+  /* Everything a search needs that does not depend on where the trip goes: projected trains,
+   * the calls at each station, the last known departure per service and station, and walks. */
+  function prepare(network, live) {
     var byKey = entries(network);
-    var defaultDwell = defaultDwellOf(network);
     var trains = project(network, live, byKey);
-
     var callsAt = {}, lastDeparture = {};
     trains.forEach(function (train) {
       train.calls.forEach(function (call, position) {
@@ -177,7 +172,6 @@
         }
       });
     });
-
     var walks = {};
     (network.transfers || []).forEach(function (transfer) {
       var seconds = typeof transfer.walk === 'number' && transfer.walk > 0 ? transfer.walk : 120;
@@ -185,39 +179,68 @@
       (walks[transfer.a] = walks[transfer.a] || []).push({ to: transfer.b, seconds: seconds, outside: outside });
       (walks[transfer.b] = walks[transfer.b] || []).push({ to: transfer.a, seconds: seconds, outside: outside });
     });
+    return { network: network, byKey: byKey, callsAt: callsAt, lastDeparture: lastDeparture, walks: walks, defaultDwell: defaultDwellOf(network) };
+  }
 
+  /*
+   * The trip from `fromId` to `toId` arriving soonest, leaving no earlier than `now`, or null.
+   *
+   * opts.penalty   seconds added per train boarded, to prefer fewer changes
+   * opts.ban       service keys that may not be boarded
+   * opts.firstKey  the service the trip must start on
+   * opts.firstWalk the trip must start with a walk
+   */
+  function search(ctx, fromId, toId, now, opts) {
+    opts = opts || {};
+    var penalty = opts.penalty || 0, ban = opts.ban || {};
+    var byKey = ctx.byKey, defaultDwell = ctx.defaultDwell;
     var best = {}, steps = {}, done = {}, open = [fromId];
     best[fromId] = { t: now, legs: 0 };
 
+    function cost(label) { return label.t + penalty * label.legs; }
+
     function relax(station, t, legs, step) {
       if (done[station]) return;
-      var current = best[station];
-      if (current && !(t < current.t - 0.01 || (Math.abs(t - current.t) <= 0.01 && legs < current.legs))) return;
-      best[station] = { t: t, legs: legs };
+      var current = best[station], candidate = { t: t, legs: legs };
+      if (current) {
+        var a = cost(candidate), b = cost(current);
+        if (!(a < b - 0.01 || (Math.abs(a - b) <= 0.01 && legs < current.legs))) return;
+      }
+      best[station] = candidate;
       steps[station] = step;
       if (open.indexOf(station) < 0) open.push(station);
+    }
+
+    function boardable(key, atOrigin) {
+      if (ban[key]) return false;
+      if (atOrigin && opts.firstWalk) return false;
+      if (atOrigin && opts.firstKey && key !== opts.firstKey) return false;
+      return true;
     }
 
     while (open.length) {
       var pick = 0;
       for (var q = 1; q < open.length; q++) {
-        var a = best[open[q]], b = best[open[pick]];
-        if (a.t < b.t || (a.t === b.t && a.legs < b.legs)) pick = q;
+        var x = best[open[q]], y = best[open[pick]];
+        if (cost(x) < cost(y) || (cost(x) === cost(y) && x.legs < y.legs)) pick = q;
       }
       var station = open.splice(pick, 1)[0];
       done[station] = true;
       if (station === toId) break;
       var at = best[station].t, legs = best[station].legs;
-      var ready = at + (station === fromId ? 0 : TRANSFER);
+      var atOrigin = station === fromId;
+      var ready = at + (atOrigin ? 0 : TRANSFER);
 
       // Walking to a nearby station; it is not a change of train.
-      (walks[station] || []).forEach(function (walk) {
-        relax(walk.to, at + walk.seconds, legs, { from: station, walk: walk });
-      });
+      if (!atOrigin || !opts.firstKey) {
+        (ctx.walks[station] || []).forEach(function (walk) {
+          relax(walk.to, at + walk.seconds, legs, { from: station, walk: walk });
+        });
+      }
 
       // The trains that will actually call here.
-      (callsAt[station] || []).forEach(function (call) {
-        if (call.dep === null || call.dep < ready) return;
+      (ctx.callsAt[station] || []).forEach(function (call) {
+        if (call.dep === null || call.dep < ready || !boardable(call.boardKey || call.key, atOrigin)) return;
         for (var k = call.position + 1; k < call.list.length; k++) {
           relax(call.list[k].station, call.list[k].arr, legs + 1,
             { from: station, calls: call.list, board: call.position, alight: k, train: call.train, estimated: false });
@@ -226,10 +249,11 @@
 
       // A train after the last one anybody can see, on every service calling here.
       Object.keys(byKey).forEach(function (key) {
+        if (!boardable(key, atOrigin)) return;
         var entry = byKey[key], stops = entry.service.stops;
         for (var i = 0; i < stops.length; i++) {
           if (stops[i].station !== station || stops[i].pass) continue;
-          var known = lastDeparture[key] && lastDeparture[key][station];
+          var known = ctx.lastDeparture[key] && ctx.lastDeparture[key][station];
           var depart = (known === undefined ? ready : Math.max(ready, known)) + DEFAULT_WAIT;
           var calls = [{ key: key, line: entry.line.id, index: i, station: station, platform: stops[i].platform, via: [], arr: depart, dep: depart }];
           extend(calls, byKey, entry, i, depart, defaultDwell, depart + HORIZON);
@@ -258,15 +282,151 @@
       }
       cursor = step.from;
     }
-    var rides = legsOut.filter(function (leg) { return leg.type === 'ride'; }).length;
+    var rides = legsOut.filter(function (leg) { return leg.type === 'ride'; });
+    var walked = legsOut.filter(function (leg) { return leg.type === 'walk'; });
     return {
       legs: legsOut,
       departs: legsOut[0].departs,
       arrival: best[toId].t,
-      transfers: Math.max(0, rides - 1),
-      walks: legsOut.length - rides,
-      estimated: legsOut.some(function (leg) { return leg.estimated; })
+      transfers: Math.max(0, rides.length - 1),
+      walks: walked.length,
+      walkSeconds: walked.reduce(function (sum, leg) { return sum + leg.seconds; }, 0),
+      estimated: legsOut.some(function (leg) { return leg.estimated; }),
+      signature: legsOut.map(function (leg) {
+        return (leg.type === 'walk' ? 'walk' : leg.key) + ':' + leg.from + '>' + leg.to;
+      }).join('|')
     };
+  }
+
+  /* The fastest trip, or null when the stations are not connected. */
+  function plan(network, fromId, toId, live, now) {
+    if (!network || !fromId || !toId || fromId === toId) return null;
+    return search(prepare(network, live), fromId, toId, Math.max(0, now || 0), {});
+  }
+
+  /*
+   * A few good ways to make the trip, like a journey planner shows them: the fastest, the one
+   * with fewest changes, and the best trip starting on each line or service that calls at the
+   * origin (an express and a local, say), or avoiding a service of the fastest trip. Trips that
+   * are worse in every respect than another one, or far slower than the fastest, are left out.
+   * Each trip carries tags: fastest, leaves-first, fewest-changes, least-walking.
+   */
+  function options(network, fromId, toId, live, now, limit) {
+    if (!network || !fromId || !toId || fromId === toId) return [];
+    now = Math.max(0, now || 0);
+    limit = limit || 5;
+    var ctx = prepare(network, live);
+    var found = {};
+    function add(trip) {
+      if (!trip) return;
+      var known = found[trip.signature];
+      if (!known || trip.arrival < known.arrival - 0.01) found[trip.signature] = trip;
+    }
+    var fastest = search(ctx, fromId, toId, now, {});
+    if (!fastest) return [];
+    add(fastest);
+    add(search(ctx, fromId, toId, now, { penalty: 1200 }));
+    var firstKeys = {};
+    Object.keys(ctx.byKey).forEach(function (key) {
+      ctx.byKey[key].service.stops.forEach(function (stop) {
+        if (stop.station === fromId && !stop.pass) firstKeys[key] = true;
+      });
+    });
+    (ctx.callsAt[fromId] || []).forEach(function (call) { if (call.dep !== null) firstKeys[call.boardKey || call.key] = true; });
+    Object.keys(firstKeys).forEach(function (key) { add(search(ctx, fromId, toId, now, { firstKey: key })); });
+    if ((ctx.walks[fromId] || []).length) add(search(ctx, fromId, toId, now, { firstWalk: true }));
+    fastest.legs.forEach(function (leg) {
+      if (leg.type !== 'ride') return;
+      var ban = {};
+      ban[leg.key] = true;
+      add(search(ctx, fromId, toId, now, { ban: ban }));
+    });
+
+    var trips = Object.keys(found).map(function (key) { return found[key]; }).filter(function (trip) {
+      return !revisits(trip);
+    });
+    if (!trips.length) return [];
+    var best = Math.min.apply(null, trips.map(function (t) { return t.arrival; }));
+    var fewest = Math.min.apply(null, trips.map(function (t) { return t.transfers; }));
+    var duration = Math.max(1, best - now);
+    trips = trips.filter(function (trip) {
+      // Each change more than the fastest trip has must be worth two minutes.
+      var extra = Math.max(0, trip.transfers - fastest.transfers) * 120;
+      var slack = trip.transfers === fewest && trip.transfers < fastest.transfers
+        ? Math.max(600, duration) : Math.max(300, duration * 0.6);
+      return trip.arrival + extra <= best + slack;
+    });
+    trips.sort(function (a, b) {
+      return a.arrival - b.arrival || a.transfers - b.transfers || a.walkSeconds - b.walkSeconds || b.departs - a.departs;
+    });
+    trips.forEach(function (trip) {
+      var first = firstRide(trip);
+      trip.boards = first ? first.departs : trip.departs;
+      trip.guessed = !!(first && first.estimated);
+      trip.firstKey = first ? first.key : null;
+    });
+    var kept = [];
+    trips.forEach(function (trip) {
+      var pointless = kept.some(function (other) {
+        if (other.arrival > trip.arrival + 1 || other.transfers > trip.transfers || other.walkSeconds > trip.walkSeconds) return false;
+        if (other.estimated && !trip.estimated) return false;
+        // Where neither first train can be seen, leaving times are guesses: an express and a
+        // local both stay on offer.
+        if (trip.guessed && other.guessed && trip.firstKey !== other.firstKey) return false;
+        return other.boards <= trip.boards + 1;
+      });
+      if (!pointless) kept.push(trip);
+    });
+    kept = kept.slice(0, limit);
+
+    var firstBoarding = Math.min.apply(null, kept.map(function (t) { return t.guessed ? Infinity : t.boards; }));
+    var leastChanges = Math.min.apply(null, kept.map(function (t) { return t.transfers; }));
+    var leastWalk = Math.min.apply(null, kept.map(function (t) { return t.walkSeconds; }));
+    kept.forEach(function (trip, index) {
+      trip.tags = [];
+      if (index === 0) trip.tags.push('fastest');
+      if (index > 0 && !trip.guessed && trip.boards <= firstBoarding + 1 && trip.boards < kept[0].boards - 30) trip.tags.push('leaves-first');
+      if (index > 0 && trip.transfers === leastChanges && trip.transfers < kept[0].transfers) trip.tags.push('fewest-changes');
+      if (index > 0 && trip.walkSeconds === leastWalk && trip.walkSeconds < kept[0].walkSeconds) trip.tags.push('least-walking');
+      trip.following = following(ctx, trip);
+    });
+    return kept;
+  }
+
+  function firstRide(trip) {
+    for (var i = 0; i < trip.legs.length; i++) if (trip.legs[i].type === 'ride') return trip.legs[i];
+    return null;
+  }
+
+  /* Whether a trip passes the same station twice, such as riding a loop the wrong way to change
+   * back through the station it started from. */
+  function revisits(trip) {
+    var seen = {};
+    seen[trip.legs[0].from] = true;
+    for (var i = 0; i < trip.legs.length; i++) {
+      var hops = trip.legs[i].hops || [];
+      for (var h = 0; h < hops.length; h++) {
+        if (seen[hops[h].b]) return true;
+        seen[hops[h].b] = true;
+      }
+    }
+    return false;
+  }
+
+  /* When the train after the one this trip starts on leaves the origin, if one can be seen. */
+  function following(ctx, trip) {
+    var first = null;
+    for (var i = 0; i < trip.legs.length; i++) {
+      if (trip.legs[i].type === 'ride') { first = trip.legs[i]; break; }
+      if (trip.legs[i].type !== 'walk') return null;
+    }
+    if (!first || first.estimated) return null;
+    var next = null;
+    (ctx.callsAt[first.from] || []).forEach(function (call) {
+      if (call.dep === null || (call.boardKey || call.key) !== first.key || call.train === first.train) return;
+      if (call.dep > first.departs + 1 && (next === null || call.dep < next)) next = call.dep;
+    });
+    return next;
   }
 
   function formatDuration(seconds) {
@@ -286,7 +446,7 @@
   }
 
   var api = {
-    plan: plan, project: project, formatDuration: formatDuration, formatClock: formatClock,
+    plan: plan, options: options, project: project, formatDuration: formatDuration, formatClock: formatClock,
     TRANSFER: TRANSFER, DEFAULT_WAIT: DEFAULT_WAIT
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
