@@ -15,8 +15,11 @@ import java.util.Optional;
  * @param name      passenger-facing name, for example {@code "Golden Islands St."}
  * @param platforms platforms in display order
  * @param location  optional explicit map position; otherwise derived from the platform triggers
+ * @param code      optional short code for sign variables, for example {@code "gb"}; when absent
+ *                  one is derived from the id (see {@link StationCodes})
  */
-public record Station(String id, String name, Map<String, Platform> platforms, @Nullable BlockPos location) {
+public record Station(String id, String name, Map<String, Platform> platforms, @Nullable BlockPos location,
+                      @Nullable String code) {
 
     public Station {
         id = Ids.normalize("station", id);
@@ -25,6 +28,11 @@ public record Station(String id, String name, Map<String, Platform> platforms, @
             throw new IllegalArgumentException("Station '" + id + "' needs a name");
         }
         platforms = Collections.unmodifiableMap(new LinkedHashMap<>(platforms));
+        code = code == null || code.isBlank() ? null : StationCodes.normalize(code);
+    }
+
+    public Station(String id, String name, Map<String, Platform> platforms, @Nullable BlockPos location) {
+        this(id, name, platforms, location, null);
     }
 
     public static Station of(String id, String name) {
@@ -68,22 +76,27 @@ public record Station(String id, String name, Map<String, Platform> platforms, @
     }
 
     public Station withName(String newName) {
-        return new Station(id, newName, platforms, location);
+        return new Station(id, newName, platforms, location, code);
     }
 
     public Station withLocation(@Nullable BlockPos newLocation) {
-        return new Station(id, name, platforms, newLocation);
+        return new Station(id, name, platforms, newLocation, code);
+    }
+
+    /** The station with an explicit short code, or with a derived one again when {@code null}. */
+    public Station withCode(@Nullable String newCode) {
+        return new Station(id, name, platforms, location, newCode);
     }
 
     public Station withPlatform(Platform platform) {
         Map<String, Platform> updated = new LinkedHashMap<>(platforms);
         updated.put(platform.id(), platform);
-        return new Station(id, name, updated, location);
+        return new Station(id, name, updated, location, code);
     }
 
     public Station withoutPlatform(String platformId) {
         Map<String, Platform> updated = new LinkedHashMap<>(platforms);
         updated.remove(platformId);
-        return new Station(id, name, updated, location);
+        return new Station(id, name, updated, location, code);
     }
 }

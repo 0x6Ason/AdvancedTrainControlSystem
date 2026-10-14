@@ -26,6 +26,7 @@ public final class Network {
     private final Map<String, Board> boards;
     private final List<Transfer> transfers;
     private final Map<String, List<Transfer>> transfersByStation;
+    private final Map<String, String> codes;
     private final Map<BlockPos, PlatformRef> triggers;
     private final Map<BlockPos, String> boardSigns;
     private final Map<BlockPos, ServiceKey> spawnSigns;
@@ -138,6 +139,7 @@ public final class Network {
         Map<String, List<Transfer>> frozen = new HashMap<>();
         walkIndex.forEach((stationId, list) -> frozen.put(stationId, List.copyOf(list)));
         this.transfersByStation = Collections.unmodifiableMap(frozen);
+        this.codes = StationCodes.assign(stations.values(), problems);
         this.issues = List.copyOf(problems);
     }
 
@@ -190,6 +192,21 @@ public final class Network {
 
     public Optional<Board> board(String id) {
         return Optional.ofNullable(boards.get(id));
+    }
+
+    /** The short code of a station, used in sign variable names, for example {@code "gb"}. */
+    public String code(String stationId) {
+        return codes.getOrDefault(stationId, stationId);
+    }
+
+    /** The station with a short code, if any. */
+    public Optional<Station> stationByCode(String code) {
+        for (Map.Entry<String, String> entry : codes.entrySet()) {
+            if (entry.getValue().equalsIgnoreCase(code)) {
+                return station(entry.getKey());
+            }
+        }
+        return Optional.empty();
     }
 
     /** Walking transfers between stations. */

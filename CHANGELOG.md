@@ -22,7 +22,10 @@ TrainCarts server, configured with files and in-game commands.
   chimes, next-station, interchange and end-of-line announcements, approaching and passing notes,
   station titles for trains without a service, line suspension notices.
 - Learned travel and stop times per service and stop, used for arrival estimates.
-- Departure boards on ordinary signs; SignLink variables.
+- Departure boards on ordinary signs; SignLink variables per station and per platform with names
+  short enough to type on a sign (`%gb.1t%`, `%gb.p3.1d%`), from short station codes.
+- `/atcs station here` names the station and platform you stand on, its trains and its sign
+  variables.
 - BlueMap integration: stations, lines along recorded track, live trains.
 - Set-up from the existing world: stations drafted from TrainCarts station signs and arrival
   announcements; lines and services suggested from observed train trips, including spawn signs,

@@ -58,7 +58,9 @@ integrations:
     record-track-paths: true
     line-width: 5
   signlink:
-    # Publishes %atcs_<station>_<n>% and related variables for SignLink displays.
+    # Publishes departures as SignLink variables short enough to type on a sign, from each
+    # station's short code: %gb.1d% (next destination at Golden Beach), %gb.1t% (its time),
+    # %gb.p3.1t% (next train's time on platform 3). /atcs station here lists them for a platform.
     enabled: true
     departures-per-station: 3
   web:

@@ -1,5 +1,6 @@
 package dev.advancedtrains.atcs.command;
 
+import dev.advancedtrains.atcs.board.DepartureVariables;
 import dev.advancedtrains.atcs.importer.TrainSign;
 import dev.advancedtrains.atcs.network.BlockPos;
 import dev.advancedtrains.atcs.network.Board;
@@ -9,9 +10,12 @@ import dev.advancedtrains.atcs.network.Platform;
 import dev.advancedtrains.atcs.network.PlatformRef;
 import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.network.Station;
+import dev.advancedtrains.atcs.network.StationCodes;
 import dev.advancedtrains.atcs.network.Stop;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Location;
@@ -21,7 +25,9 @@ import org.bukkit.block.sign.Side;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static dev.advancedtrains.atcs.command.Node.group;
@@ -41,6 +47,14 @@ final class StationCommands {
                 leaf("list", USE, "[page]", "List stations", context -> list(support, context)),
                 leaf("info", USE, "<station>", "Show a station's platforms, triggers and lines",
                         context -> info(support, context), (context, index) -> index == 0 ? support.stationIds() : List.of()),
+                leaf("here", USE, "", "Which station and platform you are at, its trains and the sign variables to use",
+                        context -> here(support, context)),
+                leaf("code", MANAGE, "<station> <code|auto>", "Set the short code used in sign variables, for example gb",
+                        context -> code(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.stationIds();
+                            case 1 -> List.of("auto");
+                            default -> List.of();
+                        }),
                 leaf("create", MANAGE, "<id> <name...>", "Create a station", context -> create(support, context)),
                 leaf("rename", MANAGE, "<station> <name...>", "Change a station's passenger name",
                         context -> rename(support, context), (context, index) -> index == 0 ? support.stationIds() : List.of()),
@@ -103,6 +117,11 @@ final class StationCommands {
         CommandSender sender = context.sender();
         sender.sendMessage(Chat.header(station.name()));
         sender.sendMessage(Chat.field("Id", station.id()));
+        String code = network.code(station.id());
+        sender.sendMessage(Chat.field("Sign code", Component.text()
+                .append(Component.text(code + (station.code() == null ? " (automatic) " : " "), NamedTextColor.WHITE))
+                .append(copy("%" + DepartureVariables.name(network, station.id(), null, 1, DepartureVariables.TIME) + "%"))
+                .append(Component.text(" next train's time", NamedTextColor.GRAY)).build()));
         station.markerPosition().ifPresent(position -> sender.sendMessage(
                 Chat.field(station.location() != null ? "Map position" : "Map position (from triggers)",
                         position.world() + " " + position.coordinates())));
@@ -126,6 +145,132 @@ final class StationCommands {
         if (!services.isEmpty()) {
             sender.sendMessage(Chat.field("Services", String.join(", ", services)));
         }
+    }
+
+    /** Text that copies itself to the clipboard when clicked. */
+    private static Component copy(String text) {
+        return Component.text(text, NamedTextColor.AQUA)
+                .clickEvent(ClickEvent.copyToClipboard(text))
+                .hoverEvent(HoverEvent.showText(Component.text("Click to copy", NamedTextColor.GRAY)));
+    }
+
+    private static final int HERE_RADIUS = 48;
+
+    /**
+     * Tells the player which platform they are at: the one whose trigger sign they look at, or
+     * the one with the nearest trigger. Lists the trains that use it and the sign variables to
+     * show its departures.
+     */
+    private static void here(Support support, CommandContext context) throws CommandError {
+        Player player = context.player();
+        Network network = support.network();
+        PlatformRef found = null;
+        Block looked = player.getTargetBlockExact(6);
+        if (looked != null) {
+            found = network.platformAt(Support.position(looked)).orElse(null);
+        }
+        if (found == null) {
+            Location at = player.getLocation();
+            String world = at.getWorld() == null ? "" : at.getWorld().getName();
+            double best = HERE_RADIUS * HERE_RADIUS;
+            for (Map.Entry<BlockPos, PlatformRef> trigger : network.triggers().entrySet()) {
+                if (!trigger.getKey().world().equals(world)) {
+                    continue;
+                }
+                double distance = trigger.getKey().distanceSquared(at.getX(), at.getY(), at.getZ());
+                if (distance < best) {
+                    best = distance;
+                    found = trigger.getValue();
+                }
+            }
+        }
+        if (found == null) {
+            throw new CommandError("No platform within " + HERE_RADIUS + " blocks. Stand on a platform, or look at its TrainCarts station sign.");
+        }
+        Station station = network.station(found.stationId()).orElseThrow();
+        Platform platform = station.platform(found.platformId()).orElseThrow();
+        CommandSender sender = context.sender();
+        sender.sendMessage(Chat.header(station.name() + " - platform " + platform.displayName()));
+
+        List<Component> trains = new ArrayList<>();
+        for (Service service : network.servicesListing(station.id())) {
+            for (int index = 0; index < service.size(); index++) {
+                Stop stop = service.stop(index);
+                if (!stop.stationId().equals(station.id()) || stop.pass()) {
+                    continue;
+                }
+                String used = stop.platformId() != null ? stop.platformId()
+                        : support.runtime.times().usualPlatform(service, index).orElse(null);
+                if (!platform.id().equals(used)) {
+                    continue;
+                }
+                Line line = network.line(service.key().lineId()).orElseThrow();
+                String toward = service.destinationFrom(index).map(next -> " to " + network.stationName(next.stationId()))
+                        .orElse(service.circular() ? " (loop)" : "");
+                trains.add(Component.text()
+                        .append(Chat.swatch(line.color()))
+                        .append(Component.text(line.name() + " " + service.name() + toward, NamedTextColor.WHITE)).build());
+            }
+        }
+        if (trains.isEmpty()) {
+            sender.sendMessage(Chat.field("Trains", "none known yet; trains that stop here teach ATCS their platform"));
+        } else {
+            sender.sendMessage(Component.text("Trains from this platform:", NamedTextColor.GRAY));
+            trains.forEach(sender::sendMessage);
+        }
+
+        sender.sendMessage(Component.text("Sign variables (SignLink), click to copy:", NamedTextColor.GRAY));
+        String[][] rows = {
+                {DepartureVariables.DESTINATION, "next train's destination"},
+                {DepartureVariables.TIME, "its time: 0:05, 45s or Boarding"},
+                {DepartureVariables.LINE, "its line"},
+                {DepartureVariables.SERVICE, "its service"},
+        };
+        for (String[] row : rows) {
+            sender.sendMessage(Component.text()
+                    .append(copy("%" + DepartureVariables.name(network, station.id(), platform.id(), 1, row[0]) + "%"))
+                    .append(Component.text("  " + row[1], NamedTextColor.GRAY)).build());
+        }
+        sender.sendMessage(Component.text()
+                .append(Component.text("Train after: ", NamedTextColor.GRAY))
+                .append(copy("%" + DepartureVariables.name(network, station.id(), platform.id(), 2, DepartureVariables.DESTINATION) + "%"))
+                .append(Component.text(" ", NamedTextColor.GRAY))
+                .append(copy("%" + DepartureVariables.name(network, station.id(), platform.id(), 2, DepartureVariables.TIME) + "%")).build());
+        sender.sendMessage(Component.text()
+                .append(Component.text("All platforms: ", NamedTextColor.GRAY))
+                .append(copy("%" + DepartureVariables.name(network, station.id(), null, 1, DepartureVariables.DESTINATION) + "%"))
+                .append(Component.text(" ", NamedTextColor.GRAY))
+                .append(copy("%" + DepartureVariables.name(network, station.id(), null, 1, DepartureVariables.TIME) + "%"))
+                .append(Component.text(" ", NamedTextColor.GRAY))
+                .append(copy("%" + DepartureVariables.name(network, station.id(), null, 1, DepartureVariables.PLATFORM) + "%"))
+                .append(Component.text(" (platform)", NamedTextColor.GRAY)).build());
+    }
+
+    private static void code(Support support, CommandContext context) throws CommandError {
+        Station station = support.station(context.arg(0));
+        String wanted = context.arg(1);
+        String code = null;
+        if (!wanted.equalsIgnoreCase("auto")) {
+            try {
+                code = StationCodes.normalize(wanted);
+            } catch (IllegalArgumentException exception) {
+                throw new CommandError(exception.getMessage());
+            }
+            Network network = support.network();
+            Optional<Station> owner = network.stationByCode(code);
+            if (owner.isPresent() && !owner.get().id().equals(station.id())) {
+                throw new CommandError(owner.get().name() + " already uses the code " + code);
+            }
+        }
+        String explicit = code;
+        Network updated = support.edit(network -> network.toBuilder()
+                .station(network.station(station.id()).orElseThrow().withCode(explicit)).build());
+        String result = updated.code(station.id());
+        context.sender().sendMessage(Component.text()
+                .append(Component.text("ATCS ", NamedTextColor.GOLD))
+                .append(Component.text(station.name() + " now uses the code " + result + (explicit == null ? " (automatic)" : "")
+                        + ". Next train's time: ", NamedTextColor.GREEN))
+                .append(copy("%" + DepartureVariables.name(updated, station.id(), null, 1, DepartureVariables.TIME) + "%")).build());
     }
 
     private static void create(Support support, CommandContext context) throws CommandError {

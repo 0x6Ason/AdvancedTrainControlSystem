@@ -205,8 +205,8 @@ platform. The layout is in `messages.yml`.
 | Command | Permission | |
 |---|---|---|
 | `/atcs departures <station> [platform]` | atcs.use | Next departures |
-| `/atcs station list\|info` | atcs.use | Stations |
-| `/atcs station create\|rename\|remove\|bind\|unbind\|platform\|locate` | atcs.manage | Edit stations |
+| `/atcs station list\|info\|here` | atcs.use | Stations; `here` names the platform you stand on |
+| `/atcs station create\|rename\|remove\|bind\|unbind\|platform\|locate\|code` | atcs.manage | Edit stations |
 | `/atcs line list\|info` | atcs.use | Lines |
 | `/atcs line create\|rename\|color\|badge\|suspend\|resume\|remove` | atcs.manage | Edit lines |
 | `/atcs service info` | atcs.use | A service and what has been learned about it |
@@ -287,9 +287,24 @@ boards:
 drawn in its colour, and live train markers. Lines follow the track recorded from real trains; until
 a segment has been recorded it is drawn as a thinner straight line.
 
-**SignLink** — publishes `%atcs_<station>_<n>%` (a summary of the n-th departure) and
-`%atcs_<station>_<n>_line%`, `_service`, `_dest`, `_eta` and `_platform`, where dashes in station ids
-become underscores.
+**SignLink** — publishes the next departures of every station and every platform as variables
+short enough to type on a sign line. Each station has a short code: the initials of a multi-word
+id (`golden-beach` is `gb`, `nerdy-estate-blk-1` is `neb1`), a short single word as it is (`main`),
+a longer one cut to three letters (`liberty` is `lib`). `/atcs station info` shows it and
+`/atcs station code <station> <code>` changes it.
+
+| Variable | Shows |
+|---|---|
+| `%gb.1d%` | destination of the next train from any platform of Golden Beach |
+| `%gb.1t%` | its time: `0:05`, `45s` or `Boarding` |
+| `%gb.1l%`, `%gb.1s%`, `%gb.1p%` | its line badge, service and platform |
+| `%gb.1%` | all of it in one line (too long for most signs) |
+| `%gb.p3.1d%`, `%gb.p3.1t%` ... | the same for platform 3 only |
+| `%gb.2d%`, `%gb.p3.2t%` ... | the train after (`integrations.signlink.departures-per-station` sets how many) |
+
+Standing on a platform, `/atcs station here` says which station and platform it is, which trains
+use it, and the variables for it (click one to copy it). Building signs with variables needs
+SignLink's `signlink.addsign` permission.
 
 ## Walking transfers
 

@@ -166,7 +166,8 @@ public final class NetworkCodec {
                         stationKey,
                         node.getString("name", ""),
                         platforms,
-                        location == null || location.isBlank() ? null : BlockPos.parse(location));
+                        location == null || location.isBlank() ? null : BlockPos.parse(location),
+                        node.getString("code"));
                 if (!seen.add(station.id())) {
                     throw new IllegalArgumentException("duplicate station id '" + station.id() + "' (ids are case-insensitive)");
                 }
@@ -493,6 +494,9 @@ public final class NetworkCodec {
         for (Station station : stations) {
             ConfigurationSection node = section.createSection(station.id());
             node.set("name", station.name());
+            if (station.code() != null) {
+                node.set("code", station.code());
+            }
             if (station.location() != null) {
                 node.set("location", station.location().format());
             }
