@@ -123,6 +123,9 @@ public final class AtcsSignAction extends SignAction {
             launch.setDistance(plan.launchDistance());
             config.setLaunchConfig(launch);
         }
+        if (plan.launchSpeed() > 0) {
+            config.setLaunchSpeed(plan.launchSpeed());
+        }
         Station station = new Station(info, config);
         ActionTrackerGroup actions = group.getActions();
         actions.launchReset();

@@ -10,6 +10,7 @@ import dev.advancedtrains.atcs.network.ServiceKey;
 import dev.advancedtrains.atcs.network.ServiceMatch;
 import dev.advancedtrains.atcs.network.Station;
 import dev.advancedtrains.atcs.network.Stop;
+import dev.advancedtrains.atcs.network.StopEdits;
 import dev.advancedtrains.atcs.runtime.ServiceRecorder;
 import dev.advancedtrains.atcs.runtime.TrainHandle;
 import net.kyori.adventure.text.Component;
@@ -49,6 +50,21 @@ final class ServiceCommands {
                 leaf("stops", MANAGE, "<line/service> <stop...>", "Set the stops: station, station:platform, ~station to run through",
                         context -> stops(support, context), (context, index) -> index == 0 ? support.serviceKeys()
                                 : stopSuggestions(support, context.argOr(index, ""))),
+                leaf("addstop", MANAGE, "<line/service> <stop> [first|last|before <station>|after <station>]",
+                        "Add one stop; the rest of the list and what was learned stay",
+                        context -> addStop(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.serviceKeys();
+                            case 1 -> stopSuggestions(support, context.argOr(1, ""));
+                            case 2 -> List.of("first", "last", "before", "after");
+                            case 3 -> support.stationIds();
+                            default -> List.of();
+                        }),
+                leaf("removestop", MANAGE, "<line/service> <station>", "Drop a stop; the rest of the list and what was learned stay",
+                        context -> removeStop(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.serviceKeys();
+                            case 1 -> support.stationIds();
+                            default -> List.of();
+                        }),
                 leaf("record", MANAGE, "<line/service>|stop|cancel", "Record stops by riding a train along the route",
                         context -> record(support, context), (context, index) -> {
                             if (index != 0) {
@@ -224,22 +240,80 @@ final class ServiceCommands {
         Network network = support.network();
         List<Stop> stops = new ArrayList<>();
         for (String text : List.of(context.args()).subList(1, context.size())) {
-            Stop stop;
-            try {
-                stop = Stop.parse(text);
-            } catch (IllegalArgumentException exception) {
-                throw new CommandError("'" + text + "': " + exception.getMessage());
-            }
-            Station station = network.station(stop.stationId())
-                    .orElseThrow(() -> new CommandError("Unknown station '" + stop.stationId() + "'"));
-            if (stop.platformId() != null && station.platform(stop.platformId()).isEmpty()) {
-                throw new CommandError(station.name() + " has no platform '" + stop.platformId() + "'");
-            }
-            stops.add(stop);
+            stops.add(parseStop(network, text));
         }
-        save(support, service.withStops(stops));
-        Chat.success(context.sender(), service.key() + " now has " + stops.size() + " stops: "
-                + String.join(" > ", stops.stream().map(stop -> network.stationName(stop.stationId())).toList()));
+        replaceStops(support, service, stops);
+        Chat.success(context.sender(), service.key() + " now has " + stops.size() + " stops: " + describe(network, stops));
+    }
+
+    /** A stop from command text, checked against the network. */
+    static Stop parseStop(Network network, String text) throws CommandError {
+        Stop stop;
+        try {
+            stop = Stop.parse(text);
+        } catch (IllegalArgumentException exception) {
+            throw new CommandError("'" + text + "': " + exception.getMessage());
+        }
+        Station station = network.station(stop.stationId())
+                .orElseThrow(() -> new CommandError("Unknown station '" + stop.stationId() + "'"));
+        if (stop.platformId() != null && station.platform(stop.platformId()).isEmpty()) {
+            throw new CommandError(station.name() + " has no platform '" + stop.platformId() + "'");
+        }
+        return stop;
+    }
+
+    /** Saves a new stop list and carries learned times and recorded track over for the stops that stay. */
+    static void replaceStops(Support support, Service service, List<Stop> stops) throws CommandError {
+        Service updated = service.withStops(stops);
+        save(support, updated);
+        support.runtime.times().remap(service, updated);
+        support.runtime.paths().remap(service, updated);
+    }
+
+    static String describe(Network network, List<Stop> stops) {
+        return String.join(" > ", stops.stream()
+                .map(stop -> (stop.pass() ? "(" : "") + network.stationName(stop.stationId()) + (stop.pass() ? ")" : ""))
+                .toList());
+    }
+
+    private static void addStop(Support support, CommandContext context) throws CommandError {
+        Service service = support.service(context.arg(0));
+        Network network = support.network();
+        Stop stop = parseStop(network, context.arg(1));
+        String where = context.argOr(2, "last").toLowerCase(Locale.ROOT);
+        StopEdits.Anchor anchor;
+        String station = null;
+        switch (where) {
+            case "first" -> anchor = StopEdits.Anchor.FIRST;
+            case "last" -> anchor = StopEdits.Anchor.LAST;
+            case "before", "after" -> {
+                anchor = where.equals("before") ? StopEdits.Anchor.BEFORE : StopEdits.Anchor.AFTER;
+                station = support.station(context.arg(3)).id();
+            }
+            default -> throw new CommandError("Say where it goes: first, last, before <station> or after <station>");
+        }
+        List<Stop> stops;
+        try {
+            stops = StopEdits.insert(service.stops(), stop, anchor, station);
+        } catch (IllegalArgumentException exception) {
+            throw new CommandError(exception.getMessage());
+        }
+        replaceStops(support, service, stops);
+        Chat.success(context.sender(), service.key() + " now has " + stops.size() + " stops: " + describe(network, stops));
+    }
+
+    private static void removeStop(Support support, CommandContext context) throws CommandError {
+        Service service = support.service(context.arg(0));
+        Network network = support.network();
+        String station = support.station(context.arg(1)).id();
+        List<Stop> stops;
+        try {
+            stops = StopEdits.remove(service.stops(), station);
+        } catch (IllegalArgumentException exception) {
+            throw new CommandError(exception.getMessage());
+        }
+        replaceStops(support, service, stops);
+        Chat.success(context.sender(), service.key() + " now has " + stops.size() + " stops: " + describe(network, stops));
     }
 
     private static void record(Support support, CommandContext context) throws CommandError {

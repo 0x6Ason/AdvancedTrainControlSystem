@@ -3,6 +3,7 @@ package dev.advancedtrains.atcs.operation;
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.network.ServiceKey;
+import dev.advancedtrains.atcs.network.StopEdits;
 import org.bukkit.configuration.ConfigurationSection;
 import org.jspecify.annotations.Nullable;
 
@@ -114,6 +115,35 @@ public final class TravelTimes {
         }
     }
 
+    /**
+     * Carries learned data across an edit of a service's stops: every stop still present keeps its
+     * dwell time and platform, and a segment keeps its travel time when the stop after it is still
+     * the same. Without this, adding one station would throw away a service's whole history.
+     */
+    public void remap(Service before, Service after) {
+        ServiceTimes old = services.get(before.key());
+        if (old == null || !old.fingerprint.equals(before.fingerprint()) || old.size != before.size()) {
+            return;
+        }
+        int[] mapping = StopEdits.matchIndices(before.stops(), after.stops());
+        ServiceTimes fresh = new ServiceTimes(after.fingerprint(), after.size());
+        for (int index = 0; index < mapping.length; index++) {
+            int source = mapping[index];
+            if (source < 0) {
+                continue;
+            }
+            fresh.dwell.copyFrom(old.dwell, source, index);
+            fresh.platforms[index] = old.platforms[source];
+            int nextSource = index + 1 < mapping.length ? mapping[index + 1]
+                    : after.circular() && mapping.length > 0 ? mapping[0] : -1;
+            if (nextSource >= 0 && nextSource == before.nextIndex(source)) {
+                fresh.segment.copyFrom(old.segment, source, index);
+            }
+        }
+        services.put(after.key(), fresh);
+        dirty = true;
+    }
+
     /** Whether data changed since the last {@link #save}. */
     public boolean dirty() {
         return dirty;
@@ -223,6 +253,11 @@ public final class TravelTimes {
                 return OptionalDouble.empty();
             }
             return OptionalDouble.of(values[index]);
+        }
+
+        private void copyFrom(Series other, int from, int to) {
+            values[to] = other.values[from];
+            samples[to] = other.samples[from];
         }
 
         private int knownCount() {

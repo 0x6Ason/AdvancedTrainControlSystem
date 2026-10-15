@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
  * 20 reverse          dwell 20 seconds, then go back (a terminus)
  * route               let TrainCarts path-finding pick the direction from the train's destination
  * 2.5m 30b            stop 2.5 blocks past the sign; launch over 30 blocks
+ * 0.4v                launch at 0.4 blocks per tick instead of TrainCarts' default
  * gap 90s block       hold until 90 s after the last train of the line left, and until the
  *                     section ahead is clear
  * </pre>
@@ -24,6 +25,7 @@ import java.util.regex.Pattern;
  * @param autoRoute      TrainCarts chooses the direction from the train's destination
  * @param offset         where the train is centred, in blocks past the sign (negative: before it)
  * @param launchDistance over how many blocks the train accelerates, or 0 for TrainCarts' choice
+ * @param launchSpeed    the speed launched to, in blocks per tick, or 0 for TrainCarts' default
  * @param headwaySeconds minimum time after the previous departure of the same line, or negative
  *                       for the configured default
  * @param holdForSection whether to wait for the track ahead to be clear, or null for the default
@@ -34,15 +36,16 @@ public record StopOptions(
         boolean autoRoute,
         double offset,
         double launchDistance,
+        double launchSpeed,
         double headwaySeconds,
         @Nullable Boolean holdForSection) {
 
-    public static final StopOptions DEFAULT = new StopOptions(-1, Heading.CONTINUE, false, 0, 0, -1, null);
+    public static final StopOptions DEFAULT = new StopOptions(-1, Heading.CONTINUE, false, 0, 0, 0, -1, null);
 
-    private static final Pattern NUMBER = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(s|sec|m|b)?");
+    private static final Pattern NUMBER = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(s|sec|m|b|v)?");
 
     public static final String HELP = "use a dwell time (10s), a direction (continue, reverse, left, right), 'route',"
-            + " an offset (2.5m), a launch distance (30b), 'gap <seconds>' or 'block'";
+            + " an offset (2.5m), a launch distance (30b), a launch speed (0.4v), 'gap <seconds>' or 'block'";
 
     /**
      * @throws IllegalArgumentException with a player-readable message when the text is invalid
@@ -57,6 +60,7 @@ public record StopOptions(
         boolean route = false;
         double offset = 0;
         double launch = 0;
+        double speed = 0;
         double headway = -1;
         Boolean hold = null;
         String[] words = text.split("[\\s,]+");
@@ -114,6 +118,12 @@ public record StopOptions(
                     }
                     launch = value;
                 }
+                case "v" -> {
+                    if (value <= 0) {
+                        throw new IllegalArgumentException("The launch speed must be more than 0 blocks per tick");
+                    }
+                    speed = value;
+                }
                 default -> {
                     if (value < 0) {
                         throw new IllegalArgumentException("The dwell time cannot be negative");
@@ -125,7 +135,7 @@ public record StopOptions(
                 }
             }
         }
-        return new StopOptions(dwell, heading == null ? Heading.CONTINUE : heading, route, offset, launch, headway, hold);
+        return new StopOptions(dwell, heading == null ? Heading.CONTINUE : heading, route, offset, launch, speed, headway, hold);
     }
 
     private static double seconds(String word, String what) {
@@ -165,6 +175,9 @@ public record StopOptions(
         }
         if (launchDistance > 0) {
             text.append(", launching over ").append(format(launchDistance)).append(" blocks");
+        }
+        if (launchSpeed > 0) {
+            text.append(", launching at ").append(format(launchSpeed)).append(" blocks per tick");
         }
         if (hasHeadway()) {
             text.append("; headway ").append(format(headwaySeconds)).append(" s");

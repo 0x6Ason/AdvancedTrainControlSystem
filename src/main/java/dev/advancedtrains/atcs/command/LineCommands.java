@@ -4,11 +4,14 @@ import dev.advancedtrains.atcs.network.Colors;
 import dev.advancedtrains.atcs.network.Line;
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.Service;
+import dev.advancedtrains.atcs.network.Stop;
+import dev.advancedtrains.atcs.network.StopEdits;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import org.bukkit.command.CommandSender;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static dev.advancedtrains.atcs.command.Node.group;
@@ -31,6 +34,14 @@ final class LineCommands {
                 leaf("info", USE, "<line>", "Show a line and its services", context -> info(support, context), lines),
                 leaf("create", MANAGE, "<id> <color> <name...>", "Create a line, e.g. /atcs line create a #E53935 Line A",
                         context -> create(support, context), (context, index) -> index == 1 ? COLORS : List.of()),
+                leaf("addstop", MANAGE, "<line> <stop> between <station> <station>",
+                        "Add a stop to every service of the line that runs straight between the two stations",
+                        context -> addStop(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.lineIds();
+                            case 1, 3, 4 -> support.stationIds();
+                            case 2 -> List.of("between");
+                            default -> List.of();
+                        }),
                 leaf("rename", MANAGE, "<line> <name...>", "Change a line's name", context -> {
                     Line line = support.line(context.arg(0));
                     String name = context.rest(1);
@@ -69,6 +80,45 @@ final class LineCommands {
                     support.edit(network -> network.toBuilder().removeLine(line.id()).build());
                     Chat.success(context.sender(), "Removed " + line.name());
                 }, (context, index) -> index == 0 ? support.lineIds() : List.of("confirm")));
+    }
+
+    /**
+     * Inserts a stop into every service of the line in which the two stations follow each other,
+     * in either order, so one command covers both directions. Services where they do not (an
+     * express that skips the stretch) are left alone and named.
+     */
+    private static void addStop(Support support, CommandContext context) throws CommandError {
+        Line line = support.line(context.arg(0));
+        Network network = support.network();
+        Stop stop = ServiceCommands.parseStop(network, context.arg(1));
+        if (!context.arg(2).equalsIgnoreCase("between")) {
+            throw new CommandError("Usage: /atcs line addstop " + line.id() + " " + stop.format() + " between <station> <station>");
+        }
+        String first = support.station(context.arg(3)).id();
+        String second = support.station(context.arg(4)).id();
+        List<String> changed = new ArrayList<>();
+        List<String> unchanged = new ArrayList<>();
+        for (Service service : network.services()) {
+            if (!service.key().lineId().equals(line.id())) {
+                continue;
+            }
+            if (!StopEdits.adjacent(service.stops(), first, second, service.circular())) {
+                unchanged.add(service.key().toString());
+                continue;
+            }
+            List<Stop> stops = StopEdits.insertBetween(service.stops(), stop, first, second, service.circular());
+            ServiceCommands.replaceStops(support, service, stops);
+            changed.add(service.key() + ": " + ServiceCommands.describe(support.network(), stops));
+        }
+        if (changed.isEmpty()) {
+            throw new CommandError(network.stationName(first) + " and " + network.stationName(second)
+                    + " do not follow each other on any service of " + line.name());
+        }
+        Chat.success(context.sender(), "Added " + network.stationName(stop.stationId()) + " to " + changed.size() + " service(s):");
+        changed.forEach(text -> Chat.info(context.sender(), text));
+        if (!unchanged.isEmpty()) {
+            Chat.warn(context.sender(), "Not consecutive there, left as they are: " + String.join(", ", unchanged));
+        }
     }
 
     private static int parseColor(String text) throws CommandError {

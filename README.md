@@ -202,6 +202,12 @@ the sign's block go up while it waits, it is launched the way the line says), so
 wiring work as with a `station` sign. Use `[+train]` on line 1; with `[train]` the sign acts only
 while it is powered by redstone, which makes a lever an on/off switch for the platform.
 
+To change a railway over, `/atcs station convert` lists every TrainCarts station sign that is a
+platform trigger in network.yml with the `atcs station` text it would get (the delay, direction,
+`route`, offset, launch distance and launch speed are carried over) and anything it cannot keep;
+`/atcs station convert confirm` rewrites them. Station signs that are not platforms in network.yml,
+such as a stop where trains refill on a long run or a station still being built, are never touched.
+
 `gap` and `block` keep trains apart on a shared track: with `block`, a train waits at the platform
 until the train that left before it has arrived at its next station (ATCS sees that from the next
 platform sign), and with `gap` until the headway has passed. `control.headway-seconds` and
@@ -275,11 +281,11 @@ platform. The layout is in `messages.yml`.
 |---|---|---|
 | `/atcs departures <station> [platform]` | atcs.use | Next departures |
 | `/atcs station list\|info\|here` | atcs.use | Stations; `here` names the platform you stand on |
-| `/atcs station create\|rename\|remove\|bind\|unbind\|platform\|locate\|code` | atcs.manage | Edit stations |
+| `/atcs station create\|rename\|remove\|bind\|unbind\|platform\|locate\|code\|convert` | atcs.manage | Edit stations; `convert` rewrites TrainCarts station signs as `atcs station` signs |
 | `/atcs line list\|info` | atcs.use | Lines |
-| `/atcs line create\|rename\|color\|badge\|suspend\|resume\|remove` | atcs.manage | Edit lines |
+| `/atcs line create\|rename\|color\|badge\|addstop\|suspend\|resume\|remove` | atcs.manage | Edit lines; `addstop` adds a stop to every service running between two stations |
 | `/atcs service info` | atcs.use | A service and what has been learned about it |
-| `/atcs service create\|stops\|record\|spawn\|unspawn\|fleet\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services |
+| `/atcs service create\|stops\|addstop\|removestop\|record\|spawn\|unspawn\|fleet\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services |
 | `/atcs train info [train]` | atcs.use | The train you ride or look at |
 | `/atcs train assign\|unassign\|auto`, `/atcs trains` | atcs.manage | Assignments |
 | `/atcs transfer list` | atcs.use | Walking transfers |
@@ -290,6 +296,21 @@ platform. The layout is in `messages.yml`.
 
 `/atcs line suspend a Signal failure at Main St.` shows the notice on the boss bar of Line A trains
 and marks the line's departures as *Suspended* on boards until `/atcs line resume a`.
+
+### Adding a station to a line
+
+```
+/atcs station create riverside Riverside St.
+/atcs line addstop 1 riverside between frostpeak golden-islands
+```
+
+The second command puts Riverside into every service of line 1 on which Frostpeak and Golden
+Islands follow each other, in either direction, and names the services it left alone (an express
+that skips that stretch, say). `/atcs service addstop 1/to-main riverside after frostpeak` and
+`/atcs service removestop 1/to-main riverside` edit one service. What ATCS has learned about the
+other stops (travel times, stop times, platforms, recorded track) is kept; only the segments next
+to the new stop are learned afresh. Then give the platforms their signs: an `atcs station` sign
+(or a TrainCarts station sign bound with `/atcs station bind`) per platform.
 
 ## Permissions
 

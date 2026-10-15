@@ -68,6 +68,7 @@ public final class StationControl {
             boolean autoRoute,
             double offset,
             double launchDistance,
+            double launchSpeed,
             double headwaySeconds,
             boolean holdForSection,
             double maxHoldSeconds) {
@@ -79,6 +80,7 @@ public final class StationControl {
                     options.autoRoute(),
                     options.offset(),
                     options.launchDistance(),
+                    options.launchSpeed(),
                     options.hasHeadway() ? options.headwaySeconds() : rules.headwaySeconds(),
                     options.holdForSection() != null ? options.holdForSection() : rules.holdForSection(),
                     rules.maxHoldSeconds());

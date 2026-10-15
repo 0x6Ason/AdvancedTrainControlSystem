@@ -62,6 +62,8 @@ class StopOptionsTest {
         assertEquals("stop the trains that call here, then send them reverse; headway 90 s; wait for a clear section ahead",
                 StopOptions.parse("reverse gap 90 block").describe());
         assertEquals("stop the trains that call here for 5 s, then let TrainCarts route them, centred 2.5 blocks past the sign,"
-                + " launching over 30 blocks", StopOptions.parse("5 route 2.5m 30b").describe());
+                + " launching over 30 blocks, launching at 0.4 blocks per tick", StopOptions.parse("5 route 2.5m 30b 0.4v").describe());
+        assertEquals(0.4, StopOptions.parse("0.4v").launchSpeed());
+        assertThrows(IllegalArgumentException.class, () -> StopOptions.parse("0v"));
     }
 }

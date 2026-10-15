@@ -3,6 +3,7 @@ package dev.advancedtrains.atcs.operation;
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.network.ServiceKey;
+import dev.advancedtrains.atcs.network.StopEdits;
 import org.bukkit.configuration.ConfigurationSection;
 import org.jspecify.annotations.Nullable;
 
@@ -121,6 +122,30 @@ public final class TrackPaths {
     }
 
     /** Whether paths changed since the last {@link #save}. */
+    /**
+     * Keeps recorded paths across an edit of a service's stops: a segment stays when both its stops
+     * are still there and still follow each other.
+     */
+    public void remap(Service before, Service after) {
+        ServicePaths old = services.get(before.key());
+        if (old == null || !old.fingerprint.equals(before.fingerprint()) || old.segments.length != before.size()) {
+            return;
+        }
+        int[] mapping = StopEdits.matchIndices(before.stops(), after.stops());
+        ServicePaths fresh = new ServicePaths(after.fingerprint(), after.size());
+        for (int index = 0; index < mapping.length; index++) {
+            int source = mapping[index];
+            int nextSource = index + 1 < mapping.length ? mapping[index + 1]
+                    : after.circular() && mapping.length > 0 ? mapping[0] : -1;
+            if (source >= 0 && nextSource >= 0 && nextSource == before.nextIndex(source)) {
+                fresh.segments[index] = old.segments[source];
+            }
+        }
+        services.put(after.key(), fresh);
+        dirty = true;
+        version++;
+    }
+
     public boolean dirty() {
         return dirty;
     }

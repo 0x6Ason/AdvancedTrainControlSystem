@@ -41,6 +41,13 @@ TrainCarts server, configured with files and in-game commands.
 - `atcs switch` signs: a junction set per train by service, line or next station, with the rules
   written on the sign. With `control.set-destinations` every train's TrainCarts destination follows
   its next calling stop, so TrainCarts switcher signs route by path-finding as well.
+- `/atcs station convert`: turns the TrainCarts station signs of every platform in network.yml into
+  `atcs station` signs, keeping their delay, direction, `route`, offset, launch distance and speed,
+  and leaves every other sign (refill stops, test stations) alone. Without `confirm` it only lists
+  what it would change.
+- `/atcs line addstop <line> <stop> between <a> <b>`, `/atcs service addstop` and
+  `/atcs service removestop`: add or drop one stop without retyping the list. Learned travel times,
+  stop times, platforms and recorded track are carried over for the stops that stay.
 - Service recording by riding a train.
 - A website (schematic network map, departures, trains in service, realtime trip planner over the
   actual running trains), written as static files into BlueMap's web root or any folder, with a

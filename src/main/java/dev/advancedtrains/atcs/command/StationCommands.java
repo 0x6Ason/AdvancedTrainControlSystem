@@ -1,6 +1,7 @@
 package dev.advancedtrains.atcs.command;
 
 import dev.advancedtrains.atcs.board.DepartureVariables;
+import dev.advancedtrains.atcs.control.StationSignConversion;
 import dev.advancedtrains.atcs.importer.TrainSign;
 import dev.advancedtrains.atcs.network.BlockPos;
 import dev.advancedtrains.atcs.network.Board;
@@ -18,12 +19,16 @@ import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.Sign;
 import org.bukkit.block.sign.Side;
+import org.bukkit.block.sign.SignSide;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.event.block.SignChangeEvent;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,6 +72,9 @@ final class StationCommands {
                             default -> List.of();
                         }),
                 leaf("unbind", MANAGE, "", "Stop using the sign you look at as a trigger", context -> unbind(support, context)),
+                leaf("convert", MANAGE, "[confirm]",
+                        "Turn the TrainCarts station signs of the platforms in network.yml into atcs station signs",
+                        context -> convert(support, context), (context, index) -> index == 0 ? List.of("confirm") : List.of()),
                 leaf("platform", MANAGE, "<station> <platform> [name...]", "Create or rename a platform",
                         context -> platform(support, context), (context, index) -> switch (index) {
                             case 0 -> support.stationIds();
@@ -345,6 +353,102 @@ final class StationCommands {
                 .station(current.station(station.id()).orElseThrow().withPlatform(platform)).build());
         Chat.success(context.sender(), "Trains at " + position.coordinates() + " are now at " + station.name()
                 + " platform " + platform.displayName());
+    }
+
+    private record PlannedConversion(Block block, PlatformRef platform, StationSignConversion conversion) {
+    }
+
+    /**
+     * Converts the TrainCarts {@code station} signs that are platform triggers in network.yml into
+     * {@code atcs station} signs, through the same sign-change event a player editing them would
+     * cause, so TrainCarts and ATCS build them as usual. Signs that are not bound as platforms
+     * (refill stops, test stations) are never touched; without {@code confirm} nothing is.
+     */
+    private static void convert(Support support, CommandContext context) throws CommandError {
+        Player player = context.player();
+        boolean confirm = context.argOr(0, "").equalsIgnoreCase("confirm");
+        Network network = support.network();
+        CommandSender sender = context.sender();
+        List<PlannedConversion> planned = new ArrayList<>();
+        List<String> problems = new ArrayList<>();
+        int already = 0;
+        int other = 0;
+        for (Map.Entry<BlockPos, PlatformRef> trigger : network.triggers().entrySet()) {
+            BlockPos position = trigger.getKey();
+            World world = Bukkit.getWorld(position.world());
+            if (world == null) {
+                problems.add(position.coordinates() + ": world '" + position.world() + "' is not loaded");
+                continue;
+            }
+            world.getChunkAt(position.chunkX(), position.chunkZ());
+            Block block = world.getBlockAt(position.x(), position.y(), position.z());
+            if (!(block.getState() instanceof Sign sign)) {
+                problems.add(position.coordinates() + " (" + trigger.getValue() + "): no sign there");
+                continue;
+            }
+            List<String> lines = new ArrayList<>();
+            for (int index = 0; index < 4; index++) {
+                lines.add(PlainTextComponentSerializer.plainText().serialize(sign.getSide(Side.FRONT).line(index)));
+            }
+            if (StationSignConversion.isAtcsSign(lines)) {
+                already++;
+                continue;
+            }
+            Optional<StationSignConversion> conversion = StationSignConversion.convert(lines, trigger.getValue());
+            if (conversion.isEmpty()) {
+                other++;
+                continue;
+            }
+            planned.add(new PlannedConversion(block, trigger.getValue(), conversion.get()));
+        }
+        sender.sendMessage(Chat.header("Station signs"));
+        for (PlannedConversion item : planned) {
+            sender.sendMessage(Component.text()
+                    .append(Component.text(network.stationName(item.platform().stationId()) + " platform "
+                            + item.platform().platformId() + " at " + Support.position(item.block()).coordinates() + ": ", NamedTextColor.WHITE))
+                    .append(Component.text("atcs station / " + item.platform() + " / " + item.conversion().lines().get(3), NamedTextColor.AQUA))
+                    .build());
+            for (String note : item.conversion().notes()) {
+                sender.sendMessage(Component.text("    " + note, NamedTextColor.GOLD));
+            }
+        }
+        problems.forEach(problem -> sender.sendMessage(Component.text(problem, NamedTextColor.RED)));
+        sender.sendMessage(Component.text(planned.size() + " TrainCarts station sign(s) to convert, " + already
+                + " already converted, " + other + " other sign(s) left alone", NamedTextColor.GRAY));
+        if (planned.isEmpty()) {
+            return;
+        }
+        if (!confirm) {
+            sender.sendMessage(Component.text()
+                    .append(Component.text("Nothing changed yet. ", NamedTextColor.GRAY))
+                    .append(Chat.run("Run /atcs station convert confirm", "/atcs station convert confirm"))
+                    .append(Component.text(" to rewrite these signs.", NamedTextColor.GRAY)).build());
+            return;
+        }
+        int converted = 0;
+        for (PlannedConversion item : planned) {
+            List<Component> lines = item.conversion().lines().stream().map(line -> (Component) Component.text(line)).toList();
+            SignChangeEvent event = new SignChangeEvent(item.block(), player, new ArrayList<>(lines), Side.FRONT);
+            Bukkit.getPluginManager().callEvent(event);
+            if (event.isCancelled()) {
+                sender.sendMessage(Component.text(Support.position(item.block()).coordinates()
+                        + ": another plugin refused the change", NamedTextColor.RED));
+                continue;
+            }
+            if (!(item.block().getState() instanceof Sign sign)) {
+                continue;
+            }
+            SignSide front = sign.getSide(Side.FRONT);
+            List<Component> result = event.lines();
+            for (int index = 0; index < 4; index++) {
+                Component line = index < result.size() ? result.get(index) : null;
+                front.line(index, line == null ? Component.empty() : line);
+            }
+            sign.update();
+            converted++;
+        }
+        Chat.success(sender, "Converted " + converted + " sign(s). ATCS now stops the trains at those platforms;"
+                + " watch /atcs debug on for 'stops at' and 'runs through'.");
     }
 
     private static String nextPlatformId(Station station) {
