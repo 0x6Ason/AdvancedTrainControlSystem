@@ -24,7 +24,7 @@ permissions:
     description: Edit the network, boards and train assignments; import, reload and status.
     default: op
   atcs.sign.build:
-    description: Build ATCS TrainCarts signs (atcs stop, atcs service, atcs clear).
+    description: Build ATCS TrainCarts signs (atcs stop, station, switch, service, clear, indicator).
     default: op
   atcs.admin:
     description: Everything in ATCS.

@@ -1,26 +1,45 @@
 package dev.advancedtrains.atcs.traincarts;
 
+import com.bergerkiller.bukkit.tc.Direction;
+import com.bergerkiller.bukkit.tc.Station;
+import com.bergerkiller.bukkit.tc.actions.GroupActionWaitStationRouting;
+import com.bergerkiller.bukkit.tc.controller.MinecartGroup;
+import com.bergerkiller.bukkit.tc.controller.components.ActionTrackerGroup;
+import com.bergerkiller.bukkit.tc.controller.components.RailJunction;
 import com.bergerkiller.bukkit.tc.events.SignActionEvent;
 import com.bergerkiller.bukkit.tc.events.SignChangeActionEvent;
+import com.bergerkiller.bukkit.tc.rails.type.RailType;
 import com.bergerkiller.bukkit.tc.signactions.SignAction;
 import com.bergerkiller.bukkit.tc.signactions.SignActionType;
+import com.bergerkiller.bukkit.tc.utils.LauncherConfig;
 import com.bergerkiller.bukkit.tc.utils.SignBuildOptions;
+import dev.advancedtrains.atcs.control.Heading;
+import dev.advancedtrains.atcs.control.StationControl;
 import dev.advancedtrains.atcs.network.BlockPos;
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.NetworkStore;
 import dev.advancedtrains.atcs.network.PlatformRef;
 import dev.advancedtrains.atcs.operation.AtcsSign;
 import dev.advancedtrains.atcs.operation.Indicator;
+import dev.advancedtrains.atcs.operation.JourneyEvent;
 import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.jspecify.annotations.Nullable;
 
+import java.util.List;
+import java.util.Optional;
+
 /**
- * The {@code atcs stop}, {@code atcs service}, {@code atcs clear} and {@code atcs indicator}
- * TrainCarts signs. Indicator signs are tracked while their chunks are loaded, through the
- * load, text-change and destroy callbacks TrainCarts gives every sign action.
+ * The {@code atcs} TrainCarts signs: {@code stop}, {@code station}, {@code switch}, {@code service},
+ * {@code clear} and {@code indicator}. Indicator signs are tracked while their chunks are loaded,
+ * through the load, text-change and destroy callbacks TrainCarts gives every sign action.
+ *
+ * <p>A station sign stops a train the way TrainCarts' own station sign does, through TrainCarts'
+ * {@link Station} helper and the train's action queue, but only for trains whose service calls
+ * there; and it may keep the train standing after its dwell time through a {@link HoldAction}.
  */
 public final class AtcsSignAction extends SignAction {
     public static final String BUILD_PERMISSION = "atcs.sign.build";
@@ -57,6 +76,8 @@ public final class AtcsSignAction extends SignAction {
                     runtime.platformSignal(train, new PlatformRef(stop.stationId(), stop.platformId()), position(block), entering);
                 }
             }
+            case AtcsSign.StationSign station -> station(info, station, train, entering);
+            case AtcsSign.SwitchSign switcher -> switchRails(info, switcher, train, entering);
             case AtcsSign.ServiceSign service when entering && info.isPowered() -> runtime.assign(train, service.service());
             case AtcsSign.ClearSign ignored when entering && info.isPowered() -> runtime.unassign(train, true);
             default -> {
@@ -64,11 +85,123 @@ public final class AtcsSignAction extends SignAction {
         }
     }
 
+    /**
+     * A station sign: reports the platform like a stop sign, then stops the train if its service
+     * calls here. The stop itself is TrainCarts' station behaviour (centre, dwell, levers, launch),
+     * with an ATCS hold between dwell and launch when a headway or a clear section is required.
+     */
+    private void station(SignActionEvent info, AtcsSign.StationSign sign, TrainCartsTrain train, boolean entering) {
+        Block block = info.getBlock();
+        if (block == null) {
+            return;
+        }
+        PlatformRef platform = new PlatformRef(sign.stationId(), sign.platformId());
+        List<JourneyEvent> events = runtime.platformSignal(train, platform, position(block), entering);
+        MinecartGroup group = info.getGroup();
+        if (!entering) {
+            if (group.getActions().isWaitAction()) {
+                group.getActions().clear();
+            }
+            info.setLevers(false);
+            return;
+        }
+        if (!info.isPowered() || !info.hasRails() || !info.hasMember()) {
+            return;
+        }
+        StationControl.Plan plan = runtime.planStop(train, platform, events, sign.options());
+        if (plan == null) {
+            return;
+        }
+        Station.StationConfig config = new Station.StationConfig();
+        config.setInstruction(BlockFace.SELF);
+        config.setDelay(Math.round(plan.dwellSeconds() * 1000));
+        config.setNextDirection(Direction.parse(plan.heading().word()));
+        config.setAutoRouting(plan.autoRoute());
+        config.setOffsetFromCenter(plan.offset());
+        if (plan.launchDistance() > 0) {
+            LauncherConfig launch = LauncherConfig.createDefault();
+            launch.setDistance(plan.launchDistance());
+            config.setLaunchConfig(launch);
+        }
+        Station station = new Station(info, config);
+        ActionTrackerGroup actions = group.getActions();
+        actions.launchReset();
+        boolean stopHere = station.hasDelay() || plan.mayHold();
+        if (station.isAutoRouting()) {
+            if (stopHere) {
+                station.centerTrain();
+                station.waitTrainKeepLeversDown(station.hasDelay() ? station.getDelay() : 0);
+                hold(actions, train, platform, plan, station.getTag());
+            }
+            actions.addAction(new GroupActionWaitStationRouting(station, info.getRailPiece(), stopHere)).addTag(station.getTag());
+            return;
+        }
+        BlockFace face = station.getNextDirectionFace();
+        if (stopHere) {
+            station.centerTrain();
+            station.waitTrainKeepLeversDown(station.hasDelay() ? station.getDelay() : 0);
+            hold(actions, train, platform, plan, station.getTag());
+        } else if (!info.getMember().isDirectionTo(face)) {
+            station.centerTrain();
+        }
+        station.launchTo(face);
+    }
+
+    private void hold(ActionTrackerGroup actions, TrainCartsTrain train, PlatformRef platform,
+                      StationControl.Plan plan, String tag) {
+        if (!plan.mayHold()) {
+            return;
+        }
+        HoldAction hold = new HoldAction(() -> runtime.holdReason(train, platform, plan),
+                (int) Math.round(plan.maxHoldSeconds() * 20), reason -> runtime.heldTooLong(train, platform, reason));
+        actions.addAction(hold).addTag(tag);
+    }
+
+    /** A switch sign: sets the junction for the direction the train's service needs. */
+    private void switchRails(SignActionEvent info, AtcsSign.SwitchSign sign, TrainCartsTrain train, boolean entering) {
+        if (!entering) {
+            info.setLevers(false);
+            return;
+        }
+        if (!info.isPowered() || !info.hasRailedMember()) {
+            return;
+        }
+        Optional<Heading> heading = runtime.switchHeading(train, sign.rules());
+        info.setLevers(heading.isPresent());
+        if (heading.isPresent()) {
+            // As on TrainCarts' station sign: continue and reverse follow the train, left and right
+            // are as seen by a train driving into the front of the sign, the rest are absolute.
+            BlockFace face = Direction.parse(heading.get().word())
+                    .getDirectionLegacy(info.getFacing(), info.getCartEnterFace());
+            // A vanilla rail offers a junction towards every side, so make sure track is there.
+            RailJunction junction = trackTowards(info, face) ? info.findJunction(face) : null;
+            if (junction != null) {
+                info.setRailsTo(junction);
+            } else {
+                runtime.noJunction(train, heading.get());
+            }
+        }
+    }
+
+    /** Whether rails continue from the sign's rail block in that direction, level or sloped. */
+    private static boolean trackTowards(SignActionEvent info, BlockFace face) {
+        Block rails = info.getRails();
+        if (rails == null) {
+            return false;
+        }
+        Block next = rails.getRelative(face);
+        return isTrack(next) || isTrack(next.getRelative(BlockFace.UP)) || isTrack(next.getRelative(BlockFace.DOWN));
+    }
+
+    private static boolean isTrack(Block block) {
+        return RailType.getType(block) != RailType.NONE;
+    }
+
     @Override
     public boolean build(SignChangeActionEvent event) {
         AtcsSign sign;
         try {
-            sign = AtcsSign.parse(event.getLine(1), event.getLine(2), event.getLine(3));
+            sign = parseOrThrow(event);
         } catch (IllegalArgumentException invalid) {
             event.getPlayer().sendMessage(Component.text("[ATCS] " + invalid.getMessage(), NamedTextColor.RED));
             return false;
@@ -81,6 +214,20 @@ public final class AtcsSignAction extends SignAction {
                         + " of " + network.stationName(stop.stationId()) + " for passenger information");
                 if (network.station(stop.stationId()).isEmpty()) {
                     warn(event, "Station '" + stop.stationId() + "' does not exist yet; create it with /atcs station create");
+                }
+            }
+            case AtcsSign.StationSign station -> {
+                options.setName("ATCS station").setDescription(station.options().describe().replaceFirst("here",
+                        "at platform " + station.platformId() + " of " + network.stationName(station.stationId())));
+                if (network.station(station.stationId()).isEmpty()) {
+                    warn(event, "Station '" + station.stationId() + "' does not exist yet; create it with /atcs station create");
+                }
+            }
+            case AtcsSign.SwitchSign switcher -> {
+                options.setName("ATCS switch").setDescription(switcher.rules().describe());
+                List<String> unknown = switcher.rules().unknownSelectors(network);
+                if (!unknown.isEmpty()) {
+                    warn(event, "No line, service or station called " + String.join(", ", unknown) + " yet");
                 }
             }
             case AtcsSign.ServiceSign service -> {
@@ -151,12 +298,43 @@ public final class AtcsSignAction extends SignAction {
         return false;
     }
 
+    /** Station and switch signs act on trains from either direction, like TrainCarts' station sign. */
+    @Override
+    public boolean overrideFacing() {
+        return true;
+    }
+
+    /** Switch signs, and station signs that let TrainCarts route, change the junction they sit on. */
+    @Override
+    public boolean isRailSwitcher(SignActionEvent info) {
+        AtcsSign sign = parse(info);
+        return sign instanceof AtcsSign.SwitchSign
+                || (sign instanceof AtcsSign.StationSign station && station.options().autoRoute());
+    }
+
+    /**
+     * With {@code control.set-destinations} on, every station sign is a TrainCarts destination
+     * named {@code station:platform}, so TrainCarts path-finding can route trains to it.
+     */
+    @Override
+    public @Nullable String getRailDestinationName(SignActionEvent info) {
+        if (!runtime.setsDestinations()) {
+            return null;
+        }
+        return parse(info) instanceof AtcsSign.StationSign station ? station.destinationName() : null;
+    }
+
     private static @Nullable AtcsSign parse(SignActionEvent info) {
         try {
-            return AtcsSign.parse(info.getLine(1), info.getLine(2), info.getLine(3));
+            return parseOrThrow(info);
         } catch (IllegalArgumentException invalid) {
             return null;
         }
+    }
+
+    private static AtcsSign parseOrThrow(SignActionEvent info) {
+        String[] below = info.getExtraLinesBelow();
+        return AtcsSign.parse(info.getLine(1), info.getLine(2), info.getLine(3), below == null ? List.of() : List.of(below));
     }
 
     private static BlockPos position(Block block) {

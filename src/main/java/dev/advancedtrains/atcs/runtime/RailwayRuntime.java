@@ -4,6 +4,10 @@ import dev.advancedtrains.atcs.board.BoardService;
 import dev.advancedtrains.atcs.board.SignLinkPublisher;
 import dev.advancedtrains.atcs.config.AtcsSettings;
 import dev.advancedtrains.atcs.config.Messages;
+import dev.advancedtrains.atcs.control.Heading;
+import dev.advancedtrains.atcs.control.StationControl;
+import dev.advancedtrains.atcs.control.StopOptions;
+import dev.advancedtrains.atcs.control.SwitchRules;
 import dev.advancedtrains.atcs.map.MapLayer;
 import dev.advancedtrains.atcs.map.StationLocator;
 import dev.advancedtrains.atcs.network.BlockPos;
@@ -91,6 +95,9 @@ public final class RailwayRuntime {
     private final Path pathsFile;
     private final Path tripsFile;
     private final JourneyTracker tracker = new JourneyTracker();
+    private final StationControl control = new StationControl();
+    /** The hold reason last logged per train, so debug output shows changes only. */
+    private final Map<String, String> holdReasons = new HashMap<>();
     private final TrackPaths paths = new TrackPaths();
     private final TripLog trips = new TripLog();
     private final BoardService boards;
@@ -356,8 +363,11 @@ public final class RailwayRuntime {
 
     // ---------------------------------------------------------------- adapter callbacks
 
-    /** A train entered or left the rail of a platform trigger sign. */
-    public void platformSignal(TrainHandle train, PlatformRef platform, BlockPos trigger, boolean entering) {
+    /**
+     * A train entered or left the rail of a platform trigger sign. Returns what the journey tracker
+     * made of it, for the sign to act on.
+     */
+    public List<JourneyEvent> platformSignal(TrainHandle train, PlatformRef platform, BlockPos trigger, boolean entering) {
         Network network = store.network();
         if (network.platformAt(trigger).isEmpty() && network.station(platform.stationId()).isPresent()
                 && observedTriggers.computeIfAbsent(platform.stationId(), ignored -> new LinkedHashSet<>()).add(trigger)) {
@@ -373,6 +383,125 @@ public final class RailwayRuntime {
         }
         handle(train, events);
         recorder.onPlatform(train.name(), platform, entering);
+        return events;
+    }
+
+    // ---------------------------------------------------------------- station and switch signs
+
+    public StationControl control() {
+        return control;
+    }
+
+    /**
+     * Whether a train that just entered an {@code atcs station} sign stops there, and how. Returns
+     * null when it runs through.
+     *
+     * @param events what the arrival produced in the journey tracker
+     */
+    public StationControl.@Nullable Plan planStop(TrainHandle train, PlatformRef platform, List<JourneyEvent> events,
+                                                  StopOptions options) {
+        AtcsSettings.Control rules = settings.control();
+        StationControl.Decision decision = StationControl.decide(platform, events,
+                tracker.snapshot(train.name()).orElse(null), store.network(), rules.rules());
+        if (debug) {
+            logger.info("[debug] " + train.name() + (decision.stops() ? " stops at " : " runs through ") + platform
+                    + ": " + decision.reason());
+        }
+        return decision.stops() ? StationControl.Plan.of(options, rules.rules()) : null;
+    }
+
+    /** Why a train standing at a station sign must keep standing, or empty when it may leave. */
+    public Optional<String> holdReason(TrainHandle train, PlatformRef platform, StationControl.Plan plan) {
+        Optional<String> reason = control.holdReason(train.name(), platform, tracker.snapshots(), store.network(), plan, clock.instant());
+        if (debug) {
+            String previous = holdReasons.put(train.name(), reason.orElse(""));
+            if (!reason.orElse("").equals(previous)) {
+                logger.info("[debug] " + train.name() + (reason.isPresent() ? " held at " + platform + ": " + reason.get()
+                        : " may leave " + platform));
+            }
+        }
+        return reason;
+    }
+
+    /** A switch sign chose a direction its junction does not have. */
+    public void noJunction(TrainHandle train, Heading heading) {
+        if (debug) {
+            logger.info("[debug] " + train.name() + ": the switch has no junction " + heading.word());
+        }
+    }
+
+    public void heldTooLong(TrainHandle train, PlatformRef platform, String reason) {
+        logger.warning(train.name() + " was held at " + platform + " for " + Math.round(settings.control().rules().maxHoldSeconds())
+                + " s (" + reason + ") and is let go; check the train ahead or lower control.max-hold-seconds");
+    }
+
+    /**
+     * The direction an {@code atcs switch} sign sends a train: by its service and by the station
+     * it reaches next on that service.
+     */
+    public Optional<Heading> switchHeading(TrainHandle train, SwitchRules rules) {
+        Network network = store.network();
+        JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+        ServiceKey key = journey != null && journey.service() != null
+                ? journey.service()
+                : ServiceResolver.resolve(train.info(), network).orElse(null);
+        String next = null;
+        if (key != null) {
+            Service service = network.service(key).orElse(null);
+            if (service != null) {
+                int index = journey == null || journey.phase() == JourneyPhase.IDLE ? service.nextIndex(-1)
+                        : journey.phase() == JourneyPhase.COMPLETED ? -1
+                        : service.nextIndex(journey.lastIndex());
+                next = index < 0 ? null : service.stop(index).stationId();
+            }
+        }
+        Optional<Heading> heading = rules.choose(key, next, network);
+        if (debug) {
+            logger.info("[debug] " + train.name() + " at a switch (service " + key + ", next " + next + ") -> "
+                    + heading.map(Heading::word).orElse("no rule, left as is"));
+        }
+        return heading;
+    }
+
+    public boolean setsDestinations() {
+        return settings.control().setDestinations();
+    }
+
+    /**
+     * Keeps the train's TrainCarts destination at its next calling stop, named
+     * {@code station:platform} like the station signs register themselves. The planned platform
+     * is used, else the one the service's trains usually use, else the station's first platform.
+     */
+    private void updateDestination(TrainHandle train, Network network) {
+        JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+        if (journey == null || journey.service() == null) {
+            return;
+        }
+        Service service = network.service(journey.service()).orElse(null);
+        if (service == null) {
+            return;
+        }
+        int next = journey.nextCallingIndex(service);
+        if (next < 0) {
+            return;
+        }
+        Stop stop = service.stop(next);
+        String platform = stop.platformId();
+        if (platform == null) {
+            platform = times.usualPlatform(service, next).orElse(null);
+        }
+        if (platform == null) {
+            platform = network.station(stop.stationId())
+                    .flatMap(station -> station.platforms().keySet().stream().findFirst())
+                    .orElse("1");
+        }
+        String destination = stop.stationId() + ":" + platform;
+        if (!destination.equals(train.info().destination())) {
+            train.setDestination(destination);
+            if (debug) {
+                logger.info("[debug] " + train.name() + " destination set to " + destination);
+            }
+        }
     }
 
     /**
@@ -642,6 +771,9 @@ public final class RailwayRuntime {
             if (settings.blueMap().recordTrackPaths()) {
                 paths.onEvent(event, network);
             }
+            if (event instanceof JourneyEvent.Departed departed) {
+                control.departed(departed);
+            }
             if (event instanceof JourneyEvent.ServiceChanged changed && changed.to() != null) {
                 Set<String> tags = train.info().tags();
                 Optional<ServiceKey> tagged = ServiceResolver.taggedService(tags);
@@ -652,6 +784,9 @@ public final class RailwayRuntime {
             }
         }
         inferService(train, network);
+        if (settings.control().setDestinations()) {
+            updateDestination(train, network);
+        }
         indicators.refresh(tracker.snapshots(), network);
         TrainView view = view(train.name()).orElse(null);
         List<Player> riders = train.riders();

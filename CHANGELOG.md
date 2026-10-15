@@ -33,6 +33,14 @@ TrainCarts server, configured with files and in-game commands.
 - ATCS TrainCarts signs: `atcs stop`, `atcs service`, `atcs clear`, and `atcs indicator`, which
   drives levers while a train is at, approaching or just past a station, or between two stations,
   for lamps, track diagrams and barriers without any wiring along the track.
+- `atcs station` signs: a platform that runs itself. Trains whose service calls at the station stop
+  (TrainCarts' own station mechanics: centring, levers, dwell, launch direction, `route`), trains
+  whose service runs through keep going, so express and local services share one track. Optional
+  headway (`gap 60s`) and section holding (`block`) keep following trains apart; `control:` in
+  config.yml sets the defaults and what trains without a service do.
+- `atcs switch` signs: a junction set per train by service, line or next station, with the rules
+  written on the sign. With `control.set-destinations` every train's TrainCarts destination follows
+  its next calling stop, so TrainCarts switcher signs route by path-finding as well.
 - Service recording by riding a train.
 - A website (schematic network map, departures, trains in service, realtime trip planner over the
   actual running trains), written as static files into BlueMap's web root or any folder, with a

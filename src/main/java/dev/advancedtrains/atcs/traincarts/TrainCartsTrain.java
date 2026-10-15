@@ -76,6 +76,11 @@ final class TrainCartsTrain implements TrainHandle {
     }
 
     @Override
+    public void setDestination(String destination) {
+        group.getProperties().setDestination(destination);
+    }
+
+    @Override
     public boolean hasGeneratedName() {
         return !group.getProperties().isTrainRenamed();
     }

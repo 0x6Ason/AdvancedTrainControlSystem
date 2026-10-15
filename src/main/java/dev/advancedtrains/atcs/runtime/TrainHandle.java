@@ -29,6 +29,9 @@ public interface TrainHandle {
      */
     void clearAssignment(boolean manual);
 
+    /** Sets the TrainCarts destination its path-finding routes the train to; empty clears it. */
+    void setDestination(String destination);
+
     /** Whether the train still has the name TrainCarts generated, rather than one a person chose. */
     boolean hasGeneratedName();
 

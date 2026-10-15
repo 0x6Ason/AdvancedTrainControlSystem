@@ -152,20 +152,89 @@ estimate) and drive the boss-bar and board arrival times.
 
 ## Signs
 
-ATCS adds four TrainCarts sign types. Building them needs `atcs.sign.build`.
+ATCS adds six TrainCarts sign types. Building them needs `atcs.sign.build`.
 
 ```
-[+train]        [+train]          [+train]      [+train]
-atcs stop       atcs service      atcs clear    atcs indicator
-main            a/north                         main:2
-2                                               approach a
+[+train]        [+train]          [+train]      [+train]         [+train]        [+train]
+atcs stop       atcs service      atcs clear    atcs indicator   atcs station    atcs switch
+main            a/north                         main:2           main:2          left a/express
+2                                               approach a       10s continue    right *
 ```
 
 - `atcs stop` marks platform 2 of `main` (platform defaults to 1) without binding a sign in network.yml.
+  It only watches; a TrainCarts `station` sign does the stopping.
+- `atcs station` is a platform that runs itself: trains whose service calls there stop, wait and go
+  on; trains whose service runs through keep going. See [Station signs](#station-signs).
+- `atcs switch` sets the junction it sits on for each train, by service, line or next station. See
+  [Switch signs](#switch-signs).
 - `atcs service` assigns passing trains to the service.
 - `atcs clear` removes the assignment.
 - `atcs indicator` turns the levers on the block behind the sign on and off with the trains, for
   platform lamps, track diagrams or barriers, anywhere in the world and without any track wiring.
+
+### Station signs
+
+An `atcs station` sign takes the place of the TrainCarts `station` sign at a platform (keep one or
+the other on a rail, not both). Line 3 names the station and platform, `main:2` (platform 1 when
+left out). Line 4 says how a stopping train is handled; every part is optional, in any order:
+
+| On line 4 | Meaning |
+|---|---|
+| `10s` or `10` | dwell time; without one, `control.dwell-seconds` from config.yml |
+| `continue`, `reverse`, `left`, `right`, `north` ... | where the train goes afterwards; `continue` when left out, `reverse` at a terminus |
+| `route` | TrainCarts path-finding picks the direction from the train's destination |
+| `2.5m` | centre the train 2.5 blocks past the sign (`-2.5m`: before it) |
+| `30b` | launch the train over 30 blocks |
+| `gap 60s` | headway: do not leave until 60 s after the last train of the same line left this platform |
+| `block` / `noblock` | wait until the train that left before has reached its next station, or never |
+
+Which trains stop is decided per train, from the service ATCS knows it runs:
+
+- The service calls at the station: the train stops.
+- The service runs through (`~firework` in its stop list) or does not list the station at all: the
+  train keeps going at speed. That is an express: give its service only the stops it makes, and it
+  passes every local station on the shared track while the local trains stop.
+- The train has no service: `control.unknown-trains` decides (stop, by default). A train whose
+  service does not list the station follows `control.off-route-trains` (pass, by default).
+
+The stop itself is TrainCarts' station behaviour (the train is centred on the sign, the levers on
+the sign's block go up while it waits, it is launched the way the line says), so doors and lever
+wiring work as with a `station` sign. Use `[+train]` on line 1; with `[train]` the sign acts only
+while it is powered by redstone, which makes a lever an on/off switch for the platform.
+
+`gap` and `block` keep trains apart on a shared track: with `block`, a train waits at the platform
+until the train that left before it has arrived at its next station (ATCS sees that from the next
+platform sign), and with `gap` until the headway has passed. `control.headway-seconds` and
+`control.hold-for-clear-section` set these for every station sign; a sign's own `gap 0` or
+`noblock` switches them off there. A held train is released after `control.max-hold-seconds` in any
+case, with a warning in the console, so a train ATCS lost sight of can never block a platform for
+good. `/train status` on a held train shows why it waits.
+
+### Switch signs
+
+An `atcs switch` sign sits at a junction like a TrainCarts `switcher` sign. Lines 3 and 4, and the
+lines of any signs placed under it, are rules: a direction followed by the trains it is for.
+
+```
+[+train]
+atcs switch
+left 1/express
+right 1 5
+```
+
+Trains are named by service (`1/express`), by line (`1`), by the station they reach next on their
+service (`golden-beach`), or `*` for every train; a direction on its own means every train too.
+The first rule that fits wins; a train no rule fits leaves the junction as it is. Directions are the
+ones TrainCarts' own signs understand: `continue` and `reverse` follow the train, `left` and `right`
+are as seen by a train driving towards the front of the sign (so face the sign towards the trains
+it switches, as you would a TrainCarts switcher), and `north`, `east`, `south`, `west` are absolute.
+The levers on the sign's block go up while a train it switched is on it.
+
+Several lines on one track need nothing more: each train stops where its service calls, is switched
+where its service goes, and waits for the train in front where you ask for it. For larger
+networks, `control.set-destinations: true` keeps every train's TrainCarts destination at its next
+calling stop (every station sign registers itself as the destination `station:platform`), so
+TrainCarts' own `switcher` signs and `route` stations find the way by path-finding.
 
 ### Indicator signs
 

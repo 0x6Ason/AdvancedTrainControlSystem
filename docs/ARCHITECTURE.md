@@ -5,10 +5,14 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
 
 ## Principles
 
-- **Observe, never drive.** TrainCarts does physics, stopping and switching. ATCS listens to its
-  events and adds information. It never moves trains or edits signs it did not create a board on.
-  The only chunks it holds itself are those of spawn signs and fleet spawn points; running trains
-  hold their own through TrainCarts' keep-chunks-loaded.
+- **Observe by default, drive only where a sign says so.** TrainCarts does physics, stopping and
+  switching. ATCS listens to its events and adds information. The exceptions are the operator's
+  `atcs station` and `atcs switch` signs: there ATCS decides per train whether it stops and which
+  way it goes, and carries that out through TrainCarts' own `Station` helper and action queue (the
+  same centring, waiting and launching a `station` sign does) rather than by moving carts itself.
+  It never edits signs it did not create a board on. The only chunks it holds itself are those of
+  spawn signs and fleet spawn points; running trains hold their own through TrainCarts'
+  keep-chunks-loaded.
 - **Pure core, thin adapters.** Everything that decides something (network model, journeys, timing,
   departures, importing, route suggestions) is plain Java without Bukkit runtime calls, and is unit
   tested. Bukkit and TrainCarts code only translates events and draws output.
@@ -23,6 +27,7 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
 |---|---|
 | `network` | Immutable model (`Network`, `Station`, `Platform`, `Line`, `Service`, `Stop`, `Board`), YAML codec, and `NetworkStore` which owns `network.yml` |
 | `operation` | The railway logic: `JourneyTracker` (where each train is on its service), `ServiceResolver` (which service a train runs), `TravelTimes` and `EtaCalculator` (learned times and estimates), `Departures`, `TrackPaths` (recorded track for maps), `TripLog` and `RouteSuggester` (service suggestions), `AtcsSign` (sign text) |
+| `control` | What `atcs station` and `atcs switch` signs decide: `StationControl` (stop or run through, headway and section holds), `StopOptions` and `SwitchRules` (sign text) |
 | `importer` | Drafting stations from signs (`StationImporter`), the loaded-chunk `SignScanner`, the proposal file and merging it into the network |
 | `runtime` | `RailwayRuntime` ties everything together on the server thread: platform signals in, events out to displays, boards and maps; periodic tasks; persistence of learned data. `TrainHandle`/`TrainSource` hide TrainCarts from it |
 | `traincarts` | The only package that imports TrainCarts: event listener, the `atcs` sign action, and the `TrainHandle` implementation |
@@ -44,6 +49,20 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
    `PassengerDisplay` for the riders.
 4. Periodic tasks refresh boss bars (every second), check approaches (twice a second), and redraw
    boards, SignLink variables and the map.
+
+### Station and switch signs
+
+An `atcs station` sign is a platform trigger like any other (step 1 above), and then asks
+`StationControl.decide` what the journey tracker made of the arrival: an `Arrived` event means the
+train calls here, `Passed` means it runs through, no event means a trigger bound in network.yml at
+the same place already reported it and the journey's phase decides. For a stopping train the sign
+builds a TrainCarts `Station.StationConfig` from its options and queues what TrainCarts' own
+station sign queues: centre, levers up, dwell. Between dwell and launch it may queue a `HoldAction`,
+a TrainCarts wait action that asks `StationControl.holdReason` twice a second (headway since the
+last departure of the line from this platform; a train that left before and is still `IN_TRANSIT`
+from this platform) and gives up after `control.max-hold-seconds`. An `atcs switch` sign asks
+`SwitchRules.choose` with the train's service and the next station on it, and sets the junction
+through `SignActionEvent.findJunction`/`setRailsTo`.
 
 ### Journey rules worth knowing
 

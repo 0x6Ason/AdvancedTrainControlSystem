@@ -118,5 +118,28 @@ importer:
   # Chunks inspected per server tick while scanning.
   chunks-per-tick: 8
 
+control:
+  # 'atcs station' signs stop the trains whose service calls at the station and let the others run
+  # through. What happens to a train that has no service: stop or pass.
+  unknown-trains: stop
+  # And to a train whose service does not list the station at all, for example an express running
+  # through a local station: stop or pass.
+  off-route-trains: pass
+  # How long a train waits at a station sign that gives no time of its own.
+  dwell-seconds: 10
+  # Minimum time between two departures of the same line from the same platform, for every station
+  # sign without a 'gap' of its own. 0 switches it off.
+  headway-seconds: 0
+  # Keep a train at the platform while the train that left before it has not reached its next
+  # station yet. Signs can say 'block' or 'noblock' to override this.
+  hold-for-clear-section: false
+  # A held train is let go after this long whatever the reason, so a train ATCS lost track of can
+  # never block a platform for good.
+  max-hold-seconds: 180
+  # Keep every train's TrainCarts destination at its next calling stop (named station:platform, as
+  # every 'atcs station' sign registers itself), so TrainCarts switcher signs and 'route' stations
+  # find the way there by path-finding. Leave off if you route trains with destinations yourself.
+  set-destinations: false
+
 # Logs every platform observation and journey event to the console.
 debug: false

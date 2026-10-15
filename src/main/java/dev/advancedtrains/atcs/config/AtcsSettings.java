@@ -1,5 +1,6 @@
 package dev.advancedtrains.atcs.config;
 
+import dev.advancedtrains.atcs.control.StationControl;
 import dev.advancedtrains.atcs.importer.StationImporter;
 import dev.advancedtrains.atcs.operation.RouteMatcher;
 import net.kyori.adventure.key.InvalidKeyException;
@@ -27,6 +28,7 @@ public record AtcsSettings(
         Assignment assignment,
         Trains trains,
         Spawning spawning,
+        Control control,
         boolean debug,
         List<String> warnings) {
 
@@ -105,6 +107,16 @@ public record AtcsSettings(
     public record Spawning(boolean keepSpawnChunksLoaded, int checkSeconds) {
     }
 
+    /**
+     * How {@code atcs station} signs treat trains.
+     *
+     * @param rules           stopping policies, default dwell, headway and section holding
+     * @param setDestinations keep each train's TrainCarts destination at its next calling stop, so
+     *                        TrainCarts path-finding routes it there
+     */
+    public record Control(StationControl.Rules rules, boolean setDestinations) {
+    }
+
     public static AtcsSettings read(ConfigurationSection config) {
         List<String> warnings = new ArrayList<>();
         Reader reader = new Reader(config, warnings);
@@ -180,8 +192,17 @@ public record AtcsSettings(
                 reader.bool("spawning.keep-spawn-chunks-loaded", true),
                 reader.integer("spawning.check-seconds", 5, 1, 600));
 
+        Control control = new Control(new StationControl.Rules(
+                reader.enumeration("control.unknown-trains", StationControl.Policy.STOP, StationControl.Policy.class),
+                reader.enumeration("control.off-route-trains", StationControl.Policy.PASS, StationControl.Policy.class),
+                reader.decimal("control.dwell-seconds", 10, 0, 3600),
+                reader.decimal("control.headway-seconds", 0, 0, 3600),
+                reader.bool("control.hold-for-clear-section", false),
+                reader.decimal("control.max-hold-seconds", 180, 5, 3600)),
+                reader.bool("control.set-destinations", false));
+
         return new AtcsSettings(passenger, boards, timing, blueMap, signLink, web, importer, assignment, trains, spawning,
-                reader.bool("debug", false), List.copyOf(warnings));
+                control, reader.bool("debug", false), List.copyOf(warnings));
     }
 
     private record Reader(ConfigurationSection config, List<String> warnings) {
