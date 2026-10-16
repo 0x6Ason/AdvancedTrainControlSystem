@@ -9,6 +9,9 @@
  *    least is used.
  * 3. Lines sharing a stretch run side by side; walking transfers are straight connectors.
  * 4. Labels go where they cover no station, label, line or connector, preferring the right side.
+ * 5. A saved layout (the seed) keeps every station where it was: new stations slot in between
+ *    their neighbours and nothing else moves. Hand adjustments from network.yml (map:) pin a
+ *    station to a cell, hide it, choose its label side or recolour a line.
  */
 (function (root) {
   'use strict';
@@ -232,8 +235,34 @@
    * Stations on an even grid: real coordinates give each station a row and a column, rows and
    * columns are merged wherever nothing clashes, and what remains is spaced evenly.
    */
-  function placeStations(network, columnStep, rowStep, packRows, packColumns) {
+  /* Slots for stations without a seed: between the seeded neighbours along the real coordinate. */
+  function seededSlots(nodes, seed, axis, slot) {
+    var known = nodes.filter(function (n) { return seed[n.id] && typeof seed[n.id][slot] === 'number'; });
+    known.sort(function (a, b) { return a[axis] - b[axis]; });
+    nodes.forEach(function (n) {
+      if (seed[n.id] && typeof seed[n.id][slot] === 'number') { n[slot] = seed[n.id][slot]; return; }
+      var lower = null, upper = null;
+      known.forEach(function (k) {
+        if (k[axis] <= n[axis]) lower = k;
+        if (k[axis] >= n[axis] && !upper) upper = k;
+      });
+      if (lower && upper && upper !== lower) {
+        var span = upper[axis] - lower[axis];
+        n[slot] = lower[slot] + (upper[slot] - lower[slot]) * (span ? (n[axis] - lower[axis]) / span : 0.5);
+        if (upper[slot] === lower[slot]) n[slot] = lower[slot];
+      } else if (lower) {
+        n[slot] = lower[slot] + (lower[axis] === n[axis] ? 0 : 1);
+      } else if (upper) {
+        n[slot] = upper[slot] - (upper[axis] === n[axis] ? 0 : 1);
+      } else {
+        n[slot] = 0;
+      }
+    });
+  }
+
+  function placeStations(network, columnStep, rowStep, packRows, packColumns, seed, overrides) {
     var placed = network.stations.filter(function (s) { return typeof s.x === 'number' && typeof s.z === 'number'; });
+    var adjust = (overrides && overrides.stations) || {};
     var nearest = placed.map(function (s) {
       var best = Infinity;
       placed.forEach(function (o) { if (o !== s) best = Math.min(best, Math.hypot(o.x - s.x, o.z - s.z)); });
@@ -245,8 +274,14 @@
     var nodes = placed.map(function (s) {
       var node = { id: s.id, name: s.name, x: s.x, z: s.z, col: columns[s.x], row: rows[s.z], lines: s.lines || [] };
       node.interchange = node.lines.length > 1;
+      node.labelSide = adjust[s.id] && adjust[s.id].label ? adjust[s.id].label : null;
       return node;
     });
+    var seeded = seed && seed.stations && nodes.some(function (n) { return seed.stations[n.id]; });
+    if (seeded) {
+      seededSlots(nodes, seed.stations, 'x', 'col');
+      seededSlots(nodes, seed.stations, 'z', 'row');
+    }
     // Stations a few blocks apart in both directions would share a spot: give each its own
     // row or column along the direction they actually lie in.
     var spots = {};
@@ -265,8 +300,14 @@
     renumber(nodes, 'row');
     renumber(nodes, 'col');
     var edges = trackPairs(network);
-    if (packRows) compact(nodes, 'row', 'col', 'z', edges, columnStep, rowStep);
-    if (packColumns) compact(nodes, 'col', 'row', 'x', edges, columnStep, rowStep);
+    // A seeded layout is already compact; compacting again would move what the seed keeps put.
+    if (!seeded && packRows) compact(nodes, 'row', 'col', 'z', edges, columnStep, rowStep);
+    if (!seeded && packColumns) compact(nodes, 'col', 'row', 'x', edges, columnStep, rowStep);
+    // Pins are absolute cells, counted from the top left, applied last so nothing else moves them.
+    nodes.forEach(function (n) {
+      var pin = adjust[n.id];
+      if (pin && typeof pin.column === 'number' && typeof pin.row === 'number') { n.col = pin.column; n.row = pin.row; }
+    });
     var stations = {};
     nodes.forEach(function (n) {
       n.u = n.col * columnStep;
@@ -456,6 +497,7 @@
       option.h = h;
       option.lines = lines;
       option.pref += extra;
+      option.side = option.anchor === 'start' ? 'right' : option.anchor === 'end' ? 'left' : option.ty < v ? 'above' : 'below';
       return option;
     });
   }
@@ -471,6 +513,10 @@
       var options = labelOptions(station, [station.name], r, 0);
       var split = twoLines(station.name);
       if (split) options = options.concat(labelOptions(station, split, r, 3));
+      if (station.labelSide) {
+        var sided = options.filter(function (option) { return option.side === station.labelSide; });
+        if (sided.length) options = sided;
+      }
       var best = null, bestCost = Infinity, bestClash = 0;
       options.forEach(function (option) {
         var box = { x: option.x, y: option.y, w: option.w, h: option.h };
@@ -493,11 +539,12 @@
   // ---- Build -----------------------------------------------------------------------------------
 
   /* Lays out one arrangement completely, with a score: track, labels and size. */
-  function arrange(network, arrangement) {
-    var stations = placeStations(network, arrangement[0], arrangement[1], arrangement[2], arrangement[3]);
+  function arrange(network, arrangement, seed, overrides) {
+    var stations = placeStations(network, arrangement[0], arrangement[1], arrangement[2], arrangement[3], seed, overrides);
     var pairs = routeTrack(network, stations);
+    var recolour = (overrides && overrides.lines) || {};
     var lines = network.lines.map(function (line) {
-      return { id: line.id, name: line.name, short: line.short, color: line.color, suspended: !!line.suspended, edges: [] };
+      return { id: line.id, name: line.name, short: line.short, color: recolour[line.id] || line.color, suspended: !!line.suspended, edges: [] };
     });
     var widest = {}, degree = {};
     Object.keys(pairs).forEach(function (key) {
@@ -545,13 +592,54 @@
     };
   }
 
-  function build(network, only) {
+  /* The network without the stations the operator hid: their stops are spliced out of every service. */
+  function withoutHidden(network) {
+    var adjust = (network.map && network.map.stations) || {};
+    var hidden = {};
+    Object.keys(adjust).forEach(function (id) { if (adjust[id].hidden) hidden[id] = true; });
+    if (!Object.keys(hidden).length) return network;
+    return {
+      title: network.title,
+      map: network.map,
+      stations: network.stations.filter(function (s) { return !hidden[s.id]; }),
+      lines: network.lines.map(function (line) {
+        var copy = {};
+        Object.keys(line).forEach(function (key) { copy[key] = line[key]; });
+        copy.services = line.services.map(function (service) {
+          var s = {};
+          Object.keys(service).forEach(function (key) { s[key] = service[key]; });
+          s.stops = service.stops.filter(function (stop) { return !hidden[stop.station]; });
+          return s;
+        });
+        return copy;
+      }),
+      transfers: (network.transfers || []).filter(function (t) { return !hidden[t.a] && !hidden[t.b]; })
+    };
+  }
+
+  /*
+   * options: an arrangement (legacy), or { only: arrangement, seed: { arrangement, stations: { id: { col, row } } } }.
+   * With a seed, stations keep their cells and only that seed's arrangement is laid out.
+   */
+  function build(network, options) {
+    var only = null, seed = null;
+    if (Array.isArray(options)) only = options;
+    else if (options) { only = options.only || null; seed = options.seed || null; }
+    network = withoutHidden(network);
+    var overrides = network.map || null;
+    if (seed && seed.stations && Object.keys(seed.stations).length) {
+      only = only || (seed.arrangement && seed.arrangement.length === 4 ? seed.arrangement : ARRANGEMENTS[0]);
+    } else {
+      seed = null;
+    }
     var best = null;
     (only ? [only] : ARRANGEMENTS).forEach(function (arrangement) {
-      var result = arrange(network, arrangement);
+      var result = arrange(network, arrangement, seed, overrides);
       if (!best || result.score < best.score - 1e-6) best = result;
     });
     var stations = best.stations, lines = best.lines, transfers = best.transfers;
+    var cells = {};
+    best.stationList.forEach(function (s) { cells[s.id] = { col: s.col, row: s.row }; });
 
     var bounds = null;
     function extend(u, v) {
@@ -574,6 +662,8 @@
       transfers: transfers,
       bounds: bounds,
       detail: best.detail,
+      /* Where every station landed, to lay the next network out from: a station stays put. */
+      seed: { arrangement: best.detail.arrangement, stations: cells },
       /* The drawn path of a line between two adjacent stations, oriented from a to b. */
       path: function (lineId, a, b) {
         for (var i = 0; i < lines.length; i++) {

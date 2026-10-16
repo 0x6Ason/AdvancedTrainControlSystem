@@ -93,6 +93,7 @@ public final class NetworkCodec {
                 }
             }
         }
+        builder.map(readMap(root.getConfigurationSection("map"), errors));
         Set<String> walks = new HashSet<>();
         for (Transfer transfer : readTransfers(root, errors)) {
             if (!walks.add(transfer.key())) {
@@ -102,6 +103,48 @@ public final class NetworkCodec {
             }
         }
         return new ReadResult(builder.build(), errors);
+    }
+
+    private static MapOverrides readMap(@Nullable ConfigurationSection section, List<String> errors) {
+        if (section == null) {
+            return MapOverrides.EMPTY;
+        }
+        Map<String, MapOverrides.StationOverride> stations = new LinkedHashMap<>();
+        ConfigurationSection stationNodes = section.getConfigurationSection("stations");
+        if (stationNodes != null) {
+            for (String key : stationNodes.getKeys(false)) {
+                ConfigurationSection node = stationNodes.getConfigurationSection(key);
+                String path = "map.stations." + key;
+                if (node == null) {
+                    errors.add(path + ": expected a section with column, row, label or hidden");
+                    continue;
+                }
+                try {
+                    Integer column = node.isInt("column") ? node.getInt("column") : null;
+                    Integer row = node.isInt("row") ? node.getInt("row") : null;
+                    stations.put(key, new MapOverrides.StationOverride(column, row, node.getString("label"), node.getBoolean("hidden", false)));
+                } catch (IllegalArgumentException exception) {
+                    errors.add(path + ": " + exception.getMessage());
+                }
+            }
+        }
+        Map<String, Integer> colors = new LinkedHashMap<>();
+        ConfigurationSection lineNodes = section.getConfigurationSection("lines");
+        if (lineNodes != null) {
+            for (String key : lineNodes.getKeys(false)) {
+                try {
+                    colors.put(key, Colors.parse(String.valueOf(lineNodes.get(key))));
+                } catch (IllegalArgumentException exception) {
+                    errors.add("map.lines." + key + ": " + exception.getMessage());
+                }
+            }
+        }
+        try {
+            return new MapOverrides(stations, colors);
+        } catch (IllegalArgumentException exception) {
+            errors.add("map: " + exception.getMessage());
+            return MapOverrides.EMPTY;
+        }
     }
 
     private static @Nullable Display readDisplay(ConfigurationSection section, String key, List<String> errors) {
@@ -522,6 +565,30 @@ public final class NetworkCodec {
                         node.set("entity", display.hologram().entity().toString());
                     }
                 }
+            }
+        }
+
+        if (!network.map().isEmpty()) {
+            ConfigurationSection map = root.createSection("map");
+            if (!network.map().stations().isEmpty()) {
+                ConfigurationSection adjusted = map.createSection("stations");
+                network.map().stations().forEach((id, override) -> {
+                    ConfigurationSection node = adjusted.createSection(id);
+                    if (override.column() != null) {
+                        node.set("column", override.column());
+                        node.set("row", override.row());
+                    }
+                    if (override.label() != null) {
+                        node.set("label", override.label());
+                    }
+                    if (override.hidden()) {
+                        node.set("hidden", true);
+                    }
+                });
+            }
+            if (!network.map().lineColors().isEmpty()) {
+                ConfigurationSection lines = map.createSection("lines");
+                network.map().lineColors().forEach((id, color) -> lines.set(id, Colors.format(color)));
             }
         }
 

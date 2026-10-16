@@ -40,6 +40,10 @@ class NetworkCodecTest {
                         2, 1, List.of(new Display.Frame(BlockPos.parse("world,-318,66,-802"), 0, 0, 12),
                                 new Display.Frame(BlockPos.parse("world,-317,66,-802"), 1, 0, 13)), List.of(), null))
                 .display(new Display("map", Display.Kind.MAP, null, List.of(), null, 1, 1, List.of(), List.of(20), null))
+                .map(new MapOverrides(Map.of(
+                        "main", new MapOverrides.StationOverride(3, 2, "left", false),
+                        "nerdy", new MapOverrides.StationOverride(null, null, null, true)),
+                        Map.of("a", 0xC62828)))
                 .display(new Display("main-hologram", Display.Kind.HOLOGRAM, "main", List.of(), null, 0, 0, List.of(), List.of(),
                         new Display.Hologram("world", -318.5, 66, -800.5, java.util.UUID.fromString("6f3e2a4c-1b2d-4e5f-8a9b-0c1d2e3f4a5b"))))
                 .build();
@@ -53,10 +57,36 @@ class NetworkCodecTest {
         assertEquals(network.lines(), read.lines());
         assertEquals(network.boards(), read.boards());
         assertEquals(network.displays(), read.displays());
+        assertEquals(network.map(), read.map());
         assertTrue(yaml.contains("footprint: world,-330,62,-810,-310,70,-790"));
+        assertTrue(yaml.contains("hidden: true"));
+        assertTrue(yaml.contains("a: '#C62828'"));
         assertEquals(yaml, codec.write(read), "writing is stable");
         assertTrue(yaml.contains("continues-as: south"), "same-line continuation uses the short form");
         assertTrue(yaml.contains("continues-as: b/x"));
+    }
+
+    @Test
+    void badMapAdjustmentsAreReportedAndSkipped() {
+        String yaml = """
+                stations:
+                  main:
+                    name: Main
+                map:
+                  stations:
+                    main: { column: 2 }
+                    other: { label: sideways }
+                    nowhere: { hidden: true }
+                  lines:
+                    a: notacolour
+                """;
+        NetworkCodec.ReadResult result = codec.read(yaml);
+        assertEquals(3, result.errors().size(), () -> result.errors().toString());
+        assertTrue(result.errors().get(0).startsWith("map.stations.main: A pin needs both"));
+        assertTrue(result.errors().get(1).startsWith("map.stations.other: Label side"));
+        assertTrue(result.errors().get(2).startsWith("map.lines.a:"));
+        assertTrue(result.network().map().station("nowhere").hidden(), "a valid entry is kept");
+        assertTrue(result.network().issues().stream().anyMatch(issue -> issue.contains("unknown station 'nowhere'")));
     }
 
     @Test

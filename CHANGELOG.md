@@ -45,6 +45,11 @@ TrainCarts server, configured with files and in-game commands.
   `atcs station` signs, keeping their delay, direction, `route`, offset, launch distance and speed,
   and leaves every other sign (refill stops, test stations) alone. Without `confirm` it only lists
   what it would change.
+- The website diagram stays put: a browser lays the next network out from the layout it drew,
+  the server hands out `data/map-layout.yml` when the editor saved one, and `?fresh` starts over.
+  Hand adjustments under `map:` in network.yml: `/atcs station map <station> pin|unpin|hide|show|label`
+  and `/atcs line mapcolor`. Live trains glide along the diagram between refreshes, with a button
+  to hide them.
 - Recorded track fixes itself: when trains run clearly off a stored path twice in a row (track
   rebuilt in the world), the path is recorded again instead of waiting for `/atcs service resetpaths`.
 - The rail graph: every recorded path merged into one graph of the railway, with a node per

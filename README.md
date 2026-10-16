@@ -324,9 +324,9 @@ The wand also gives a station a footprint and binds signs in bulk:
 |---|---|---|
 | `/atcs departures <station> [platform]` | atcs.use | Next departures |
 | `/atcs station list\|info\|here` | atcs.use | Stations; `here` names the platform you stand on |
-| `/atcs station create\|rename\|remove\|bind\|unbind\|bindall\|footprint\|platform\|locate\|code\|convert` | atcs.manage | Edit stations; `bindall` and `footprint` use the wand selection; `convert` rewrites TrainCarts station signs as `atcs station` signs |
+| `/atcs station create\|rename\|remove\|bind\|unbind\|bindall\|footprint\|platform\|locate\|code\|map\|convert` | atcs.manage | Edit stations; `bindall` and `footprint` use the wand selection; `map` pins, hides or labels a station on the website's diagram; `convert` rewrites TrainCarts station signs as `atcs station` signs |
 | `/atcs line list\|info` | atcs.use | Lines |
-| `/atcs line create\|rename\|color\|badge\|addstop\|suspend\|resume\|remove` | atcs.manage | Edit lines; `addstop` adds a stop to every service running between two stations |
+| `/atcs line create\|rename\|color\|mapcolor\|badge\|addstop\|suspend\|resume\|remove` | atcs.manage | Edit lines; `addstop` adds a stop to every service running between two stations; `mapcolor` recolours a line on the diagram only |
 | `/atcs service info` | atcs.use | A service and what has been learned about it |
 | `/atcs service create\|stops\|addstop\|removestop\|record\|spawn\|unspawn\|fleet\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services |
 | `/atcs train info [train]` | atcs.use | The train you ride or look at |
@@ -383,11 +383,12 @@ All in `plugins/AdvancedTrainControlSystem/`:
 |---|---|
 | `config.yml` | Behaviour: what passengers see, sounds, boards, displays, BlueMap, SignLink, website, importer |
 | `messages.yml` | Every passenger text and the board and hologram layouts, in [MiniMessage](https://docs.advntr.dev/minimessage/format.html) |
-| `network.yml` | Stations, lines, services, boards and displays. Edit in game or by hand, then `/atcs reload` |
+| `network.yml` | Stations, lines, services, boards, displays and diagram adjustments. Edit in game or by hand, then `/atcs reload` |
 | `fares.yml` | Fares: pairs, zones and the formula. Edit in game or by hand, then `/atcs reload` |
 | `fare-matrix.yml` | The draft `/atcs fare generate` writes and `/atcs fare apply` loads |
 | `import-proposal.yml` | Written by `/atcs import write` for review |
 | `data/timings.yml`, `data/track-paths.yml`, `data/trips.yml`, `data/eta-samples.yml` | Learned travel times, recorded track, observed trips and scored estimates; safe to delete |
+| `data/map-layout.yml` | The website diagram's saved cells, so the layout stays put; safe to delete |
 | `data/events.log` | Every arrival, departure, hold and service change, one JSON line each, rotated at `logging.max-megabytes` |
 
 `network.yml` is never overwritten behind your back: if it has an error ATCS keeps using the valid
@@ -565,6 +566,16 @@ the origin (an express and a local, say), fewer changes, or walking or not, tagg
 slower, or double back through a station are left out. The picked route is drawn on the map and
 stays picked while the plan updates with every refresh. A line with no train running is planned
 with an assumed wait and marked as an estimate.
+
+The diagram stays put: each browser keeps the layout it drew and lays the next network out from
+it, so adding a station moves that station and its neighbours, not the whole map (open the site
+with `?fresh` to lay it out from scratch). The editor saves a layout to `data/map-layout.yml` for
+every browser to start from. Hand adjustments live under `map:` in `network.yml`:
+`/atcs station map <station> pin <column> <row>` fixes a station to a cell, `hide` leaves a depot
+off the diagram, `label left|right|above|below` chooses the side its name goes, and
+`/atcs line mapcolor <line> <colour>` draws a line in a darker colour than its badge. Trains move
+along the diagram between refreshes, from their live position and the learned times; the train
+button on the map hides them.
 
 On the map, scroll or pinch to zoom, drag to pan, double-click to zoom in; taps find the nearest
 station within a finger's reach. On phones the panel is a sheet over the map that can be dragged

@@ -48,9 +48,44 @@ public final class WebModel {
      */
     public static String network(String title, int refreshSeconds, Network network, StationLocator locator,
                                  TravelTimes times, double defaultDwellSeconds, @Nullable Map<String, Object> fares, Instant now) {
+        return network(title, refreshSeconds, network, locator, times, defaultDwellSeconds, fares, null, now);
+    }
+
+    /**
+     * @param layout saved diagram cells by station id ({@code [column, row]}), from data/map-layout.yml, or null
+     */
+    public static String network(String title, int refreshSeconds, Network network, StationLocator locator,
+                                 TravelTimes times, double defaultDwellSeconds, @Nullable Map<String, Object> fares,
+                                 @Nullable Map<String, Object> layout, Instant now) {
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("title", title);
         root.put("refreshSeconds", refreshSeconds);
+        if (!network.map().isEmpty()) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            Map<String, Object> stations = new LinkedHashMap<>();
+            network.map().stations().forEach((id, override) -> {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                if (override.column() != null) {
+                    entry.put("column", override.column());
+                    entry.put("row", override.row());
+                }
+                if (override.label() != null) {
+                    entry.put("label", override.label());
+                }
+                if (override.hidden()) {
+                    entry.put("hidden", true);
+                }
+                stations.put(id, entry);
+            });
+            map.put("stations", stations);
+            Map<String, Object> lines = new LinkedHashMap<>();
+            network.map().lineColors().forEach((id, color) -> lines.put(id, Colors.format(color)));
+            map.put("lines", lines);
+            root.put("map", map);
+        }
+        if (layout != null && !layout.isEmpty()) {
+            root.put("layout", layout);
+        }
         root.put("generated", now.toEpochMilli());
         root.put("defaultDwell", defaultDwellSeconds);
         if (fares != null) {

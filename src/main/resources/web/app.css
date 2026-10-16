@@ -120,6 +120,17 @@ button { touch-action: manipulation; }
 }
 .map-tools button:last-child { border-bottom: 0; }
 .map-tools button:hover { background: var(--ink); color: #fff; }
+.map-tools button[aria-pressed="false"] { color: var(--muted); }
+.map-tools button[aria-pressed="false"] svg { opacity: .45; }
+
+/* Live trains: a dot in the line colour that glides along its stretch between refreshes. */
+.trains.hidden { display: none; }
+.train { transition: transform 1s linear; transform-box: view-box; }
+.train .train-ring { fill: var(--ink); }
+.train .train-dot { stroke: none; }
+.train.stopped .train-ring { fill: var(--paper); stroke: var(--ink); stroke-width: 2; }
+.train.late .train-ring { fill: #c62828; }
+.lines.dimmed ~ .trains { opacity: .35; }
 
 
 .legend {

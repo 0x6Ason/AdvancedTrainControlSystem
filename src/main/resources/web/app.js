@@ -25,6 +25,9 @@
     + '      <button type="button" id="zoom-fit" aria-label="Show the whole network" title="Show the whole network">'
     + '        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M2 7V2h5M13 2h5v5M18 13v5h-5M7 18H2v-5" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>'
     + '      </button>'
+    + '      <button type="button" id="toggle-trains" aria-label="Show trains on the map" title="Show trains on the map" aria-pressed="true">'
+    + '        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="4" y="2.5" width="12" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M4 9h12M7 12.5h.01M13 12.5h.01M6.5 17.5l1.5-3M13.5 17.5l-1.5-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>'
+    + '      </button>'
     + '    </div>'
     + '    <div id="legend" class="legend"></div>'
     + '    <div id="map-empty" class="map-empty" hidden></div>'
@@ -120,7 +123,79 @@
       var text = remaining(+nodes[i].getAttribute('data-at'), nodes[i].getAttribute('data-zero'));
       if (nodes[i].textContent !== text) nodes[i].textContent = text;
     }
+    if (map && !document.hidden) map.placeTrains(false);
     updateStatus();
+  }
+
+  // ---- Trains on the map -----------------------------------------------------------------------
+
+  function trainsWanted() {
+    try { return localStorage.getItem('atcs-trains') !== 'off'; } catch (ignored) { return true; }
+  }
+
+  function setTrainsWanted(wanted) {
+    try { localStorage.setItem('atcs-trains', wanted ? 'on' : 'off'); } catch (ignored) { /* private mode */ }
+    var button = $('toggle-trains');
+    if (button) button.setAttribute('aria-pressed', wanted ? 'true' : 'false');
+    if (map) map.showTrains(wanted);
+  }
+
+  /* The markers for the map: a stopped train at its station, a running one along its stretch. */
+  function trainMarkers() {
+    var markers = [];
+    (live && live.trains ? live.trains : []).forEach(function (train) {
+      var entry = serviceIndex[train.key], line = lineIndex[train.line];
+      if (!entry || !line) return;
+      var stops = entry.service.stops;
+      var title = train.name + ': ' + line.name + ' ' + entry.service.name + ' to ' + train.destination;
+      if (train.at) {
+        markers.push({ id: train.name, color: line.color, title: title + ' (at ' + stationName(train.at) + ')', at: train.at, late: false });
+        return;
+      }
+      if (train.last < 0 || train.next < 0 || train.next >= stops.length || train.last >= stops.length) return;
+      var chain = [], i = train.last, guard = 0;
+      while (guard++ <= stops.length) {
+        chain.push(stops[i].station);
+        if (i === train.next) break;
+        i = i + 1 < stops.length ? i + 1 : (entry.service.circular ? 0 : -1);
+        if (i < 0) return;
+      }
+      var fraction = Math.max(0, Math.min(0.97, train.fraction || 0));
+      var moving = typeof train.eta === 'number' && train.eta > 0 && !train.held && !train.late;
+      markers.push({
+        id: train.name, color: line.color, line: line.id, chain: chain, fraction: fraction,
+        rate: moving ? (0.97 - fraction) / train.eta : 0, since: liveBase, late: !!train.late,
+        title: title + (train.late ? ' (delayed)' : train.held ? ' (held)' : '')
+      });
+    });
+    return markers;
+  }
+
+  // ---- Saved diagram layout --------------------------------------------------------------------
+
+  function seedKey() { return 'atcs-layout:' + (network && network.title ? network.title : ''); }
+
+  /* The layout to start from: this browser's last one, else the one the server saved; none with ?fresh. */
+  function loadSeed() {
+    if (/(^|[?&])fresh(=|&|$)/.test(location.search)) return null;
+    var seed = null;
+    try { seed = JSON.parse(localStorage.getItem(seedKey()) || 'null'); } catch (ignored) { seed = null; }
+    if (!seed && network.layout && network.layout.stations) {
+      var stations = {};
+      Object.keys(network.layout.stations).forEach(function (id) {
+        var cell = network.layout.stations[id];
+        if (cell && cell.length === 2) stations[id] = { col: cell[0], row: cell[1] };
+      });
+      seed = { arrangement: network.layout.arrangement, stations: stations };
+    }
+    if (!seed || !seed.stations) return null;
+    var known = 0;
+    network.stations.forEach(function (s) { if (seed.stations[s.id]) known++; });
+    return known >= Math.ceil(network.stations.length * 0.6) ? seed : null;
+  }
+
+  function saveSeed(seed) {
+    try { localStorage.setItem(seedKey(), JSON.stringify(seed)); } catch (ignored) { /* private mode or full */ }
   }
 
   // ---- Bottom sheet (phones) -------------------------------------------------------------------
@@ -674,6 +749,7 @@
       live = data;
       liveBase = Date.now();
       renderTrains();
+      if (map) map.setTrains(trainMarkers());
       refreshStationDetail();
       if (planFrom && planTo) runPlan(false);
       updateStatus();
@@ -681,7 +757,7 @@
   }
 
   function signature(data) {
-    return JSON.stringify([data.title, data.stations, data.transfers, data.lines.map(function (l) {
+    return JSON.stringify([data.title, data.stations, data.transfers, data.map || null, data.layout || null, data.lines.map(function (l) {
       return [l.id, l.color, l.name, l.short, l.suspended, l.services.map(function (s) { return [s.key, s.name, s.circular, s.stops]; })];
     })]);
   }
@@ -692,7 +768,8 @@
     refreshSeconds = network.refreshSeconds || 3;
     document.title = network.title || 'Railway';
     $('title').textContent = network.title || 'Railway';
-    var layout = ATCSLayout.build(network);
+    var layout = ATCSLayout.build(network, { seed: loadSeed() });
+    if (layout.seed) saveSeed(layout.seed);
     var hasMap = Object.keys(layout.stations).length > 0;
     $('map-empty').hidden = hasMap;
     if (!hasMap) {
@@ -793,6 +870,8 @@
     $('zoom-in').addEventListener('click', function () { map.zoomBy(1.4); });
     $('zoom-out').addEventListener('click', function () { map.zoomBy(1 / 1.4); });
     $('zoom-fit').addEventListener('click', function () { map.fit(); });
+    setTrainsWanted(trainsWanted());
+    $('toggle-trains').addEventListener('click', function () { setTrainsWanted(!trainsWanted()); });
     document.addEventListener('keydown', function (event) {
       var target = event.target;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;

@@ -49,6 +49,7 @@ import dev.advancedtrains.atcs.web.WebModel;
 import dev.advancedtrains.atcs.web.WebSite;
 import org.bukkit.Location;
 import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
@@ -67,6 +68,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -104,6 +106,9 @@ public final class RailwayRuntime {
     private final Path pathsFile;
     private final Path tripsFile;
     private final Path samplesFile;
+    private final Path layoutFile;
+    /** Saved diagram cells by station id, from data/map-layout.yml; null until read. */
+    private @Nullable Map<String, Object> savedLayout;
     private final EtaSamples samples = new EtaSamples();
     private final EventLog eventLog;
     private int tick;
@@ -263,6 +268,7 @@ public final class RailwayRuntime {
         this.pathsFile = data.resolve("track-paths.yml");
         this.tripsFile = data.resolve("trips.yml");
         this.samplesFile = data.resolve("eta-samples.yml");
+        this.layoutFile = data.resolve("map-layout.yml");
         this.eventLog = new EventLog(data.resolve("events.log"), settings.logging().maxMegabytes() * 1024L * 1024L,
                 writer, logger, settings.logging().events(), settings.logging().positions());
         this.times = new TravelTimes(settings.timing().smoothing());
@@ -1174,7 +1180,8 @@ public final class RailwayRuntime {
             webDirty = false;
             Supplier<Map<String, Object>> fares = fareSummary;
             String json = WebModel.network(settings.web().title(), settings.web().refreshSeconds(), network,
-                    new Locator(network), times, settings.boards().defaultDwellSeconds(), fares == null ? null : fares.get(), now);
+                    new Locator(network), times, settings.boards().defaultDwellSeconds(), fares == null ? null : fares.get(),
+                    savedLayout, now);
             writer.execute(() -> site.write("network.json", json));
         }
         webWrites++;
@@ -1258,6 +1265,53 @@ public final class RailwayRuntime {
         paths.load(readYaml(pathsFile));
         trips.load(readYaml(tripsFile));
         samples.load(readYaml(samplesFile));
+        savedLayout = readLayout();
+    }
+
+    /**
+     * The saved diagram layout: {@code stations: {id: [column, row]}} and {@code arrangement}, as
+     * the website or the editor saved it, so the diagram starts from where it was.
+     */
+    private @Nullable Map<String, Object> readLayout() {
+        if (!Files.exists(layoutFile)) {
+            return null;
+        }
+        YamlConfiguration yaml = readYaml(layoutFile);
+        Map<String, Object> layout = new LinkedHashMap<>();
+        Map<String, Object> stations = new LinkedHashMap<>();
+        ConfigurationSection section = yaml.getConfigurationSection("stations");
+        if (section != null) {
+            for (String id : section.getKeys(false)) {
+                List<Integer> cell = section.getIntegerList(id);
+                if (cell.size() == 2) {
+                    stations.put(id, List.of(cell.get(0), cell.get(1)));
+                }
+            }
+        }
+        if (stations.isEmpty()) {
+            return null;
+        }
+        layout.put("stations", stations);
+        if (yaml.isList("arrangement")) {
+            layout.put("arrangement", yaml.getList("arrangement"));
+        }
+        return layout;
+    }
+
+    /** Writes the diagram layout the editor sends, and hands it to the website on its next refresh. */
+    public void saveLayout(Map<String, List<Integer>> stations, @Nullable List<Object> arrangement) throws IOException {
+        YamlConfiguration yaml = new YamlConfiguration();
+        yaml.options().setHeader(List.of("The website's diagram layout, saved so adding a station moves one station, not the whole",
+                "diagram. Written by the web editor; safe to delete."));
+        ConfigurationSection section = yaml.createSection("stations");
+        stations.forEach(section::set);
+        if (arrangement != null) {
+            yaml.set("arrangement", arrangement);
+        }
+        Files.createDirectories(layoutFile.getParent());
+        Files.writeString(layoutFile, yaml.saveToString(), StandardCharsets.UTF_8);
+        savedLayout = readLayout();
+        webDirty = true;
     }
 
     private YamlConfiguration readYaml(Path file) {

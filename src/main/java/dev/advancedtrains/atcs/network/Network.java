@@ -25,6 +25,7 @@ public final class Network {
     private final Map<String, Line> lines;
     private final Map<String, Board> boards;
     private final List<Transfer> transfers;
+    private final MapOverrides map;
     private final Map<String, List<Transfer>> transfersByStation;
     private final Map<String, String> codes;
     private final Map<BlockPos, PlatformRef> triggers;
@@ -144,6 +145,17 @@ public final class Network {
             }
         }
 
+        this.map = builder.map;
+        for (String stationId : map.stations().keySet()) {
+            if (!stations.containsKey(stationId)) {
+                problems.add("map: adjusts unknown station '" + stationId + "'");
+            }
+        }
+        for (String lineId : map.lineColors().keySet()) {
+            if (!lines.containsKey(lineId)) {
+                problems.add("map: colours unknown line '" + lineId + "'");
+            }
+        }
         this.transfers = List.copyOf(builder.transfers.values());
         Map<String, List<Transfer>> walkIndex = new HashMap<>();
         for (Transfer transfer : transfers) {
@@ -171,8 +183,14 @@ public final class Network {
         builder.lines.putAll(lines);
         builder.boards.putAll(boards);
         builder.displays.putAll(displays);
+        builder.map = map;
         transfers.forEach(transfer -> builder.transfers.put(transfer.key(), transfer));
         return builder;
+    }
+
+    /** Hand adjustments to the schematic diagram. */
+    public MapOverrides map() {
+        return map;
     }
 
     public Map<String, Display> displays() {
@@ -307,8 +325,14 @@ public final class Network {
         private final Map<String, Board> boards = new LinkedHashMap<>();
         private final Map<String, Display> displays = new LinkedHashMap<>();
         private final Map<String, Transfer> transfers = new LinkedHashMap<>();
+        private MapOverrides map = MapOverrides.EMPTY;
 
         private Builder() {
+        }
+
+        public Builder map(MapOverrides overrides) {
+            map = overrides;
+            return this;
         }
 
         public Builder display(Display display) {

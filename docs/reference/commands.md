@@ -56,6 +56,7 @@ Stations and platforms.
 | `/atcs station convert [confirm]` | `atcs.manage` | Turn the TrainCarts station signs of the platforms in network.yml into atcs station signs |
 | `/atcs station platform <station> <platform> [name...]` | `atcs.manage` | Create or rename a platform |
 | `/atcs station locate <station>` | `atcs.manage` | Show the station on maps where you stand |
+| `/atcs station map <station> pin <column> <row>\|unpin\|hide\|show\|label <left\|right\|above\|below\|auto>` | `atcs.manage` | Adjust the station on the website's diagram: pin it to a cell, hide it, or put its name on one side |
 
 ## /atcs line
 
@@ -68,6 +69,7 @@ Lines and their colours.
 | `/atcs line create <id> <color> <name...>` | `atcs.manage` | Create a line, e.g. /atcs line create a #E53935 Line A |
 | `/atcs line addstop <line> <stop> between <station> <station>` | `atcs.manage` | Add a stop to every service of the line that runs straight between the two stations |
 | `/atcs line rename <line> <name...>` | `atcs.manage` | Change a line's name |
+| `/atcs line mapcolor <line> <color\|auto>` | `atcs.manage` | Draw the line in another colour on the website's diagram, when its badge colour is too light there |
 | `/atcs line color <line> <color>` | `atcs.manage` | Change a line's colour (#RRGGBB or a colour name) |
 | `/atcs line badge <line> <text>` | `atcs.manage` | Set the short badge shown on boss bars and boards |
 | `/atcs line suspend <line> [notice...]` | `atcs.manage` | Show a suspension notice to passengers and on boards |

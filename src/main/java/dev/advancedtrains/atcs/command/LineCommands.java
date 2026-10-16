@@ -48,6 +48,16 @@ final class LineCommands {
                     support.edit(network -> network.toBuilder().line(line.withName(name)).build());
                     Chat.success(context.sender(), "Line " + line.id() + " is now called " + name);
                 }, lines),
+                leaf("mapcolor", MANAGE, "<line> <color|auto>",
+                        "Draw the line in another colour on the website's diagram, when its badge colour is too light there",
+                        context -> {
+                            Line line = support.line(context.arg(0));
+                            String wanted = context.arg(1);
+                            Integer color = wanted.equalsIgnoreCase("auto") ? null : parseColor(wanted);
+                            support.edit(network -> network.toBuilder().map(network.map().withLineColor(line.id(), color)).build());
+                            Chat.success(context.sender(), line.name() + (color == null
+                                    ? " is drawn in its badge colour again" : " is drawn in " + Colors.format(color) + " on the diagram"));
+                        }, (context, index) -> index == 0 ? support.lineIds() : index == 1 ? List.of("auto") : List.of()),
                 leaf("color", MANAGE, "<line> <color>", "Change a line's colour (#RRGGBB or a colour name)", context -> {
                     Line line = support.line(context.arg(0));
                     int color = parseColor(context.arg(1));

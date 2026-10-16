@@ -88,6 +88,7 @@
   function create(svg, wrap, options) {
     options = options || {};
     var layout = null, lineById = {}, stationNodes = {}, labelNodes = {}, groups = null;
+    var trains = [], trainNodes = {}, trainsShown = true;
     var home = null, view = null, fitted = true, framePending = false;
     var highlighted = '', selected = null;
     // The part of the map covered by panels, in pixels (the bottom sheet on phones).
@@ -328,9 +329,11 @@
     function draw() {
       clear(svg);
       groups = {};
-      ['lines', 'transfers', 'route', 'stations', 'labels'].forEach(function (name) {
+      ['lines', 'transfers', 'route', 'trains', 'stations', 'labels'].forEach(function (name) {
         groups[name] = el('g', { 'class': name }, svg);
       });
+      groups.trains.classList.toggle('hidden', !trainsShown);
+      trainNodes = {};
       lineById = {};
       stationNodes = {};
       labelNodes = {};
@@ -364,10 +367,91 @@
       });
     }
 
+    // ---- Live trains ---------------------------------------------------------------------------
+
+    /* The drawn path along a chain of stations on one line, joined up; null when any piece is missing. */
+    function chainPath(lineId, chain) {
+      var points = [];
+      for (var i = 0; i + 1 < chain.length; i++) {
+        var piece = layout.path(lineId, chain[i], chain[i + 1]);
+        if (!piece) return null;
+        points = points.concat(i ? piece.slice(1) : piece);
+      }
+      return points.length ? points : null;
+    }
+
+    /* Where a train marker is now: at its station, or along its stretch by the fraction done. */
+    function trainPosition(train, now) {
+      if (train.at) {
+        var station = layout.stations[train.at];
+        return station ? { u: station.u, v: station.v } : null;
+      }
+      var fraction = Math.min(0.97, train.fraction + train.rate * Math.max(0, (now - train.since) / 1000));
+      var points = chainPath(train.line, train.chain);
+      if (!points) {
+        var a = layout.stations[train.chain[0]], b = layout.stations[train.chain[train.chain.length - 1]];
+        if (!a || !b) return null;
+        return { u: a.u + (b.u - a.u) * fraction, v: a.v + (b.v - a.v) * fraction };
+      }
+      return root.ATCSLayout.along(points, fraction);
+    }
+
+    /* Replaces the trains shown. Each is { id, color, title, at } or { id, color, title, line, chain, fraction, rate, since }. */
+    function setTrains(list) {
+      trains = list || [];
+      if (!groups) return;
+      var keep = {};
+      trains.forEach(function (train) {
+        keep[train.id] = true;
+        var node = trainNodes[train.id];
+        if (!node) {
+          node = el('g', { 'class': 'train' }, groups.trains);
+          el('circle', { 'class': 'train-ring', r: 7.5 }, node);
+          el('circle', { 'class': 'train-dot', r: 5 }, node);
+          el('title', {}, node);
+          trainNodes[train.id] = node;
+        }
+        node.childNodes[1].setAttribute('fill', train.color);
+        node.childNodes[2].textContent = train.title;
+        node.classList.toggle('stopped', !!train.at);
+        node.classList.toggle('late', !!train.late);
+      });
+      Object.keys(trainNodes).forEach(function (id) {
+        if (!keep[id]) { groups.trains.removeChild(trainNodes[id]); delete trainNodes[id]; }
+      });
+      placeTrains(true);
+    }
+
+    /* Moves every marker to where its train is now; the CSS transition carries it to the next tick. */
+    function placeTrains(jump) {
+      if (!layout || !groups) return;
+      var now = Date.now();
+      trains.forEach(function (train) {
+        var node = trainNodes[train.id];
+        if (!node) return;
+        var at = trainPosition(train, now);
+        if (!at) { node.style.display = 'none'; return; }
+        node.style.display = '';
+        if (jump && !node.hasAttribute('data-placed')) {
+          node.style.transition = 'none';
+          node.setAttribute('data-placed', '1');
+        } else {
+          node.style.transition = '';
+        }
+        node.style.transform = 'translate(' + at.u.toFixed(1) + 'px, ' + at.v.toFixed(1) + 'px)';
+      });
+    }
+
+    function showTrains(shown) {
+      trainsShown = !!shown;
+      if (groups) groups.trains.classList.toggle('hidden', !trainsShown);
+    }
+
     function setLayout(newLayout) {
       var first = !layout;
       layout = newLayout;
       draw();
+      setTrains(trains);
       var bounds = layout.bounds || { minU: 0, maxU: 100, minV: 0, maxV: 100 };
       var margin = layout.cell * 0.6;
       home = {
@@ -459,7 +543,7 @@
 
     return {
       setLayout: setLayout, fit: fit, zoomBy: zoomBy, highlight: highlight, select: select,
-      showRoute: showRoute, setInsets: setInsets
+      showRoute: showRoute, setInsets: setInsets, setTrains: setTrains, placeTrains: placeTrains, showTrains: showTrains
     };
   }
 

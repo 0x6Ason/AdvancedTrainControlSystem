@@ -97,7 +97,60 @@ final class StationCommands {
                             default -> List.of();
                         }),
                 leaf("locate", MANAGE, "<station>", "Show the station on maps where you stand",
-                        context -> locate(support, context), (context, index) -> index == 0 ? support.stationIds() : List.of()));
+                        context -> locate(support, context), (context, index) -> index == 0 ? support.stationIds() : List.of()),
+                leaf("map", MANAGE, "<station> pin <column> <row>|unpin|hide|show|label <left|right|above|below|auto>",
+                        "Adjust the station on the website's diagram: pin it to a cell, hide it, or put its name on one side",
+                        context -> mapOverride(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.stationIds();
+                            case 1 -> List.of("pin", "unpin", "hide", "show", "label");
+                            case 2 -> context.argOr(1, "").equalsIgnoreCase("label") ? List.of("left", "right", "above", "below", "auto") : List.of();
+                            default -> List.of();
+                        }));
+    }
+
+    private static void mapOverride(Support support, CommandContext context) throws CommandError {
+        Station station = support.station(context.arg(0));
+        String action = context.arg(1).toLowerCase(java.util.Locale.ROOT);
+        Network network = support.network();
+        dev.advancedtrains.atcs.network.MapOverrides.StationOverride current = network.map().station(station.id());
+        dev.advancedtrains.atcs.network.MapOverrides.StationOverride updated;
+        String done;
+        try {
+            switch (action) {
+                case "pin" -> {
+                    int column = Integer.parseInt(context.arg(2));
+                    int row = Integer.parseInt(context.arg(3));
+                    updated = current.withPin(column, row);
+                    done = "pinned to column " + column + ", row " + row;
+                }
+                case "unpin" -> {
+                    updated = current.withPin(null, null);
+                    done = "no longer pinned";
+                }
+                case "hide" -> {
+                    updated = current.withHidden(true);
+                    done = "hidden from the diagram";
+                }
+                case "show" -> {
+                    updated = current.withHidden(false);
+                    done = "shown on the diagram";
+                }
+                case "label" -> {
+                    String side = context.arg(2).toLowerCase(java.util.Locale.ROOT);
+                    updated = current.withLabel(side.equals("auto") ? null : side);
+                    done = side.equals("auto") ? "labelled wherever fits" : "labelled on the " + side;
+                }
+                default -> throw new CommandError("Use pin <column> <row>, unpin, hide, show or label <side>");
+            }
+        } catch (NumberFormatException exception) {
+            throw new CommandError("Column and row are whole numbers, counted from the top left of the diagram");
+        } catch (IllegalArgumentException exception) {
+            throw new CommandError(exception.getMessage());
+        }
+        dev.advancedtrains.atcs.network.MapOverrides.StationOverride result = updated;
+        support.edit(net -> net.toBuilder().map(result.isNone()
+                ? net.map().withoutStation(station.id()) : net.map().withStation(station.id(), result)).build());
+        Chat.success(context.sender(), station.name() + " is " + done + " on the website's diagram");
     }
 
     private static void list(Support support, CommandContext context) throws CommandError {
