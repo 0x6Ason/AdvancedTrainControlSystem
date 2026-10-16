@@ -50,8 +50,13 @@ public final class IndicatorService {
 
     /** Lights or clears every sign according to the journeys; only changed outputs are touched. */
     public void refresh(Collection<JourneySnapshot> journeys, Network network) {
+        refresh(journeys, network, block -> false);
+    }
+
+    /** As {@link #refresh(Collection, Network)}, with the virtual blocks' state for block indicators. */
+    public void refresh(Collection<JourneySnapshot> journeys, Network network, java.util.function.Predicate<String> blockOccupied) {
         for (Map.Entry<BlockPos, Indicator> entry : signs.entrySet()) {
-            boolean active = entry.getValue().active(journeys, network);
+            boolean active = entry.getValue().active(journeys, network, blockOccupied);
             Boolean previous = applied.put(entry.getKey(), active);
             if (previous == null || previous != active) {
                 output.set(entry.getKey(), active);

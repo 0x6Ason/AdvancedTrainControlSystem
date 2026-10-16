@@ -22,6 +22,9 @@ import java.util.Optional;
  * @param match       rules for assigning trains automatically
  * @param spawnSigns  TrainCarts spawn signs whose new trains run this service
  * @param fleet       trains ATCS itself keeps running on the service, or {@code null}
+ * @param speed       the speed limit set on trains running this service, in blocks per tick, or
+ *                    {@code null} to leave trains as they are
+ * @param timetable   minutes past the hour at which trains leave the first stop; empty for none
  */
 public record Service(
         ServiceKey key,
@@ -31,7 +34,12 @@ public record Service(
         @Nullable ServiceKey continuesAs,
         ServiceMatch match,
         List<BlockPos> spawnSigns,
-        @Nullable Fleet fleet) {
+        @Nullable Fleet fleet,
+        @Nullable Double speed,
+        List<Integer> timetable) {
+
+    /** The fastest a service may be told to run, in blocks per tick. */
+    public static final double MAX_SPEED = 20;
 
     public Service {
         Objects.requireNonNull(key, "key");
@@ -42,6 +50,21 @@ public record Service(
         stops = List.copyOf(stops);
         Objects.requireNonNull(match, "match");
         spawnSigns = List.copyOf(spawnSigns);
+        if (speed != null && !(speed > 0 && speed <= MAX_SPEED)) {
+            throw new IllegalArgumentException("Service '" + key + "': speed must be more than 0 and at most " + (int) MAX_SPEED
+                    + " blocks per tick, not " + speed);
+        }
+        timetable = List.copyOf(new java.util.TreeSet<>(timetable));
+        for (int minute : timetable) {
+            if (minute < 0 || minute > 59) {
+                throw new IllegalArgumentException("Service '" + key + "': timetable minutes must be 0 to 59, not " + minute);
+            }
+        }
+    }
+
+    public Service(ServiceKey key, String name, List<Stop> stops, boolean circular,
+                   @Nullable ServiceKey continuesAs, ServiceMatch match, List<BlockPos> spawnSigns, @Nullable Fleet fleet) {
+        this(key, name, stops, circular, continuesAs, match, spawnSigns, fleet, null, List.of());
     }
 
     public Service(ServiceKey key, String name, List<Stop> stops, boolean circular,
@@ -144,30 +167,38 @@ public record Service(
     }
 
     public Service withName(String newName) {
-        return new Service(key, newName, stops, circular, continuesAs, match, spawnSigns, fleet);
+        return new Service(key, newName, stops, circular, continuesAs, match, spawnSigns, fleet, speed, timetable);
     }
 
     public Service withStops(List<Stop> newStops) {
-        return new Service(key, name, newStops, circular, continuesAs, match, spawnSigns, fleet);
+        return new Service(key, name, newStops, circular, continuesAs, match, spawnSigns, fleet, speed, timetable);
     }
 
     public Service withCircular(boolean newCircular) {
-        return new Service(key, name, stops, newCircular, continuesAs, match, spawnSigns, fleet);
+        return new Service(key, name, stops, newCircular, continuesAs, match, spawnSigns, fleet, speed, timetable);
     }
 
     public Service withContinuesAs(@Nullable ServiceKey newContinuesAs) {
-        return new Service(key, name, stops, circular, newContinuesAs, match, spawnSigns, fleet);
+        return new Service(key, name, stops, circular, newContinuesAs, match, spawnSigns, fleet, speed, timetable);
     }
 
     public Service withMatch(ServiceMatch newMatch) {
-        return new Service(key, name, stops, circular, continuesAs, newMatch, spawnSigns, fleet);
+        return new Service(key, name, stops, circular, continuesAs, newMatch, spawnSigns, fleet, speed, timetable);
     }
 
     public Service withSpawnSigns(List<BlockPos> newSpawnSigns) {
-        return new Service(key, name, stops, circular, continuesAs, match, newSpawnSigns, fleet);
+        return new Service(key, name, stops, circular, continuesAs, match, newSpawnSigns, fleet, speed, timetable);
     }
 
     public Service withFleet(@Nullable Fleet newFleet) {
-        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, newFleet);
+        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, newFleet, speed, timetable);
+    }
+
+    public Service withSpeed(@Nullable Double newSpeed) {
+        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, fleet, newSpeed, timetable);
+    }
+
+    public Service withTimetable(List<Integer> newTimetable) {
+        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, fleet, speed, newTimetable);
     }
 }

@@ -3,7 +3,10 @@ package dev.advancedtrains.atcs.operation;
 import dev.advancedtrains.atcs.control.StopOptions;
 import dev.advancedtrains.atcs.control.SwitchRules;
 import dev.advancedtrains.atcs.network.Ids;
+import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.network.ServiceKey;
+
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,7 +32,7 @@ import java.util.Locale;
  */
 public sealed interface AtcsSign {
 
-    String KINDS = "'atcs stop', 'atcs station', 'atcs switch', 'atcs service', 'atcs clear' or 'atcs indicator'";
+    String KINDS = "'atcs stop', 'atcs station', 'atcs switch', 'atcs block', 'atcs speed', 'atcs service', 'atcs clear' or 'atcs indicator'";
 
     record StopSign(String stationId, String platformId) implements AtcsSign {
     }
@@ -50,6 +53,23 @@ public sealed interface AtcsSign {
     }
 
     record IndicatorSign(Indicator indicator) implements AtcsSign {
+    }
+
+    /**
+     * One end of a virtual block: trains wait at the entry sign while another train is between
+     * it and the exit sign.
+     *
+     * @param entry whether this is where trains enter the block (else where they leave it)
+     */
+    record BlockSign(String blockId, boolean entry) implements AtcsSign {
+    }
+
+    /**
+     * Sets the speed limit of passing trains, all of them or those of one line or service.
+     *
+     * @param selector a line id, {@code line/service}, or null for every train
+     */
+    record SpeedSign(double speed, @Nullable String selector) implements AtcsSign {
     }
 
     static AtcsSign parse(String action, String third, String fourth) {
@@ -106,6 +126,42 @@ public sealed interface AtcsSign {
             }
             case "clear", "unassign" -> new ClearSign();
             case "indicator", "lamp" -> new IndicatorSign(Indicator.parse(third, fourth));
+            case "block", "signal" -> {
+                if (argument.isEmpty()) {
+                    throw new IllegalArgumentException("Line 3 must name the block, for example 'tunnel-east'");
+                }
+                String end = extra.toLowerCase(Locale.ROOT);
+                boolean entry = switch (end) {
+                    case "", "enter", "entry", "in", "start", "begin" -> true;
+                    case "exit", "leave", "out", "end", "free", "release" -> false;
+                    default -> throw new IllegalArgumentException("Line 4 must be 'enter' or 'exit' (which end of block '"
+                            + argument + "' this sign is)");
+                };
+                yield new BlockSign(Ids.normalize("block", argument), entry);
+            }
+            case "speed", "limit" -> {
+                if (argument.isEmpty()) {
+                    throw new IllegalArgumentException("Line 3 must give the speed in blocks per tick, for example '0.6'");
+                }
+                double speed;
+                try {
+                    speed = Double.parseDouble(argument);
+                } catch (NumberFormatException exception) {
+                    throw new IllegalArgumentException("'" + argument + "' is not a speed; write blocks per tick, for example '0.6'");
+                }
+                if (!(speed > 0 && speed <= Service.MAX_SPEED)) {
+                    throw new IllegalArgumentException("The speed must be more than 0 and at most " + (int) Service.MAX_SPEED + " blocks per tick");
+                }
+                String selector = extra.isEmpty() || extra.equals("*") ? null : extra.toLowerCase(Locale.ROOT);
+                if (selector != null) {
+                    if (selector.contains("/")) {
+                        ServiceKey.parse(selector);
+                    } else {
+                        Ids.normalize("line", selector);
+                    }
+                }
+                yield new SpeedSign(speed, selector);
+            }
             default -> throw new IllegalArgumentException("Unknown ATCS sign '" + words[1] + "': use " + KINDS);
         };
     }

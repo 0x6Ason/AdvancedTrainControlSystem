@@ -28,7 +28,8 @@ class NetworkCodecTest {
                 new ServiceMatch(List.of("NewVil2Main"), List.of("a-local"), List.of("loc*")));
         Service south = new Service(ServiceKey.parse("a/south"), "Local",
                 List.of(Stop.of("nerdy"), Stop.of("main")), true, ServiceKey.parse("b/x"), ServiceMatch.NONE);
-        Service other = Service.of(ServiceKey.parse("b/x"), "Shuttle", List.of(Stop.of("main"), Stop.of("nerdy")));
+        Service other = Service.of(ServiceKey.parse("b/x"), "Shuttle", List.of(Stop.of("main"), Stop.of("nerdy")))
+                .withSpeed(0.6).withTimetable(List.of(30, 0));
         Network network = Network.builder()
                 .station(main)
                 .station(nerdy)
@@ -64,6 +65,9 @@ class NetworkCodecTest {
         assertEquals(yaml, codec.write(read), "writing is stable");
         assertTrue(yaml.contains("continues-as: south"), "same-line continuation uses the short form");
         assertTrue(yaml.contains("continues-as: b/x"));
+        assertTrue(yaml.contains("speed: 0.6"));
+        assertTrue(yaml.contains("timetable:") && yaml.contains(":30"), "the timetable is written as minutes past the hour");
+        assertEquals(List.of(0, 30), read.service(ServiceKey.parse("b/x")).orElseThrow().timetable());
     }
 
     @Test

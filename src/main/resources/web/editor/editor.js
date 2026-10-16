@@ -816,6 +816,10 @@
         var current = svc['continues-as'] ? (String(svc['continues-as']).indexOf('/') >= 0 ? svc['continues-as'] : lineId + '/' + svc['continues-as']) : '';
         return '<option value="' + esc(e.key) + '"' + (current === e.key ? ' selected' : '') + '>' + esc(lineView(e.line).short + ' ' + (e.service.name || e.id) + ' (' + e.key + ')') + '</option>';
       }).join('') + '</select><small class="hint">At its last stop the train carries on as this service.</small></label>'
+      + field('Speed limit', textInput(base.concat('speed'), svc.speed == null ? '' : svc.speed, { kind: 'number', inputmode: 'decimal', placeholder: 'as the train is' }),
+        { hint: 'Blocks per tick, set on trains when they take up the service. An express can run faster than a local on shared track.' })
+      + field('Timetable', textInput(base.concat('timetable'), (svc.timetable || []).join(' '), { kind: 'list', placeholder: ':00 :30' }),
+        { hint: 'Minutes past the hour trains leave the first stop, at its station sign. Empty: as soon as the dwell is over.' })
       + '</div>'
       + '<div class="field"><span>Shape</span>' + seg('service-circular', [['line', 'End to end'], ['loop', 'A loop']], svc.circular ? 'loop' : 'line', ' data-line="' + esc(lineId) + '" data-service="' + esc(sid) + '"') + '</div>';
 
@@ -1287,7 +1291,7 @@
       case 'optional': return String(raw).trim() === '' ? undefined : String(raw);
       case 'int': { var t = String(raw).trim(); if (t === '') return undefined; var n = parseInt(t, 10); return isNaN(n) ? t : n; }
       case 'number': { var u = String(raw).trim(); if (u === '') return undefined; var m = Number(u.replace(',', '.')); return isNaN(m) ? u : m; }
-      case 'list': { var items = String(raw).split(',').map(function (s) { return s.trim(); }).filter(Boolean); return items.length ? items : undefined; }
+      case 'list': { var items = String(raw).split(/[,\s]+/).map(function (s) { return s.trim(); }).filter(Boolean); return items.length ? items : undefined; }
       case 'color': { var c = String(raw).trim(); if (/^[0-9a-f]{6}$/i.test(c)) c = '#' + c; return /^#[0-9a-f]{6}$/i.test(c) ? c.toUpperCase() : c; }
       case 'bool': return raw ? true : undefined;
       default: return String(raw);

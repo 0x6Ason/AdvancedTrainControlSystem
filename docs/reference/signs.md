@@ -11,11 +11,13 @@ Every ATCS sign is a TrainCarts sign. Line 1 is `[+train]` (always on) or `[trai
 | `atcs switch` (`switcher`, `junction`) | a rule | a rule (more on signs below) | sets the junction it sits on per train, by service, line or next station |
 | `atcs service` (`assign`) | `line/service` |  | assigns passing trains to the service |
 | `atcs clear` (`unassign`) |  |  | removes the assignment of passing trains |
-| `atcs indicator` (`lamp`) | `station` or `station:platform` | mode and filter, see below | drives the levers on its block while trains are at, approaching or past the station |
+| `atcs indicator` (`lamp`) | `station` or `station:platform`, or `block <id>` | mode and filter, see below | drives the levers on its block while trains are at, approaching or past the station, or inside a block |
+| `atcs block` (`signal`) | the block's id | `enter` or `exit` | one train at a time between the entry and exit signs; a train reaching the entry while another is inside waits there |
+| `atcs speed` (`limit`) | blocks per tick, for example `0.6` | a line, `line/service` or nothing | sets the speed limit of passing trains, all or the named line's or service's |
 
 ## Station sign options (line 4)
 
-Any order, every part optional. In the plugin's words: use a dwell time (10s), a direction (continue, reverse, left, right), 'route', an offset (2.5m), a launch distance (30b), a launch speed (0.4v), 'gap <seconds>' or 'block'.
+Any order, every part optional. In the plugin's words: use a dwell time (10s), a direction (continue, reverse, left, right), 'route', an offset (2.5m), a launch distance (30b), a launch speed (0.4v), 'gap <seconds>', 'block', 'even' or 'at :00 :30' (or 'at /15') for departures at fixed minutes.
 
 | Option | Meaning |
 |---|---|
@@ -27,6 +29,8 @@ Any order, every part optional. In the plugin's words: use a dwell time (10s), a
 | `0.4v` | launch at 0.4 blocks per tick instead of TrainCarts' default |
 | `gap 60s` | headway: do not leave until 60 s after the last train of the same line left this platform; `gap 0` switches a configured headway off |
 | `block` / `noblock` | wait until the train that left before has reached its next station, or never |
+| `even` / `noeven` | hold a train that is catching up the one in front so the service's trains spread out, at most `control.even-max-hold-seconds` |
+| `at :00 :30`, `at /15` | leave at these minutes past the hour, or every 15 minutes, by the server's clock |
 
 Which trains stop: the service calls at the station, stop; the service runs through (`~station`) or does not list it, pass; no service, `control.unknown-trains`; the service does not list the station, `control.off-route-trains`.
 
@@ -43,5 +47,6 @@ In the plugin's words: each line is a direction (left, right, continue, north, .
 | `after` (`leaving`, `left`, `from`) | a train has left it and has not reached its next stop |
 | `to <station>` (`towards`) | a train has left it and the other station is its next stop |
 | `between <station>` (`with`) | a train runs between the two stations, in either direction |
+| line 3 `block <id>` | a train is inside the virtual block of that name |
 
 A line id (`5`) or a service (`5/cw`) after the mode counts only those trains.

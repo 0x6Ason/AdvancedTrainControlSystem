@@ -86,6 +86,16 @@ final class TrainCartsTrain implements TrainHandle {
     }
 
     @Override
+    public double speedLimit() {
+        return group.getProperties().getSpeedLimit();
+    }
+
+    @Override
+    public void setSpeedLimit(double blocksPerTick) {
+        group.getProperties().setSpeedLimit(blocksPerTick);
+    }
+
+    @Override
     public boolean hasGeneratedName() {
         return !group.getProperties().isTrainRenamed();
     }

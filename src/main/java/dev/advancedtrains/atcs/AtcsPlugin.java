@@ -369,6 +369,9 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
                 + "; every train keeps chunks loaded: " + onOff(settings.trains().keepChunksLoaded())
                 + "; train naming: " + onOff(settings.trains().rename()));
         lines.add("Indicator signs: " + runtime.indicators().size() + " loaded, " + runtime.indicators().lit() + " lit");
+        if (runtime.blocks().size() > 0 || !runtime.control().manualHolds().isEmpty()) {
+            lines.add("Blocks occupied: " + runtime.blocks().size() + "; trains held by hand: " + runtime.control().manualHolds().size());
+        }
         AtcsSettings.Passenger passenger = settings.passenger();
         lines.add("Passenger information: " + (passenger.enabled() ? "on" : "off")
                 + (passenger.enabled() ? " (boss bar " + onOff(passenger.bossBar()) + ", titles " + onOff(passenger.arrivalTitle())

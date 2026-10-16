@@ -37,7 +37,9 @@ public record Indicator(Mode mode, String stationId, @Nullable String platformId
         /** A train has left the station and its next stop is the other station. */
         TO,
         /** A train runs between the two stations, in either direction. */
-        BETWEEN
+        BETWEEN,
+        /** A train is inside the virtual block named on line 3 ({@code block <id>}). */
+        BLOCK
     }
 
     /**
@@ -49,7 +51,17 @@ public record Indicator(Mode mode, String stationId, @Nullable String platformId
     public static Indicator parse(String third, String fourth) {
         String target = third.strip();
         if (target.isEmpty()) {
-            throw new IllegalArgumentException("Line 3 must name the station to watch, for example 'main' or 'main:2'");
+            throw new IllegalArgumentException("Line 3 must name the station to watch, for example 'main' or 'main:2', or 'block <id>'");
+        }
+        String[] blockWords = target.toLowerCase(Locale.ROOT).split("[\\s:]+", 2);
+        if (blockWords[0].equals("block") || blockWords[0].equals("signal")) {
+            if (blockWords.length < 2 || blockWords[1].isBlank()) {
+                throw new IllegalArgumentException("'block' needs the block's name, for example 'block tunnel-east'");
+            }
+            if (!fourth.strip().isEmpty()) {
+                throw new IllegalArgumentException("A block indicator takes nothing on line 4");
+            }
+            return new Indicator(Mode.BLOCK, Ids.normalize("block", blockWords[1].strip()), null, null, null, null);
         }
         int colon = target.indexOf(':');
         String station = Ids.normalize("station", colon < 0 ? target : target.substring(0, colon));
@@ -105,8 +117,19 @@ public record Indicator(Mode mode, String stationId, @Nullable String platformId
         };
     }
 
+    /** Whether any of these journeys, or the block state, lights the indicator. */
+    public boolean active(Collection<JourneySnapshot> journeys, Network network, java.util.function.Predicate<String> blockOccupied) {
+        if (mode == Mode.BLOCK) {
+            return blockOccupied.test(stationId);
+        }
+        return active(journeys, network);
+    }
+
     /** Whether any of these journeys lights the indicator. */
     public boolean active(Collection<JourneySnapshot> journeys, Network network) {
+        if (mode == Mode.BLOCK) {
+            return false;
+        }
         for (JourneySnapshot journey : journeys) {
             if (matches(journey, network)) {
                 return true;
@@ -120,6 +143,7 @@ public record Indicator(Mode mode, String stationId, @Nullable String platformId
             return false;
         }
         return switch (mode) {
+            case BLOCK -> false;
             case AT -> journey.platform() != null && covers(journey.platform());
             case AFTER -> (journey.phase() == JourneyPhase.IN_TRANSIT || journey.phase() == JourneyPhase.COMPLETED)
                     && journey.lastPlatform() != null && covers(journey.lastPlatform());
@@ -179,6 +203,9 @@ public record Indicator(Mode mode, String stationId, @Nullable String platformId
 
     /** A sentence for the sign builder, for example "lights while a train stands at Main St. platform 2". */
     public String describe(Network network) {
+        if (mode == Mode.BLOCK) {
+            return "lights while a train is inside block " + stationId;
+        }
         String where = network.stationName(stationId) + (platformId == null ? "" : " platform " + platformId);
         String other = otherStationId == null ? "" : network.stationName(otherStationId);
         String what = switch (mode) {
@@ -187,6 +214,7 @@ public record Indicator(Mode mode, String stationId, @Nullable String platformId
             case AFTER -> "lights while a train runs from " + where + " to its next stop";
             case TO -> "lights while a train runs from " + where + " to " + other;
             case BETWEEN -> "lights while a train runs between " + where + " and " + other;
+            case BLOCK -> "lights while a train is inside block " + stationId;
         };
         String only = service != null ? " (" + service + " only)" : lineId != null ? " (line " + lineId + " only)" : "";
         return what + only;

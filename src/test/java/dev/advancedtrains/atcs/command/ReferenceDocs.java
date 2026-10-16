@@ -106,8 +106,12 @@ public final class ReferenceDocs {
                         "sets the junction it sits on per train, by service, line or next station"},
                 new String[] {"atcs service` (`assign`)", "`line/service`", "", "assigns passing trains to the service"},
                 new String[] {"atcs clear` (`unassign`)", "", "", "removes the assignment of passing trains"},
-                new String[] {"atcs indicator` (`lamp`)", "`station` or `station:platform`", "mode and filter, see below",
-                        "drives the levers on its block while trains are at, approaching or past the station"});
+                new String[] {"atcs indicator` (`lamp`)", "`station` or `station:platform`, or `block <id>`", "mode and filter, see below",
+                        "drives the levers on its block while trains are at, approaching or past the station, or inside a block"},
+                new String[] {"atcs block` (`signal`)", "the block's id", "`enter` or `exit`",
+                        "one train at a time between the entry and exit signs; a train reaching the entry while another is inside waits there"},
+                new String[] {"atcs speed` (`limit`)", "blocks per tick, for example `0.6`", "a line, `line/service` or nothing",
+                        "sets the speed limit of passing trains, all or the named line's or service's"});
         for (String[] kind : kinds) {
             text.append("| `").append(kind[0]).append(" | ").append(kind[1]).append(" | ").append(kind[2])
                     .append(" | ").append(kind[3]).append(" |\n");
@@ -122,7 +126,9 @@ public final class ReferenceDocs {
         text.append("| `30b` | launch the train over 30 blocks |\n");
         text.append("| `0.4v` | launch at 0.4 blocks per tick instead of TrainCarts' default |\n");
         text.append("| `gap 60s` | headway: do not leave until 60 s after the last train of the same line left this platform; `gap 0` switches a configured headway off |\n");
-        text.append("| `block` / `noblock` | wait until the train that left before has reached its next station, or never |\n\n");
+        text.append("| `block` / `noblock` | wait until the train that left before has reached its next station, or never |\n");
+        text.append("| `even` / `noeven` | hold a train that is catching up the one in front so the service's trains spread out, at most `control.even-max-hold-seconds` |\n");
+        text.append("| `at :00 :30`, `at /15` | leave at these minutes past the hour, or every 15 minutes, by the server's clock |\n\n");
         text.append("Which trains stop: the service calls at the station, stop; the service runs through (`~station`) or does not list it, pass; ");
         text.append("no service, `control.unknown-trains`; the service does not list the station, `control.off-route-trains`.\n\n");
         text.append("## Switch sign rules (lines 3, 4 and signs below)\n\n");
@@ -135,7 +141,8 @@ public final class ReferenceDocs {
         text.append("| `approach` (`approaching`, `arriving`) | a train has been announced as approaching it |\n");
         text.append("| `after` (`leaving`, `left`, `from`) | a train has left it and has not reached its next stop |\n");
         text.append("| `to <station>` (`towards`) | a train has left it and the other station is its next stop |\n");
-        text.append("| `between <station>` (`with`) | a train runs between the two stations, in either direction |\n\n");
+        text.append("| `between <station>` (`with`) | a train runs between the two stations, in either direction |\n");
+        text.append("| line 3 `block <id>` | a train is inside the virtual block of that name |\n\n");
         text.append("A line id (`5`) or a service (`5/cw`) after the mode counts only those trains.\n");
         return text.toString();
     }

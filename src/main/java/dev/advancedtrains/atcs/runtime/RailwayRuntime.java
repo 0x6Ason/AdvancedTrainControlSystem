@@ -6,6 +6,7 @@ import dev.advancedtrains.atcs.board.SignLinkPublisher;
 import dev.advancedtrains.atcs.config.AtcsSettings;
 import dev.advancedtrains.atcs.config.Messages;
 import dev.advancedtrains.atcs.control.Heading;
+import dev.advancedtrains.atcs.control.BlockControl;
 import dev.advancedtrains.atcs.control.StationControl;
 import dev.advancedtrains.atcs.control.StopOptions;
 import dev.advancedtrains.atcs.control.SwitchRules;
@@ -115,6 +116,30 @@ public final class RailwayRuntime {
     private int tick;
     private final JourneyTracker tracker = new JourneyTracker();
     private final StationControl control = new StationControl();
+    private final BlockControl blocks = new BlockControl();
+    /** How far other trains are, for station control: the plain estimator, so a standing train's own wait is not counted. */
+    private final StationControl.Lookahead lookahead = new StationControl.Lookahead() {
+        @Override
+        public OptionalDouble untilNextStation(JourneySnapshot journey) {
+            return RailwayRuntime.this.untilNextStation(journey, clock.instant());
+        }
+
+        @Override
+        public OptionalDouble untilArrivalAt(JourneySnapshot journey, PlatformRef platform) {
+            Service service = journey.service() == null ? null : store.network().service(journey.service()).orElse(null);
+            if (service == null) {
+                return OptionalDouble.empty();
+            }
+            int target = Departures.targetIndex(journey, service, platform.stationId());
+            if (target < 0) {
+                return OptionalDouble.empty();
+            }
+            if (journey.phase() == JourneyPhase.AT_STOP && journey.lastIndex() == target) {
+                return OptionalDouble.of(0);
+            }
+            return eta.secondsUntil(journey, service, target, clock.instant());
+        }
+    };
     /** The hold reason last logged per train, so debug output shows changes only. */
     private final Map<String, String> holdReasons = new HashMap<>();
     /** Where each loaded train is and how fast it moves, refreshed every second. */
@@ -145,7 +170,7 @@ public final class RailwayRuntime {
 
         @Override
         public OptionalDouble remainingStop(String trainId, Instant now) {
-            return control.remainingStop(trainId, tracker.snapshots(), now, other -> untilNextStation(other, now));
+            return control.remainingStop(trainId, tracker.snapshots(), now, lookahead);
         }
 
         @Override
@@ -558,14 +583,115 @@ public final class RailwayRuntime {
             return null;
         }
         StationControl.Plan plan = StationControl.Plan.of(options, rules.rules());
+        if (!plan.hasTimetable()) {
+            // A service's own timetable applies where its trains start.
+            JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+            Service service = journey == null || journey.service() == null ? null : store.network().service(journey.service()).orElse(null);
+            if (service != null && !service.timetable().isEmpty() && journey.lastIndex() == 0) {
+                plan = plan.withDepartureMinutes(service.timetable());
+            }
+        }
         control.standing(train.name(), platform, plan, clock.instant());
         estimates = null;
         return plan;
     }
 
+    /** Whether a dispatcher holds the train, in which case its hold never times out. */
+    public boolean heldByHand(TrainHandle train) {
+        return control.manualHold(train.name()).isPresent();
+    }
+
+    /** Keeps the train at its current or next station sign until released. */
+    public void holdByHand(TrainHandle train, String reason) {
+        control.holdByHand(train.name(), reason);
+        estimates = null;
+        eventLog.hold(train.name(), control.standingAt(train.name()).map(StationControl.Standing::platform)
+                .orElse(new PlatformRef("dispatcher", "hold")), "held by the dispatcher: " + reason, clock.instant());
+    }
+
+    public boolean releaseByHand(TrainHandle train) {
+        boolean released = control.releaseByHand(train.name());
+        estimates = null;
+        return released;
+    }
+
+    // ---------------------------------------------------------------- blocks and speed
+
+    /** A train reached a block's entry sign: the train inside, or empty when the block is now the train's. */
+    public Optional<String> blockEnter(TrainHandle train, String blockId) {
+        Instant now = clock.instant();
+        Optional<String> inside = blocks.tryEnter(blockId, train.name(), now);
+        eventLog.block(train.name(), blockId, inside.isPresent() ? "wait" : "enter", inside.orElse(null), now);
+        if (debug) {
+            logger.info("[debug] " + train.name() + (inside.isPresent() ? " waits at block " + blockId + " for " + inside.get()
+                    : " enters block " + blockId));
+        }
+        return inside;
+    }
+
+    /** Asked while a train waits at an entry sign: the reason it still waits, or empty once the block is its. */
+    public Optional<String> blockHoldReason(TrainHandle train, String blockId) {
+        Instant now = clock.instant();
+        Optional<String> inside = blocks.tryEnter(blockId, train.name(), now);
+        if (inside.isEmpty()) {
+            eventLog.block(train.name(), blockId, "enter", null, now);
+            if (debug) {
+                logger.info("[debug] " + train.name() + " enters block " + blockId + " after waiting");
+            }
+            return Optional.empty();
+        }
+        return Optional.of("block " + blockId + " is occupied by " + inside.get());
+    }
+
+    public void blockExit(TrainHandle train, String blockId) {
+        if (blocks.exit(blockId, train.name())) {
+            eventLog.block(train.name(), blockId, "exit", null, clock.instant());
+            if (debug) {
+                logger.info("[debug] " + train.name() + " leaves block " + blockId);
+            }
+        }
+    }
+
+    public double blockHoldLimitSeconds() {
+        return settings.control().rules().maxHoldSeconds();
+    }
+
+    public void blockHeldTooLong(TrainHandle train, String blockId, String reason) {
+        blocks.force(blockId, train.name(), clock.instant());
+        eventLog.block(train.name(), blockId, "forced", reason, clock.instant());
+        logger.warning(train.name() + " waited at block " + blockId + " for " + Math.round(blockHoldLimitSeconds())
+                + " s (" + reason + ") and is let in; check the train inside or lower control.max-hold-seconds");
+    }
+
+    public BlockControl blocks() {
+        return blocks;
+    }
+
+    /** An {@code atcs speed} sign: sets the limit of the train when the selector names its line or service. */
+    public void applySpeedSign(TrainHandle train, double speed, @Nullable String selector) {
+        if (selector != null) {
+            JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+            ServiceKey key = journey == null ? null : journey.service();
+            if (key == null) {
+                key = ServiceResolver.resolve(train.info(), store.network()).orElse(null);
+            }
+            boolean matches = key != null && (selector.contains("/") ? selector.equals(key.toString()) : selector.equals(key.lineId()));
+            if (!matches) {
+                return;
+            }
+        }
+        if (Math.abs(train.speedLimit() - speed) > 1e-6) {
+            train.setSpeedLimit(speed);
+            if (debug) {
+                logger.info("[debug] " + train.name() + " speed limit set to " + speed + " by a speed sign");
+            }
+        }
+    }
+
     /** Why a train standing at a station sign must keep standing, or empty when it may leave. */
     public Optional<String> holdReason(TrainHandle train, PlatformRef platform, StationControl.Plan plan) {
-        Optional<String> reason = control.holdReason(train.name(), platform, tracker.snapshots(), store.network(), plan, clock.instant());
+        Optional<String> reason = control.holdReason(train.name(), platform, tracker.snapshots(), store.network(), plan,
+                clock.instant(), lookahead);
         String previous = holdReasons.put(train.name(), reason.orElse(""));
         if (!reason.orElse("").equals(previous)) {
             eventLog.hold(train.name(), platform, reason.orElse(null), clock.instant());
@@ -735,12 +861,16 @@ public final class RailwayRuntime {
         tracker.forget(name);
         samples.forget(name);
         control.left(name);
+        control.releaseByHand(name);
+        for (String freed : blocks.left(name)) {
+            eventLog.block(name, freed, "exit", "train removed", clock.instant());
+        }
         trainStates.remove(name);
         holdReasons.remove(name);
         paths.forget(name);
         display.remove(name);
         recorder.trainRemoved(name);
-        indicators.refresh(tracker.snapshots(), store.network());
+        indicators.refresh(tracker.snapshots(), store.network(), block -> blocks.occupied(block, clock.instant()));
     }
 
     public void trainUnloaded(String name) {
@@ -1005,6 +1135,14 @@ public final class RailwayRuntime {
             }
             estimates = null;
             if (event instanceof JourneyEvent.ServiceChanged changed && changed.to() != null) {
+                network.service(changed.to()).map(Service::speed).ifPresent(speed -> {
+                    if (Math.abs(train.speedLimit() - speed) > 1e-6) {
+                        train.setSpeedLimit(speed);
+                        if (debug) {
+                            logger.info("[debug] " + train.name() + " speed limit set to " + speed + " for " + changed.to());
+                        }
+                    }
+                });
                 Set<String> tags = train.info().tags();
                 Optional<ServiceKey> tagged = ServiceResolver.taggedService(tags);
                 if (tagged.isPresent() && !tagged.get().equals(changed.to())) {
@@ -1017,7 +1155,7 @@ public final class RailwayRuntime {
         if (settings.control().setDestinations()) {
             updateDestination(train, network);
         }
-        indicators.refresh(tracker.snapshots(), network);
+        indicators.refresh(tracker.snapshots(), network, block -> blocks.occupied(block, clock.instant()));
         TrainView view = view(train.name()).orElse(null);
         List<Player> riders = train.riders();
         if (riders.isEmpty()) {
@@ -1127,7 +1265,7 @@ public final class RailwayRuntime {
     private void refreshPassengers() {
         Network network = store.network();
         observeTrains(network);
-        indicators.refresh(tracker.snapshots(), network);
+        indicators.refresh(tracker.snapshots(), network, block -> blocks.occupied(block, clock.instant()));
         Set<String> loaded = new HashSet<>();
         for (TrainHandle train : trains.loadedTrains()) {
             loaded.add(train.name());

@@ -119,7 +119,7 @@ public final class Departures {
     }
 
     /** The next calling stop at the station from the train's current position, or -1. */
-    static int targetIndex(JourneySnapshot journey, Service service, String stationId) {
+    public static int targetIndex(JourneySnapshot journey, Service service, String stationId) {
         int last = journey.lastIndex() < service.size() ? journey.lastIndex() : -1;
         if (journey.phase() == JourneyPhase.AT_STOP && last >= 0
                 && service.stop(last).stationId().equals(stationId)) {

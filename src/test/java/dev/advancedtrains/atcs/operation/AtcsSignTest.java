@@ -45,6 +45,26 @@ class AtcsSignTest {
     }
 
     @Test
+    void parsesBlockAndSpeedSigns() {
+        assertEquals(new AtcsSign.BlockSign("tunnel-east", true), AtcsSign.parse("atcs block", "Tunnel-East", ""));
+        assertEquals(new AtcsSign.BlockSign("tunnel-east", true), AtcsSign.parse("atcs block", "tunnel-east", "enter"));
+        assertEquals(new AtcsSign.BlockSign("tunnel-east", false), AtcsSign.parse("atcs block", "tunnel-east", "exit"));
+        assertThrows(IllegalArgumentException.class, () -> AtcsSign.parse("atcs block", "", ""));
+        assertThrows(IllegalArgumentException.class, () -> AtcsSign.parse("atcs block", "tunnel", "sideways"));
+        assertEquals(new AtcsSign.SpeedSign(0.6, null), AtcsSign.parse("atcs speed", "0.6", ""));
+        assertEquals(new AtcsSign.SpeedSign(0.6, null), AtcsSign.parse("atcs speed", "0.6", "*"));
+        assertEquals(new AtcsSign.SpeedSign(1.2, "a/express"), AtcsSign.parse("atcs speed", "1.2", "A/Express"));
+        assertEquals(new AtcsSign.SpeedSign(0.4, "1"), AtcsSign.parse("atcs limit", "0.4", "1"));
+        assertThrows(IllegalArgumentException.class, () -> AtcsSign.parse("atcs speed", "fast", ""));
+        assertThrows(IllegalArgumentException.class, () -> AtcsSign.parse("atcs speed", "0", ""));
+        assertThrows(IllegalArgumentException.class, () -> AtcsSign.parse("atcs speed", "99", ""));
+        Indicator block = ((AtcsSign.IndicatorSign) AtcsSign.parse("atcs indicator", "block tunnel-east", "")).indicator();
+        assertEquals(Indicator.Mode.BLOCK, block.mode());
+        assertEquals("tunnel-east", block.stationId());
+        assertThrows(IllegalArgumentException.class, () -> AtcsSign.parse("atcs indicator", "block", ""));
+    }
+
+    @Test
     void rejectsBadTextWithReadableMessages() {
         IllegalArgumentException missing = assertThrows(IllegalArgumentException.class,
                 () -> AtcsSign.parse("atcs stop", "", ""));

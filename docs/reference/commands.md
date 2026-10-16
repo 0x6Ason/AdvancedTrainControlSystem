@@ -110,6 +110,8 @@ Trains and their services.
 | `/atcs train assign <line/service> [train]` | `atcs.manage` | Run a train as a service |
 | `/atcs train unassign [train]` | `atcs.manage` | Take a train out of service and off automatic assignment |
 | `/atcs train auto [train]` | `atcs.manage` | Let spawn signs, match rules and its route assign a train again |
+| `/atcs train hold <train> [reason...]` | `atcs.manage` | Keep a train at its current or next station sign until released |
+| `/atcs train release <train>` | `atcs.manage` | Let a held train go |
 
 ## /atcs transfer
 

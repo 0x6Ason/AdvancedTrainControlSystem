@@ -47,6 +47,23 @@ class StopOptionsTest {
     }
 
     @Test
+    void readsSpacingAndTimetableWords() {
+        StopOptions options = StopOptions.parse("even at :00 :30");
+        assertEquals(Boolean.TRUE, options.evenSpacing());
+        assertEquals(java.util.List.of(0, 30), options.departureMinutes());
+        assertTrue(options.hasTimetable());
+        assertEquals(Boolean.FALSE, StopOptions.parse("noeven").evenSpacing());
+        assertNull(StopOptions.parse("10s").evenSpacing());
+        assertEquals(java.util.List.of(0, 20, 40), StopOptions.parse("at /20 reverse").departureMinutes());
+        assertEquals(java.util.List.of(5, 35), StopOptions.parse("at :35 :05 10s").departureMinutes(), "sorted, and the dwell still reads");
+        assertEquals(10, StopOptions.parse("at :35 :05 10s").dwellSeconds());
+        assertThrows(IllegalArgumentException.class, () -> StopOptions.parse("at"));
+        assertThrows(IllegalArgumentException.class, () -> StopOptions.parse("at :75"));
+        assertThrows(IllegalArgumentException.class, () -> StopOptions.parse("at /0"));
+        assertTrue(StopOptions.parse("even at :00").describe().contains("depart at :00 past the hour"));
+    }
+
+    @Test
     void rejectsWhatItCannotRead() {
         assertThrows(IllegalArgumentException.class, () -> StopOptions.parse("sideways"));
         assertThrows(IllegalArgumentException.class, () -> StopOptions.parse("10 20"));

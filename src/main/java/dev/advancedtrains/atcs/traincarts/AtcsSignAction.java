@@ -80,6 +80,8 @@ public final class AtcsSignAction extends SignAction {
             case AtcsSign.SwitchSign switcher -> switchRails(info, switcher, train, entering);
             case AtcsSign.ServiceSign service when entering && info.isPowered() -> runtime.assign(train, service.service());
             case AtcsSign.ClearSign ignored when entering && info.isPowered() -> runtime.unassign(train, true);
+            case AtcsSign.BlockSign block -> block(info, block, train, entering);
+            case AtcsSign.SpeedSign speed when entering && info.isPowered() -> runtime.applySpeedSign(train, speed.speed(), speed.selector());
             default -> {
             }
         }
@@ -129,7 +131,7 @@ public final class AtcsSignAction extends SignAction {
         Station station = new Station(info, config);
         ActionTrackerGroup actions = group.getActions();
         actions.launchReset();
-        boolean stopHere = station.hasDelay() || plan.mayHold();
+        boolean stopHere = station.hasDelay() || plan.mayHold() || runtime.heldByHand(train);
         if (station.isAutoRouting()) {
             if (stopHere) {
                 station.centerTrain();
@@ -152,12 +154,53 @@ public final class AtcsSignAction extends SignAction {
 
     private void hold(ActionTrackerGroup actions, TrainCartsTrain train, PlatformRef platform,
                       StationControl.Plan plan, String tag) {
-        if (!plan.mayHold()) {
+        if (!plan.mayHold() && !runtime.heldByHand(train)) {
             return;
         }
         HoldAction hold = new HoldAction(() -> runtime.holdReason(train, platform, plan),
-                (int) Math.round(plan.maxHoldSeconds() * 20), reason -> runtime.heldTooLong(train, platform, reason));
+                (int) Math.round(plan.holdLimitSeconds() * 20), reason -> runtime.heldTooLong(train, platform, reason),
+                () -> !runtime.heldByHand(train));
         actions.addAction(hold).addTag(tag);
+    }
+
+    /**
+     * A block sign: at the entry, a train takes the block or waits on the sign until the train
+     * inside has passed the exit; at the exit, it frees the block.
+     */
+    private void block(SignActionEvent info, AtcsSign.BlockSign sign, TrainCartsTrain train, boolean entering) {
+        if (!sign.entry()) {
+            if (entering) {
+                runtime.blockExit(train, sign.blockId());
+            }
+            return;
+        }
+        if (!entering) {
+            info.setLevers(false);
+            return;
+        }
+        if (!info.isPowered() || !info.hasRails() || !info.hasMember()) {
+            return;
+        }
+        Optional<String> inside = runtime.blockEnter(train, sign.blockId());
+        info.setLevers(inside.isPresent());
+        if (inside.isEmpty()) {
+            return;
+        }
+        Station.StationConfig config = new Station.StationConfig();
+        config.setInstruction(BlockFace.SELF);
+        config.setDelay(0);
+        config.setNextDirection(Direction.CONTINUE);
+        Station station = new Station(info, config);
+        MinecartGroup group = info.getGroup();
+        ActionTrackerGroup actions = group.getActions();
+        actions.launchReset();
+        station.centerTrain();
+        station.waitTrainKeepLeversDown(0);
+        HoldAction hold = new HoldAction(() -> runtime.blockHoldReason(train, sign.blockId()),
+                (int) Math.round(runtime.blockHoldLimitSeconds() * 20), reason -> runtime.blockHeldTooLong(train, sign.blockId(), reason),
+                () -> true);
+        actions.addAction(hold).addTag(station.getTag());
+        station.launchTo(station.getNextDirectionFace());
     }
 
     /** A switch sign: sets the junction for the direction the train's service needs. */
@@ -241,11 +284,19 @@ public final class AtcsSignAction extends SignAction {
             }
             case AtcsSign.ClearSign ignored ->
                     options.setName("ATCS clear").setDescription("remove the ATCS service assignment of trains");
+            case AtcsSign.BlockSign block -> options.setName("ATCS block").setDescription(block.entry()
+                    ? "hold trains here while another train is inside block " + block.blockId() + " (until it passes the exit sign)"
+                    : "free block " + block.blockId() + " when a train passes");
+            case AtcsSign.SpeedSign speed -> options.setName("ATCS speed").setDescription("set the speed limit of "
+                    + (speed.selector() == null ? "every passing train" : "passing " + speed.selector() + " trains")
+                    + " to " + speed.speed() + " blocks per tick");
             case AtcsSign.IndicatorSign indicator -> {
                 Indicator rule = indicator.indicator();
                 options.setName("ATCS indicator").setDescription(rule.describe(network)
                         + ". Attach a lever to the block behind the sign");
-                if (network.station(rule.stationId()).isEmpty()) {
+                if (rule.mode() == Indicator.Mode.BLOCK) {
+                    // Nothing to check: the block exists once its signs do.
+                } else if (network.station(rule.stationId()).isEmpty()) {
                     warn(event, "Station '" + rule.stationId() + "' does not exist yet; create it with /atcs station create");
                 } else if (rule.platformId() != null
                         && network.station(rule.stationId()).orElseThrow().platform(rule.platformId()).isEmpty()) {

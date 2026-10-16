@@ -411,6 +411,30 @@ public final class NetworkCodec {
                     throw new IllegalArgumentException("fleet: " + exception.getMessage(), exception);
                 }
             }
+            Double speed = null;
+            if (node.isSet("speed")) {
+                if (!node.isDouble("speed") && !node.isInt("speed")) {
+                    throw new IllegalArgumentException("speed must be a number of blocks per tick, for example 0.6");
+                }
+                speed = node.getDouble("speed");
+            }
+            List<Integer> timetable = new ArrayList<>();
+            if (node.isSet("timetable")) {
+                if (!node.isList("timetable")) {
+                    throw new IllegalArgumentException("timetable must be a list of minutes past the hour, for example [':00', ':30']");
+                }
+                for (Object raw : node.getList("timetable", List.of())) {
+                    String text = String.valueOf(raw).strip();
+                    if (text.startsWith(":")) {
+                        text = text.substring(1);
+                    }
+                    try {
+                        timetable.add(Integer.parseInt(text));
+                    } catch (NumberFormatException exception) {
+                        throw new IllegalArgumentException("timetable: '" + raw + "' is not a minute past the hour (write :00, :15, :30)");
+                    }
+                }
+            }
             return new Service(
                     serviceKey,
                     node.getString("name", key),
@@ -419,7 +443,9 @@ public final class NetworkCodec {
                     continuation,
                     serviceMatch,
                     positions(node, "spawn-signs", path + ".spawn-signs", errors),
-                    fleet);
+                    fleet,
+                    speed,
+                    timetable);
         } catch (IllegalArgumentException exception) {
             errors.add(path + ": " + exception.getMessage());
             return null;
@@ -635,6 +661,13 @@ public final class NetworkCodec {
                 }
                 if (!service.spawnSigns().isEmpty()) {
                     serviceNode.set("spawn-signs", service.spawnSigns().stream().map(BlockPos::format).toList());
+                }
+                if (service.speed() != null) {
+                    serviceNode.set("speed", service.speed());
+                }
+                if (!service.timetable().isEmpty()) {
+                    serviceNode.set("timetable", service.timetable().stream()
+                            .map(minute -> ":" + (minute < 10 ? "0" : "") + minute).toList());
                 }
                 if (service.fleet() != null) {
                     Fleet fleet = service.fleet();

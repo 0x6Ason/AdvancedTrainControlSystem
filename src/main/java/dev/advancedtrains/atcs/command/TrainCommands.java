@@ -50,6 +50,22 @@ final class TrainCommands {
                     TrainHandle train = support.train(context, 0);
                     support.runtime.unassign(train, false);
                     Chat.success(context.sender(), "Train " + train.name() + " is assigned automatically again");
+                }, trains),
+                leaf("hold", MANAGE, "<train> [reason...]", "Keep a train at its current or next station sign until released", context -> {
+                    TrainHandle train = support.train(context, 0);
+                    String reason = context.restOr(1, "");
+                    support.runtime.holdByHand(train, reason);
+                    Chat.success(context.sender(), "Train " + train.name() + " is held at its "
+                            + (support.runtime.control().standingAt(train.name()).isPresent() ? "platform" : "next station sign")
+                            + (reason.isEmpty() ? "" : " (" + reason + ")") + " until /atcs train release " + train.name());
+                }, trains),
+                leaf("release", MANAGE, "<train>", "Let a held train go", context -> {
+                    TrainHandle train = support.train(context, 0);
+                    if (support.runtime.releaseByHand(train)) {
+                        Chat.success(context.sender(), "Train " + train.name() + " may go");
+                    } else {
+                        Chat.info(context.sender(), "Train " + train.name() + " was not held by hand");
+                    }
                 }, trains));
     }
 

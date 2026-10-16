@@ -45,6 +45,12 @@ TrainCarts server, configured with files and in-game commands.
   `atcs station` signs, keeping their delay, direction, `route`, offset, launch distance and speed,
   and leaves every other sign (refill stops, test stations) alone. Without `confirm` it only lists
   what it would change.
+- Control: `even` on a station sign (or `control.even-spacing`) holds a train that is catching
+  up the one in front so a service's trains spread out instead of bunching; `at :00 :30` or
+  `at /15` on a sign, or a service's `timetable:`, makes trains leave at fixed minutes past the
+  hour; `atcs block` sign pairs let one train at a time through any stretch of track, with
+  `block <id>` indicators; `atcs speed` signs and a service's `speed:` set speed limits so an
+  express runs faster than a local on shared track; a dispatcher can hold and release trains.
 - The web editor (`integrations.editor`, off by default; `/atcs editor` prints a one-time link):
   stations and platforms, lines, services with their stops drawn as the line, boards, walking
   transfers, fares, diagram adjustments and the configuration files, beside the website's diagram

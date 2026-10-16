@@ -159,13 +159,18 @@ estimate) and drive the boss-bar and board arrival times.
 <!-- --8<-- [start:signs] -->
 ## Signs
 
-ATCS adds six TrainCarts sign types. Building them needs `atcs.sign.build`.
+ATCS adds eight TrainCarts sign types. Building them needs `atcs.sign.build`.
 
 ```
 [+train]        [+train]          [+train]      [+train]         [+train]        [+train]
 atcs stop       atcs service      atcs clear    atcs indicator   atcs station    atcs switch
 main            a/north                         main:2           main:2          left a/express
 2                                               approach a       10s continue    right *
+
+[+train]        [+train]
+atcs block      atcs speed
+tunnel-east     0.6
+enter           a/express
 ```
 
 - `atcs stop` marks platform 2 of `main` (platform defaults to 1) without binding a sign in network.yml.
@@ -178,6 +183,11 @@ main            a/north                         main:2           main:2         
 - `atcs clear` removes the assignment.
 - `atcs indicator` turns the levers on the block behind the sign on and off with the trains, for
   platform lamps, track diagrams or barriers, anywhere in the world and without any track wiring.
+- `atcs block` signs come in pairs, `enter` and `exit`, and let one train at a time through the
+  track between them. See [Block signs](#block-signs).
+- `atcs speed` sets the speed limit of the trains that pass it, all of them or one line's or
+  service's, so an express runs faster than a local on shared track. A service can also carry a
+  `speed` in `network.yml`, set on its trains when they take it up.
 
 ### Station signs
 
@@ -194,6 +204,8 @@ left out). Line 4 says how a stopping train is handled; every part is optional, 
 | `30b` | launch the train over 30 blocks |
 | `gap 60s` | headway: do not leave until 60 s after the last train of the same line left this platform |
 | `block` / `noblock` | wait until the train that left before has reached its next station, or never |
+| `even` / `noeven` | hold a train that is catching up the one in front, so the trains of a service spread out evenly |
+| `at :00 :30`, `at /15` | leave at these minutes past the hour (or every 15 minutes), by the server's clock |
 
 Which trains stop is decided per train, from the service ATCS knows it runs:
 
@@ -223,6 +235,14 @@ platform sign), and with `gap` until the headway has passed. `control.headway-se
 case, with a warning in the console, so a train ATCS lost sight of can never block a platform for
 good. `/train status` on a held train shows why it waits.
 
+`even` is for loop lines and any service with several trains: a train that arrives soon after
+the one in front left, with the next one far behind, waits at the platform for up to half the
+difference (never more than `control.even-max-hold-seconds`), so the gaps come out equal instead
+of the trains bunching. `control.even-spacing: true` turns it on for every station sign. `at`
+makes a timetable: the train leaves at the next listed minute after its dwell, and boards count
+down to it. A service's `timetable: [':00', ':30']` in `network.yml` does the same at its first
+stop. `/atcs train hold` and `release` keep a train at its next station sign by hand.
+
 ### Switch signs
 
 An `atcs switch` sign sits at a junction like a TrainCarts `switcher` sign. Lines 3 and 4, and the
@@ -249,6 +269,25 @@ networks, `control.set-destinations: true` keeps every train's TrainCarts destin
 calling stop (every station sign registers itself as the destination `station:platform`), so
 TrainCarts' own `switcher` signs and `route` stations find the way by path-finding.
 
+### Block signs
+
+Two signs protect any stretch of track, not only platform to platform: trains pass the `enter`
+sign one at a time and free the block at the `exit` sign.
+
+```
+[+train]        [+train]
+atcs block      atcs block
+tunnel-east     tunnel-east
+enter           exit
+```
+
+A train that reaches the entry while another is inside stops on the sign and waits; the moment the
+train inside passes the exit it sets off again. A block a train never left (it was destroyed in
+the block, say) is believed for fifteen minutes and a waiting train is let in after
+`control.max-hold-seconds` with a warning, so nothing can close a line for good. Put the exit sign
+where the next train may safely enter: at the far end of a single-track section, a tunnel or a
+level crossing. An indicator with `block tunnel-east` on line 3 lights while the block is taken.
+
 ### Indicator signs
 
 Line 3 names what to watch: a station (`main`) or one platform (`main:2`). Line 4 says when the
@@ -261,6 +300,7 @@ levers go on, and optionally for which trains:
 | `after` | a train has left it and has not reached its next stop |
 | `to <station>` | a train has left it and the other station is its next stop |
 | `between <station>` | a train runs between the two stations, in either direction |
+| line 3 `block <id>` | a train is inside the virtual block (see [Block signs](#block-signs)) |
 
 Add a line or service to count only its trains: `at 5`, `approach a/north`, `after 5/cw`. For a
 track diagram, give every station an `at` sign and every stretch of track a `to` sign (one per

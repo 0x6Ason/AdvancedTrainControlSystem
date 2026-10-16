@@ -117,6 +117,16 @@ public final class EventLog {
                 .append(reason == null ? "" : ",\"reason\":" + quote(reason)).append('}').toString());
     }
 
+    /** A train took, waited for, was let into or left a virtual block. */
+    public void block(String trainId, String blockId, String what, @Nullable String detail, Instant at) {
+        if (!enabled) {
+            return;
+        }
+        append(start(at, "block-" + what).append(",\"train\":").append(quote(trainId))
+                .append(",\"block\":").append(quote(blockId))
+                .append(detail == null ? "" : ",\"detail\":" + quote(detail)).append('}').toString());
+    }
+
     /** Flushes and closes the file; queued lines written first. Call before the executor shuts down. */
     public void close() {
         executor.execute(() -> {

@@ -43,6 +43,11 @@ public interface TrainHandle {
 
     boolean keepsChunksLoaded();
 
+    /** The train's speed limit, in blocks per tick. */
+    double speedLimit();
+
+    void setSpeedLimit(double blocksPerTick);
+
     /** Switches TrainCarts' keep-chunks-loaded on or off for the train. */
     void keepChunksLoaded(boolean keep);
 }

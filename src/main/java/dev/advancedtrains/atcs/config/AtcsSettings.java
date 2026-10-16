@@ -257,7 +257,9 @@ public record AtcsSettings(
                 reader.decimal("control.dwell-seconds", 10, 0, 3600),
                 reader.decimal("control.headway-seconds", 0, 0, 3600),
                 reader.bool("control.hold-for-clear-section", false),
-                reader.decimal("control.max-hold-seconds", 180, 5, 3600)),
+                reader.decimal("control.max-hold-seconds", 180, 5, 3600),
+                reader.bool("control.even-spacing", false),
+                reader.decimal("control.even-max-hold-seconds", StationControl.EVEN_MAX_HOLD_DEFAULT, 0, 3600)),
                 reader.bool("control.set-destinations", false));
 
         Logging logging = new Logging(

@@ -21,12 +21,19 @@ final class HoldAction extends GroupAction implements WaitAction {
     private final Supplier<Optional<String>> reason;
     private final int maxTicks;
     private final Consumer<String> timeout;
+    private final java.util.function.BooleanSupplier mayTimeOut;
     private String current = "waiting";
 
     HoldAction(Supplier<Optional<String>> reason, int maxTicks, Consumer<String> timeout) {
+        this(reason, maxTicks, timeout, () -> true);
+    }
+
+    /** @param mayTimeOut false while the hold is a dispatcher's, which lasts until released */
+    HoldAction(Supplier<Optional<String>> reason, int maxTicks, Consumer<String> timeout, java.util.function.BooleanSupplier mayTimeOut) {
         this.reason = reason;
         this.maxTicks = maxTicks;
         this.timeout = timeout;
+        this.mayTimeOut = mayTimeOut;
     }
 
     @Override
@@ -39,7 +46,7 @@ final class HoldAction extends GroupAction implements WaitAction {
             }
             current = why.get();
         }
-        if (ticks >= maxTicks) {
+        if (ticks >= maxTicks && mayTimeOut.getAsBoolean()) {
             timeout.accept(current);
             return true;
         }

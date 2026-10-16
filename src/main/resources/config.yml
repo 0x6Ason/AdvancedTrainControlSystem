@@ -177,6 +177,11 @@ control:
   # A held train is let go after this long whatever the reason, so a train ATCS lost track of can
   # never block a platform for good.
   max-hold-seconds: 180
+  # Even spacing: a train that is catching up the one in front is held a little longer at the
+  # platform, so the gaps between the trains of a service come out equal and a loop line stops
+  # bunching. Signs can say 'even' or 'noeven' to override this. Never more than the extra below.
+  even-spacing: false
+  even-max-hold-seconds: 60
   # Keep every train's TrainCarts destination at its next calling stop (named station:platform, as
   # every 'atcs station' sign registers itself), so TrainCarts switcher signs and 'route' stations
   # find the way there by path-finding. Leave off if you route trains with destinations yourself.
