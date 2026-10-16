@@ -168,6 +168,27 @@ public final class JourneyTracker {
         return result;
     }
 
+    /** The train runs through the station next time instead of calling there. Returns whether the train is known. */
+    public boolean skip(String trainId, String stationId) {
+        Journey journey = journeys.get(trainId);
+        if (journey == null) {
+            return false;
+        }
+        journey.skipStations.add(stationId);
+        return true;
+    }
+
+    public boolean unskip(String trainId, String stationId) {
+        Journey journey = journeys.get(trainId);
+        return journey != null && journey.skipStations.remove(stationId);
+    }
+
+    /** The stations the train has been told to run through. */
+    public Set<String> skips(String trainId) {
+        Journey journey = journeys.get(trainId);
+        return journey == null ? Set.of() : Set.copyOf(journey.skipStations);
+    }
+
     public void forget(String trainId) {
         journeys.remove(trainId);
     }
@@ -287,7 +308,7 @@ public final class JourneyTracker {
         }
         journey.lastIndex = index;
         journey.segmentStart = null;
-        if (service.stop(index).stops()) {
+        if (service.stop(index).stops() && !journey.skipStations.remove(stationId)) {
             journey.phase = JourneyPhase.AT_STOP;
             events.add(new JourneyEvent.Arrived(journey.trainId, observation.at(), service.key(), index,
                     observation.platform(), service.isTerminus(index), fromIndex, travelTime));
@@ -449,6 +470,8 @@ public final class JourneyTracker {
         private @Nullable Instant segmentStart;
         private int approachAnnouncedFor = -1;
         private Instant lastSeen = Instant.EPOCH;
+        /** Stations the train runs through next time although its service calls there (a dispatcher's order). */
+        private final Set<String> skipStations = new HashSet<>();
 
         private Journey(String trainId) {
             this.trainId = trainId;

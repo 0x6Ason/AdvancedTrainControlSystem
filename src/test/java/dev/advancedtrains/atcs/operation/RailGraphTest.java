@@ -65,6 +65,14 @@ class RailGraphTest {
         assertTrue(graph.distance("s1", "nowhere").isEmpty());
         long platforms = graph.nodes().stream().filter(node -> node.kind() == RailGraph.Kind.PLATFORM).count();
         assertEquals(3, platforms, "one node per platform: " + graph.nodes());
+        Service b = network.service(ServiceKey.parse("b/north")).orElseThrow();
+        List<RailGraph.Passing> passings = graph.junctionsAlong(paths.path(b, 0).orElseThrow());
+        assertEquals(1, passings.size(), "b's run passes the junction once: " + passings);
+        assertEquals(junction.id(), passings.get(0).nodeId());
+        assertEquals(50, passings.get(0).distance(), 8, "about 50 blocks along the run");
+        assertEquals(328, RailGraph.length(paths.path(b, 0).orElseThrow()), 2);
+        assertTrue(graph.junctionsAlong(paths.path(network.service(ServiceKey.parse("a/east")).orElseThrow(), 0).orElseThrow()).size() == 1,
+                "a's run passes it too");
     }
 
     @Test

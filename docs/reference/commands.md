@@ -31,6 +31,7 @@ AdvancedTrainControlSystem
 | `/atcs transfer ...` | `atcs.use` | Walking transfers between nearby stations (see below) |
 | `/atcs board ...` | `atcs.manage` | Departure boards on signs (see below) |
 | `/atcs display ...` | `atcs.manage` | Pictures in item frames and hologram boards, placed with the wand (see below) |
+| `/atcs switch ...` | `atcs.manage` | Switch signs and directions set by hand (see below) |
 | `/atcs wand [pos1\|pos2\|clear\|info]` | `atcs.manage` | Get the selection wand: left click and right click two corners, then place displays or footprints |
 | `/atcs map` | `atcs.use` | Get a hand-held map of the railway that shows where you are |
 | `/atcs import ...` | `atcs.manage` | Set up the network from existing signs and running trains (see below) |
@@ -113,6 +114,7 @@ Trains and their services.
 | `/atcs train unassign [train]` | `atcs.manage` | Take a train out of service and off automatic assignment |
 | `/atcs train auto [train]` | `atcs.manage` | Let spawn signs, match rules and its route assign a train again |
 | `/atcs train hold <train> [reason...]` | `atcs.manage` | Keep a train at its current or next station sign until released |
+| `/atcs train skip <train> <station>` | `atcs.manage` | Make a train run through a station it would call at, once; riders are told |
 | `/atcs train release <train>` | `atcs.manage` | Let a held train go |
 
 ## /atcs transfer
@@ -152,6 +154,16 @@ Pictures in item frames and hologram boards, placed with the wand.
 | `/atcs display list` | `atcs.manage` | List displays |
 | `/atcs display remove <display>` | `atcs.manage` | Take a display down: empty its frames or remove its hologram |
 | `/atcs display redraw` | `atcs.manage` | Draw every display again, for example after changing a logo file |
+
+## /atcs switch
+
+Switch signs and directions set by hand.
+
+| Command | Permission | |
+|---|---|---|
+| `/atcs switch list` | `atcs.manage` | List the switch signs in loaded chunks and any direction set by hand |
+| `/atcs switch set <world,x,y,z> <direction> [minutes]` | `atcs.manage` | Send every train at the sign that way for a while (10 minutes unless given), whatever its rules say |
+| `/atcs switch clear <world,x,y,z>` | `atcs.manage` | Let the sign's rules decide again |
 
 ## /atcs import
 

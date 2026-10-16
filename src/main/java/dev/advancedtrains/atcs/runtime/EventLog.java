@@ -189,8 +189,41 @@ public final class EventLog {
         return out.append('"').toString();
     }
 
+    /** The last lines, newest last, for the dispatcher; kept whether or not the file is written. */
+    private final java.util.ArrayDeque<String> recent = new java.util.ArrayDeque<>();
+    private static final int RECENT = 200;
+
     private void append(String line) {
+        synchronized (recent) {
+            recent.addLast(line);
+            while (recent.size() > RECENT) {
+                recent.removeFirst();
+            }
+        }
         executor.execute(() -> write(line));
+    }
+
+    /** The last {@code count} lines logged, oldest first. */
+    public java.util.List<String> recent(int count) {
+        synchronized (recent) {
+            java.util.List<String> all = new java.util.ArrayList<>(recent);
+            return all.subList(Math.max(0, all.size() - count), all.size());
+        }
+    }
+
+    /** A dispatcher's order or another note about a train; kept for the console even when the file is off. */
+    public void note(String trainId, String kind, @Nullable String detail, Instant at) {
+        String line = start(at, kind).append(",\"train\":").append(quote(trainId))
+                .append(detail == null ? "" : ",\"detail\":" + quote(detail)).append('}').toString();
+        synchronized (recent) {
+            recent.addLast(line);
+            while (recent.size() > RECENT) {
+                recent.removeFirst();
+            }
+        }
+        if (enabled) {
+            executor.execute(() -> write(line));
+        }
     }
 
     private void write(String line) {

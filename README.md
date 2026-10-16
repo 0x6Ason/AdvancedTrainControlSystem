@@ -245,7 +245,14 @@ difference (never more than `control.even-max-hold-seconds`), so the gaps come o
 of the trains bunching. `control.even-spacing: true` turns it on for every station sign. `at`
 makes a timetable: the train leaves at the next listed minute after its dwell, and boards count
 down to it. A service's `timetable: [':00', ':30']` in `network.yml` does the same at its first
-stop. `/atcs train hold` and `release` keep a train at its next station sign by hand.
+stop. `/atcs train hold` and `release` keep a train at its next station sign by hand, `/atcs train
+skip` makes it run through a station once (riders are told), and `/atcs switch set` sends every
+train at a switch sign one way for a while. With `control.junction-priority: true` a train about
+to leave a platform whose next stretch of track runs into a junction waits for a train that is
+approaching it, unless it goes first: the late train first, then the line listed earlier in
+`control.priority`, then the nearer one; this needs recorded track, so that ATCS knows where the
+junctions are. The web editor's *Dispatch* section does all of this from a browser, with every
+train live and the recent events.
 
 ### Switch signs
 
@@ -374,7 +381,8 @@ The wand also gives a station a footprint and binds signs in bulk:
 | `/atcs service info` | atcs.use | A service and what has been learned about it |
 | `/atcs service create\|stops\|addstop\|removestop\|record\|spawn\|unspawn\|fleet\|hours\|offpeak\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services; `hours` and `offpeak` stable fleet trains by the time of day |
 | `/atcs train info [train]` | atcs.use | The train you ride or look at |
-| `/atcs train assign\|unassign\|auto\|hold\|release`, `/atcs trains` | atcs.manage | Assignments; `hold` keeps a train at its next station sign until `release` |
+| `/atcs train assign\|unassign\|auto\|hold\|release\|skip`, `/atcs trains` | atcs.manage | Assignments; `hold` keeps a train at its next station sign until `release`; `skip` runs through a station once |
+| `/atcs switch list\|set\|clear` | atcs.manage | Switch signs in loaded chunks, and a direction set by hand for a while |
 | `/atcs transfer list` | atcs.use | Walking transfers |
 | `/atcs transfer add\|remove` | atcs.manage | Edit walking transfers |
 | `/atcs board create\|add\|unbind\|remove\|list` | atcs.manage | Departure boards |

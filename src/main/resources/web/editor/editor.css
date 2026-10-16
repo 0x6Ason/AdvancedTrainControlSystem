@@ -464,6 +464,10 @@
 .gate-card code { font-family: var(--mono); font-size: 15px; background: var(--paper-2); padding: 3px 7px; border: 1px solid var(--rule-soft); }
 
 .roundel { display: inline-block; vertical-align: middle; flex: none; }
+details.card > summary { list-style: none; }
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary .name::before { content: "+ "; color: var(--muted); }
+details.card[open] > summary .name::before { content: "\2013  "; }
 .platform.big { font-size: 13px; padding: 3px 7px; }
 .tag.bad { border-color: var(--bad); color: var(--bad); }
 .tag.warn { border-color: #000; background: var(--warn); color: #000; }

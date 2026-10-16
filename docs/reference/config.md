@@ -189,6 +189,12 @@ control:
   # bunching. Signs can say 'even' or 'noeven' to override this. Never more than the extra below.
   even-spacing: false
   even-max-hold-seconds: 60
+  # Junction priority: a train about to leave a platform whose next stretch of track runs into a
+  # junction waits while another train is approaching that junction, unless it goes first: the
+  # late train first, then the line listed earlier in 'priority', then the nearer train. Needs
+  # recorded track (the rail graph) so ATCS knows where the junctions are.
+  junction-priority: false
+  priority: []
   # Keep every train's TrainCarts destination at its next calling stop (named station:platform, as
   # every 'atcs station' sign registers itself), so TrainCarts switcher signs and 'route' stations
   # find the way there by path-finding. Leave off if you route trains with destinations yourself.

@@ -250,6 +250,16 @@ public final class EditorServer {
                     JsonObject layout = Documents.parseObject(body(exchange));
                     json(exchange, 200, sync.call(() -> api.saveLayout(layout)));
                 }
+                case "dispatch" -> {
+                    if (method.equals("GET")) {
+                        json(exchange, 200, sync.call(api::dispatchState));
+                    } else if (method.equals("POST")) {
+                        JsonObject order = Documents.parseObject(body(exchange));
+                        json(exchange, 200, sync.call(() -> api.dispatch(order)));
+                    } else {
+                        text(exchange, 405, "Method not allowed");
+                    }
+                }
                 case "live" -> {
                     String live = sync.call(api::live);
                     exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");

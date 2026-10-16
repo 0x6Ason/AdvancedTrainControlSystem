@@ -131,7 +131,7 @@ public final class AtcsSignAction extends SignAction {
         Station station = new Station(info, config);
         ActionTrackerGroup actions = group.getActions();
         actions.launchReset();
-        boolean stopHere = station.hasDelay() || plan.mayHold() || runtime.heldByHand(train);
+        boolean stopHere = station.hasDelay() || plan.mayHold() || runtime.heldByHand(train) || runtime.junctionPriorityOn();
         if (station.isAutoRouting()) {
             if (stopHere) {
                 station.centerTrain();
@@ -154,7 +154,7 @@ public final class AtcsSignAction extends SignAction {
 
     private void hold(ActionTrackerGroup actions, TrainCartsTrain train, PlatformRef platform,
                       StationControl.Plan plan, String tag) {
-        if (!plan.mayHold() && !runtime.heldByHand(train)) {
+        if (!plan.mayHold() && !runtime.heldByHand(train) && !runtime.junctionPriorityOn()) {
             return;
         }
         HoldAction hold = new HoldAction(() -> runtime.holdReason(train, platform, plan),
@@ -212,7 +212,8 @@ public final class AtcsSignAction extends SignAction {
         if (!info.isPowered() || !info.hasRailedMember()) {
             return;
         }
-        Optional<Heading> heading = runtime.switchHeading(train, sign.rules());
+        Block signBlock = info.getBlock();
+        Optional<Heading> heading = runtime.switchHeading(train, sign.rules(), signBlock == null ? null : position(signBlock));
         info.setLevers(heading.isPresent());
         if (heading.isPresent()) {
             // As on TrainCarts' station sign: continue and reverse follow the train, left and right
@@ -326,11 +327,13 @@ public final class AtcsSignAction extends SignAction {
         if (block == null) {
             return;
         }
-        if (loaded && parse(info) instanceof AtcsSign.IndicatorSign indicator) {
+        AtcsSign sign = loaded ? parse(info) : null;
+        if (sign instanceof AtcsSign.IndicatorSign indicator) {
             runtime.indicators().register(position(block), indicator.indicator());
         } else {
             runtime.indicators().unregister(position(block));
         }
+        runtime.switchSignLoaded(position(block), sign instanceof AtcsSign.SwitchSign switcher ? switcher.rules() : null);
     }
 
     @Override
@@ -344,6 +347,7 @@ public final class AtcsSignAction extends SignAction {
         Block block = info.getBlock();
         if (block != null) {
             runtime.indicators().unregister(position(block));
+            runtime.switchSignLoaded(position(block), null);
         }
     }
 

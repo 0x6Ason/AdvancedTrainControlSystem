@@ -45,12 +45,23 @@ public final class RailGraph {
     public record Edge(String id, Node from, Node to, String world, List<TrackPaths.Point> points, double length, Set<String> lines) {
     }
 
+    /** A junction a path passes, {@code distance} blocks along it. */
+    public record Passing(String nodeId, double distance) {
+    }
+
     private final List<Node> nodes;
     private final List<Edge> edges;
     private final Map<String, Node> nodesById;
     private final Map<String, List<Edge>> edgesByNode;
+    /** The cells that belong to a junction node, for finding junctions along a path. */
+    private final Map<Cell, String> junctionCells;
 
     private RailGraph(List<Node> nodes, List<Edge> edges) {
+        this(nodes, edges, Map.of());
+    }
+
+    private RailGraph(List<Node> nodes, List<Edge> edges, Map<Cell, String> junctionCells) {
+        this.junctionCells = Map.copyOf(junctionCells);
         this.nodes = List.copyOf(nodes);
         this.edges = List.copyOf(edges);
         Map<String, Node> byId = new HashMap<>();
@@ -87,6 +98,46 @@ public final class RailGraph {
 
     public List<Edge> edgesAt(Node node) {
         return edgesByNode.getOrDefault(node.id(), List.of());
+    }
+
+    /** The length of a recorded path in blocks. */
+    public static double length(TrackPaths.Path path) {
+        double length = 0;
+        List<TrackPaths.Point> points = path.points();
+        for (int index = 0; index + 1 < points.size(); index++) {
+            TrackPaths.Point a = points.get(index);
+            TrackPaths.Point b = points.get(index + 1);
+            length += Math.sqrt(Math.pow(a.x() - b.x(), 2) + Math.pow(a.y() - b.y(), 2) + Math.pow(a.z() - b.z(), 2));
+        }
+        return length;
+    }
+
+    /** The junctions a recorded path passes, in order, each with its distance along the path. */
+    public List<Passing> junctionsAlong(TrackPaths.Path path) {
+        List<Passing> passings = new ArrayList<>();
+        if (junctionCells.isEmpty() || path.points().size() < 2) {
+            return passings;
+        }
+        Set<String> seen = new HashSet<>();
+        List<TrackPaths.Point> points = path.points();
+        double along = 0;
+        for (int index = 0; index + 1 < points.size(); index++) {
+            TrackPaths.Point a = points.get(index);
+            TrackPaths.Point b = points.get(index + 1);
+            double length = Math.sqrt(Math.pow(b.x() - a.x(), 2) + Math.pow(b.y() - a.y(), 2) + Math.pow(b.z() - a.z(), 2));
+            int steps = Math.max(1, (int) Math.ceil(length * 2));
+            for (int step = 0; step <= steps; step++) {
+                double t = (double) step / steps;
+                Cell cell = new Cell(path.world(), (int) Math.floor(a.x() + (b.x() - a.x()) * t),
+                        (int) Math.floor(a.y() + (b.y() - a.y()) * t + 0.001), (int) Math.floor(a.z() + (b.z() - a.z()) * t));
+                String node = junctionCells.get(cell);
+                if (node != null && seen.add(node)) {
+                    passings.add(new Passing(node, along + length * t));
+                }
+            }
+            along += length;
+        }
+        return passings;
     }
 
     /** Total track length in blocks, each stretch counted once. */
@@ -296,7 +347,15 @@ public final class RailGraph {
                 used.add(edge.to());
             }
         }
-        return new RailGraph(used, edges);
+        // Where the track branches (three or more ways, platform or not): the cells of those nodes.
+        Map<Cell, String> junctionCells = new HashMap<>();
+        for (Map.Entry<Cell, Unit> entry : unitOf.entrySet()) {
+            Node node = nodeAt.get(entry.getValue());
+            if (node != null && usedIds.contains(node.id()) && entry.getValue().neighbours.size() >= 3) {
+                junctionCells.put(entry.getKey(), node.id());
+            }
+        }
+        return new RailGraph(used, edges, junctionCells);
     }
 
     /** How far from a stop's trigger a run may start or end and still be joined to that platform, in blocks. */

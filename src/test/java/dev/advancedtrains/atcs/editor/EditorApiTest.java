@@ -195,6 +195,36 @@ class EditorApiTest {
     }
 
     @Test
+    void theDispatcherIsAskedAndTold() throws Exception {
+        assertThrows(EditorApi.ApiException.class, () -> api.dispatchState(), "no dispatcher yet");
+        List<String> orders = new java.util.ArrayList<>();
+        api.setDispatcher(new EditorApi.Dispatcher() {
+            @Override
+            public JsonObject state() {
+                JsonObject state = new JsonObject();
+                state.addProperty("trains", 2);
+                return state;
+            }
+
+            @Override
+            public JsonObject act(JsonObject order) throws EditorApi.ApiException {
+                if (!order.has("train")) {
+                    throw new EditorApi.ApiException(400, "which train?", null);
+                }
+                orders.add(order.get("action").getAsString() + " " + order.get("train").getAsString());
+                JsonObject result = new JsonObject();
+                result.addProperty("done", true);
+                return result;
+            }
+        });
+        assertEquals(2, api.dispatchState().get("trains").getAsInt());
+        assertTrue(api.dispatch(Documents.parseObject("{\"action\":\"hold\",\"train\":\"A-1\"}")).get("done").getAsBoolean());
+        assertEquals(List.of("hold A-1"), orders);
+        EditorApi.ApiException refused = assertThrows(EditorApi.ApiException.class, () -> api.dispatch(Documents.parseObject("{\"action\":\"hold\"}")));
+        assertEquals(400, refused.status());
+    }
+
+    @Test
     void documentsKeepTypes() throws InvalidConfigurationException {
         JsonObject document = Documents.fromYaml("a: 1\nb: 1.5\nc: [x, 2]\nd:\n  e: true\n");
         assertEquals(1, document.get("a").getAsInt());

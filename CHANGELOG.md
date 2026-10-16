@@ -52,7 +52,11 @@ TrainCarts server, configured with files and in-game commands.
   `block <id>` indicators; `atcs speed` signs and a service's `speed:` set speed limits so an
   express runs faster than a local on shared track; a dispatcher can hold and release trains;
   fleets get service hours and an off-peak size (`/atcs service hours`, `offpeak`), and trains
-  beyond the hour's number are stabled at the end of their trip.
+  beyond the hour's number are stabled at the end of their trip; junction priority
+  (`control.junction-priority`, `priority`) makes a train wait at its platform for a train about
+  to cross the junction ahead, the late train or the listed line first; `/atcs train skip`,
+  `/atcs switch list|set|clear`; a Dispatch section in the web editor with every train live,
+  holds, skips, suspensions, blocks, switches and recent events.
 - The web editor (`integrations.editor`, off by default; `/atcs editor` prints a one-time link):
   stations and platforms, lines, services with their stops drawn as the line, boards, walking
   transfers, fares, diagram adjustments and the configuration files, beside the website's diagram

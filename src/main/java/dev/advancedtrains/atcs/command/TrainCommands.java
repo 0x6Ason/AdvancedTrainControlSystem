@@ -59,6 +59,14 @@ final class TrainCommands {
                             + (support.runtime.control().standingAt(train.name()).isPresent() ? "platform" : "next station sign")
                             + (reason.isEmpty() ? "" : " (" + reason + ")") + " until /atcs train release " + train.name());
                 }, trains),
+                leaf("skip", MANAGE, "<train> <station>", "Make a train run through a station it would call at, once; riders are told", context -> {
+                    TrainHandle train = support.train(context, 0);
+                    Station station = support.station(context.arg(1));
+                    if (!support.runtime.skipStop(train, station.id())) {
+                        throw new CommandError("ATCS does not follow " + train.name() + " yet; it has to pass a platform first");
+                    }
+                    Chat.success(context.sender(), "Train " + train.name() + " will run through " + station.name() + " next time");
+                }, (context, index) -> index == 0 ? support.trainNames() : index == 1 ? support.stationIds() : List.of()),
                 leaf("release", MANAGE, "<train>", "Let a held train go", context -> {
                     TrainHandle train = support.train(context, 0);
                     if (support.runtime.releaseByHand(train)) {

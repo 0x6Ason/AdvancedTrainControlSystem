@@ -21,6 +21,8 @@ import dev.advancedtrains.atcs.display.Logos;
 import dev.advancedtrains.atcs.editor.EditorApi;
 import dev.advancedtrains.atcs.editor.EditorServer;
 import dev.advancedtrains.atcs.network.NetworkLint;
+import dev.advancedtrains.atcs.runtime.TrainHandle;
+import dev.advancedtrains.atcs.network.Line;
 import java.util.Map;
 import dev.advancedtrains.atcs.network.Station;
 import dev.advancedtrains.atcs.operation.RailGraph;
@@ -247,6 +249,17 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
                         (a, b) -> fareService.calculator().planner().route(a, b).isPresent())),
                 () -> runtime.liveJson(Clock.systemUTC().instant()),
                 runtime::saveLayout, configs, this::editorContext, this::carryLearnedData);
+        api.setDispatcher(new EditorApi.Dispatcher() {
+            @Override
+            public com.google.gson.JsonObject state() {
+                return dispatcherState();
+            }
+
+            @Override
+            public com.google.gson.JsonObject act(com.google.gson.JsonObject order) throws EditorApi.ApiException {
+                return dispatch(order);
+            }
+        });
         EditorServer.Sync sync = new EditorServer.Sync() {
             @Override
             public <T> T call(java.util.concurrent.Callable<T> task) throws Exception {
@@ -266,6 +279,142 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             getLogger().log(Level.WARNING, "Could not start the web editor on " + settings.editor().bind() + ":"
                     + settings.editor().port(), exception);
         }
+    }
+
+    /** What the dispatcher console shows beside the live trains. */
+    private com.google.gson.JsonObject dispatcherState() {
+        com.google.gson.JsonObject state = new com.google.gson.JsonObject();
+        Network network = store.network();
+        com.google.gson.JsonObject holds = new com.google.gson.JsonObject();
+        runtime.control().manualHolds().forEach(holds::addProperty);
+        state.add("holds", holds);
+        com.google.gson.JsonObject skips = new com.google.gson.JsonObject();
+        com.google.gson.JsonObject standing = new com.google.gson.JsonObject();
+        for (var journey : runtime.journeys()) {
+            java.util.Set<String> stations = runtime.skips(journey.trainId());
+            if (!stations.isEmpty()) {
+                com.google.gson.JsonArray list = new com.google.gson.JsonArray();
+                stations.forEach(list::add);
+                skips.add(journey.trainId(), list);
+            }
+            runtime.control().standingAt(journey.trainId()).ifPresent(stand -> standing.addProperty(journey.trainId(), stand.platform().toString()));
+        }
+        state.add("skips", skips);
+        state.add("standing", standing);
+        com.google.gson.JsonObject blocks = new com.google.gson.JsonObject();
+        runtime.blocks().all().forEach((id, occupancy) -> {
+            com.google.gson.JsonObject entry = new com.google.gson.JsonObject();
+            entry.addProperty("train", occupancy.trainId());
+            entry.addProperty("since", occupancy.since().toEpochMilli());
+            blocks.add(id, entry);
+        });
+        state.add("blocks", blocks);
+        com.google.gson.JsonArray switches = new com.google.gson.JsonArray();
+        Map<dev.advancedtrains.atcs.network.BlockPos, RailwayRuntime.SwitchOverride> overrides = runtime.switchOverrides();
+        runtime.switchSigns().forEach((position, rules) -> {
+            com.google.gson.JsonObject entry = new com.google.gson.JsonObject();
+            entry.addProperty("at", position.format());
+            entry.addProperty("rules", rules.describe());
+            RailwayRuntime.SwitchOverride override = overrides.get(position);
+            if (override != null) {
+                entry.addProperty("set", override.heading().word());
+                entry.addProperty("until", override.until().toEpochMilli());
+                entry.addProperty("by", override.by());
+            }
+            switches.add(entry);
+        });
+        state.add("switches", switches);
+        com.google.gson.JsonArray lines = new com.google.gson.JsonArray();
+        for (Line line : network.lines().values()) {
+            com.google.gson.JsonObject entry = new com.google.gson.JsonObject();
+            entry.addProperty("id", line.id());
+            entry.addProperty("name", line.name());
+            entry.addProperty("short", line.shortName());
+            entry.addProperty("color", dev.advancedtrains.atcs.network.Colors.format(line.color()));
+            if (line.suspension() != null) {
+                entry.addProperty("suspended", line.suspension());
+            }
+            lines.add(entry);
+        }
+        state.add("lines", lines);
+        com.google.gson.JsonArray events = new com.google.gson.JsonArray();
+        for (String line : runtime.recentEvents(60)) {
+            try {
+                events.add(com.google.gson.JsonParser.parseString(line));
+            } catch (RuntimeException ignored) {
+                // A line that is not JSON is skipped.
+            }
+        }
+        state.add("events", events);
+        state.addProperty("junctionPriority", settings.control().junctionPriority());
+        state.addProperty("now", System.currentTimeMillis());
+        return state;
+    }
+
+    /** Carries out a dispatcher's order from the editor. */
+    private com.google.gson.JsonObject dispatch(com.google.gson.JsonObject order) throws EditorApi.ApiException {
+        String action = order.has("action") ? order.get("action").getAsString() : "";
+        String by = order.has("by") && !order.get("by").isJsonNull() ? order.get("by").getAsString() : "the editor";
+        com.google.gson.JsonObject result = new com.google.gson.JsonObject();
+        try {
+            switch (action) {
+                case "hold", "release", "skip", "unskip" -> {
+                    String name = order.has("train") ? order.get("train").getAsString() : "";
+                    TrainHandle train = runtime.trainSource().train(name).orElse(null);
+                    if (train == null) {
+                        throw new EditorApi.ApiException(404, "No loaded train named " + name, null);
+                    }
+                    switch (action) {
+                        case "hold" -> runtime.holdByHand(train, order.has("reason") && !order.get("reason").isJsonNull() ? order.get("reason").getAsString() : "");
+                        case "release" -> runtime.releaseByHand(train);
+                        case "skip" -> {
+                            String station = order.get("station").getAsString();
+                            if (store.network().station(station).isEmpty()) {
+                                throw new EditorApi.ApiException(404, "Unknown station " + station, null);
+                            }
+                            if (!runtime.skipStop(train, station)) {
+                                throw new EditorApi.ApiException(409, "ATCS does not follow " + name + " yet; it has to pass a platform first", null);
+                            }
+                        }
+                        default -> runtime.unskipStop(train, order.get("station").getAsString());
+                    }
+                    result.addProperty("done", action + " " + name);
+                }
+                case "suspend", "resume" -> {
+                    String id = order.has("line") ? order.get("line").getAsString() : "";
+                    Line line = store.network().line(id).orElseThrow(() -> new EditorApi.ApiException(404, "Unknown line " + id, null));
+                    String notice = action.equals("suspend")
+                            ? (order.has("notice") && !order.get("notice").isJsonNull() && !order.get("notice").getAsString().isBlank()
+                                    ? order.get("notice").getAsString() : "Please use alternative routes.")
+                            : null;
+                    store.edit(network -> network.toBuilder().line(line.withSuspension(notice)).build());
+                    result.addProperty("done", action + " " + id);
+                }
+                case "switch" -> {
+                    dev.advancedtrains.atcs.network.BlockPos sign = dev.advancedtrains.atcs.network.BlockPos.parse(order.get("sign").getAsString());
+                    dev.advancedtrains.atcs.control.Heading heading = dev.advancedtrains.atcs.control.Heading.parse(order.get("heading").getAsString());
+                    if (heading == null) {
+                        throw new EditorApi.ApiException(400, "Not a direction: " + order.get("heading").getAsString(), null);
+                    }
+                    int minutes = order.has("minutes") && !order.get("minutes").isJsonNull() ? Math.max(1, Math.min(1440, order.get("minutes").getAsInt())) : 10;
+                    runtime.setSwitch(sign, heading, java.time.Duration.ofMinutes(minutes), by);
+                    result.addProperty("done", "switch " + sign.coordinates() + " " + heading.word());
+                }
+                case "clear-switch" -> {
+                    runtime.clearSwitch(dev.advancedtrains.atcs.network.BlockPos.parse(order.get("sign").getAsString()));
+                    result.addProperty("done", "switch cleared");
+                }
+                default -> throw new EditorApi.ApiException(400, "Unknown order '" + action + "'", null);
+            }
+        } catch (dev.advancedtrains.atcs.network.NetworkStore.EditRejectedException exception) {
+            throw new EditorApi.ApiException(409, exception.getMessage(), null);
+        } catch (IOException exception) {
+            throw new EditorApi.ApiException(500, exception.getMessage(), null);
+        } catch (IllegalArgumentException | IllegalStateException | NullPointerException | ClassCastException exception) {
+            throw new EditorApi.ApiException(400, "Bad order: " + exception.getMessage(), null);
+        }
+        result.add("state", dispatcherState());
+        return result;
     }
 
     private void stopEditor() {

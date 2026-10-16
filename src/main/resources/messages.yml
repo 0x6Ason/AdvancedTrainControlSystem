@@ -43,6 +43,8 @@ passenger:
   passing: "<gray>Passing</gray> <white><station></white>"
   unassigned-arrival-title: "<white><station></white>"
   unassigned-arrival-subtitle: ""
+  # Told to riders when a dispatcher makes the train run through a station it would call at.
+  skip-stop: "<red>This train will not stop at</red> <white><station></white><red>.</red>"
   # Separator between lines in <interchanges>.
   interchange-separator: "<gray>, </gray>"
   # Lines reached through a walking transfer, as part of <interchanges>. <lines>, <station>.

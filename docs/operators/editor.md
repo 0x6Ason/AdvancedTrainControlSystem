@@ -33,6 +33,11 @@ reloads ATCS; what the reload reports is shown below.
 **Check**: everything `/atcs lint` and `/atcs reload` would say, for the version on screen. Names
 in the messages link to the station or service.
 
+**Dispatch**: every train in service, where it is and what is next, refreshed every few seconds;
+hold a train (with a reason riders and the log see) and release it, make it run through its next
+stop or a later one, suspend a line with a notice and resume it, see which blocks are taken and
+which switch signs are loaded, set a switch one way for ten minutes, and read the recent events.
+
 ## Behind a reverse proxy
 
 The editor serves its page and API from one port. To reach it from elsewhere, keep `bind:

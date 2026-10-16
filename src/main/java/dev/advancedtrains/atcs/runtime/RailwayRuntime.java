@@ -5,8 +5,10 @@ import dev.advancedtrains.atcs.display.DisplayService;
 import dev.advancedtrains.atcs.board.SignLinkPublisher;
 import dev.advancedtrains.atcs.config.AtcsSettings;
 import dev.advancedtrains.atcs.config.Messages;
-import dev.advancedtrains.atcs.control.Heading;
 import dev.advancedtrains.atcs.control.BlockControl;
+import dev.advancedtrains.atcs.control.JunctionControl;
+import dev.advancedtrains.atcs.control.Heading;
+import dev.advancedtrains.atcs.operation.Estimator;
 import dev.advancedtrains.atcs.control.StationControl;
 import dev.advancedtrains.atcs.control.StopOptions;
 import dev.advancedtrains.atcs.control.SwitchRules;
@@ -117,6 +119,13 @@ public final class RailwayRuntime {
     private final JourneyTracker tracker = new JourneyTracker();
     private final StationControl control = new StationControl();
     private final BlockControl blocks = new BlockControl();
+    /** Switch signs in loaded chunks, by position, and the directions a dispatcher set by hand. */
+    private final Map<BlockPos, SwitchRules> switchSigns = new LinkedHashMap<>();
+    private final Map<BlockPos, SwitchOverride> switchOverrides = new HashMap<>();
+
+    /** A direction set by hand at a switch sign, until a moment. */
+    public record SwitchOverride(Heading heading, Instant until, String by) {
+    }
     /** How far other trains are, for station control: the plain estimator, so a standing train's own wait is not counted. */
     private final StationControl.Lookahead lookahead = new StationControl.Lookahead() {
         @Override
@@ -170,7 +179,12 @@ public final class RailwayRuntime {
 
         @Override
         public OptionalDouble remainingStop(String trainId, Instant now) {
-            return control.remainingStop(trainId, tracker.snapshots(), now, lookahead);
+            OptionalDouble remaining = control.remainingStop(trainId, tracker.snapshots(), now, lookahead);
+            if (remaining.isPresent() && settings.control().junctionPriority() && remaining.getAsDouble() < 5
+                    && junctionReason(trainId).isPresent()) {
+                return OptionalDouble.of(5);
+            }
+            return remaining;
         }
 
         @Override
@@ -634,6 +648,117 @@ public final class RailwayRuntime {
         return control.manualHold(train.name()).isPresent();
     }
 
+    public boolean junctionPriorityOn() {
+        return settings.control().junctionPriority();
+    }
+
+    /**
+     * Whether the standing train must give way at a junction on its next stretch: other trains
+     * in transit whose current stretch passes the same junction, placed by their progress along
+     * their recorded path, are compared under {@link JunctionControl}.
+     */
+    Optional<String> junctionReason(String trainName) {
+        Network network = store.network();
+        JourneySnapshot mine = tracker.snapshot(trainName).orElse(null);
+        Service myService = mine == null || mine.service() == null ? null : network.service(mine.service()).orElse(null);
+        if (myService == null || mine.lastIndex() < 0) {
+            return Optional.empty();
+        }
+        TrackPaths.Path myPath = paths.path(myService, mine.lastIndex()).orElse(null);
+        if (myPath == null) {
+            return Optional.empty();
+        }
+        RailGraph graph = railGraph();
+        List<RailGraph.Passing> ahead = graph.junctionsAlong(myPath);
+        if (ahead.isEmpty()) {
+            return Optional.empty();
+        }
+        Instant now = clock.instant();
+        Map<String, List<JunctionControl.Approach>> coming = new HashMap<>();
+        for (JourneySnapshot other : tracker.snapshots()) {
+            if (other.trainId().equals(trainName) || other.phase() != JourneyPhase.IN_TRANSIT || other.service() == null || other.lastIndex() < 0) {
+                continue;
+            }
+            Service service = network.service(other.service()).orElse(null);
+            TrackPaths.Path path = service == null ? null : paths.path(service, other.lastIndex()).orElse(null);
+            if (path == null) {
+                continue;
+            }
+            OptionalDouble progress = context.segmentProgress(other.trainId(), service, other.lastIndex());
+            if (progress.isEmpty()) {
+                continue;
+            }
+            double travelled = progress.getAsDouble() * RailGraph.length(path);
+            boolean late = eta.estimate(other, service, service.nextIndex(other.lastIndex()), now).map(Estimator.Estimate::late).orElse(false);
+            for (RailGraph.Passing passing : graph.junctionsAlong(path)) {
+                coming.computeIfAbsent(passing.nodeId(), ignored -> new ArrayList<>()).add(new JunctionControl.Approach(
+                        other.trainId(), other.service().lineId(), late, passing.distance() - travelled));
+            }
+        }
+        int next = myService.nextIndex(mine.lastIndex());
+        boolean myLate = next >= 0 && eta.estimate(mine, myService, next, now).map(Estimator.Estimate::late).orElse(false);
+        return JunctionControl.giveWay(trainName, mine.service().lineId(), myLate, ahead, coming, settings.control().priority());
+    }
+
+    // ---------------------------------------------------------------- dispatcher orders
+
+    /** The train runs through the station next time; riders aboard are told. */
+    public boolean skipStop(TrainHandle train, String stationId) {
+        if (!tracker.skip(train.name(), stationId)) {
+            return false;
+        }
+        eventLog.note(train.name(), "skip", stationId, clock.instant());
+        Network network = store.network();
+        net.kyori.adventure.text.Component notice = messages.render("passenger.skip-stop",
+                net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("station", network.stationName(stationId)));
+        for (Player rider : train.riders()) {
+            rider.sendMessage(notice);
+        }
+        return true;
+    }
+
+    public boolean unskipStop(TrainHandle train, String stationId) {
+        return tracker.unskip(train.name(), stationId);
+    }
+
+    public Set<String> skips(String trainName) {
+        return tracker.skips(trainName);
+    }
+
+    /** A switch sign appeared in a loaded chunk, so a dispatcher can list and set it. */
+    public void switchSignLoaded(BlockPos sign, @Nullable SwitchRules rules) {
+        if (rules == null) {
+            switchSigns.remove(sign);
+        } else {
+            switchSigns.put(sign, rules);
+        }
+    }
+
+    public Map<BlockPos, SwitchRules> switchSigns() {
+        return Map.copyOf(switchSigns);
+    }
+
+    /** Sends every train at the sign the given way for a while, whatever its rules say. */
+    public void setSwitch(BlockPos sign, Heading heading, Duration forHowLong, String by) {
+        switchOverrides.put(sign, new SwitchOverride(heading, clock.instant().plus(forHowLong), by));
+        eventLog.note(by, "switch-set", sign.format() + " " + heading.word(), clock.instant());
+    }
+
+    public boolean clearSwitch(BlockPos sign) {
+        return switchOverrides.remove(sign) != null;
+    }
+
+    public Map<BlockPos, SwitchOverride> switchOverrides() {
+        Instant now = clock.instant();
+        switchOverrides.values().removeIf(override -> override.until().isBefore(now));
+        return Map.copyOf(switchOverrides);
+    }
+
+    /** The last lines of the event log, oldest first. */
+    public List<String> recentEvents(int count) {
+        return eventLog.recent(count);
+    }
+
     /** Keeps the train at its current or next station sign until released. */
     public void holdByHand(TrainHandle train, String reason) {
         control.holdByHand(train.name(), reason);
@@ -700,6 +825,10 @@ public final class RailwayRuntime {
         return blocks;
     }
 
+    public TrainSource trainSource() {
+        return trains;
+    }
+
     /** An {@code atcs speed} sign: sets the limit of the train when the selector names its line or service. */
     public void applySpeedSign(TrainHandle train, double speed, @Nullable String selector) {
         if (selector != null) {
@@ -725,6 +854,9 @@ public final class RailwayRuntime {
     public Optional<String> holdReason(TrainHandle train, PlatformRef platform, StationControl.Plan plan) {
         Optional<String> reason = control.holdReason(train.name(), platform, tracker.snapshots(), store.network(), plan,
                 clock.instant(), lookahead);
+        if (reason.isEmpty() && settings.control().junctionPriority()) {
+            reason = junctionReason(train.name());
+        }
         String previous = holdReasons.put(train.name(), reason.orElse(""));
         if (!reason.orElse("").equals(previous)) {
             eventLog.hold(train.name(), platform, reason.orElse(null), clock.instant());
@@ -753,6 +885,20 @@ public final class RailwayRuntime {
      * it reaches next on that service.
      */
     public Optional<Heading> switchHeading(TrainHandle train, SwitchRules rules) {
+        return switchHeading(train, rules, null);
+    }
+
+    /** As {@link #switchHeading(TrainHandle, SwitchRules)}, honouring a direction a dispatcher set at the sign. */
+    public Optional<Heading> switchHeading(TrainHandle train, SwitchRules rules, @Nullable BlockPos sign) {
+        if (sign != null) {
+            SwitchOverride override = switchOverrides.get(sign);
+            if (override != null && override.until().isAfter(clock.instant())) {
+                if (debug) {
+                    logger.info("[debug] " + train.name() + " at a switch set by hand -> " + override.heading().word());
+                }
+                return Optional.of(override.heading());
+            }
+        }
         Network network = store.network();
         JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
         ServiceKey key = journey != null && journey.service() != null

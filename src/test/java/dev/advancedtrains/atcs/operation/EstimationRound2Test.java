@@ -144,6 +144,23 @@ class EstimationRound2Test {
     }
 
     @Test
+    void aSkippedStopIsRunThroughOnce() {
+        JourneyTracker tracker = new JourneyTracker();
+        assertFalse(tracker.skip("t", "s2"), "unknown trains cannot be told");
+        tracker.observe(StopObservation.enter("t", P1, trigger("s1"), T0), KEY, network);
+        tracker.observe(StopObservation.leave("t", P1, trigger("s1"), T0.plusSeconds(10)), KEY, network);
+        assertTrue(tracker.skip("t", "s2"));
+        assertEquals(java.util.Set.of("s2"), tracker.skips("t"));
+        List<JourneyEvent> events = tracker.observe(StopObservation.enter("t", P2, trigger("s2"), T0.plusSeconds(60)), KEY, network);
+        JourneyEvent.Passed passed = events.stream().filter(JourneyEvent.Passed.class::isInstance).map(JourneyEvent.Passed.class::cast)
+                .findFirst().orElseThrow(() -> new AssertionError("expected a pass: " + events));
+        assertEquals(1, passed.stopIndex());
+        assertEquals(JourneyPhase.PASSING, tracker.snapshot("t").orElseThrow().phase());
+        assertTrue(tracker.skips("t").isEmpty(), "once");
+        assertFalse(tracker.unskip("t", "s2"));
+    }
+
+    @Test
     void intervalsBetweenDeparturesAreLearned() {
         times.record(new JourneyEvent.Departed("t1", T0, KEY, 0, P1, 1, Duration.ofSeconds(10)), network);
         assertTrue(times.intervalSeconds(service, 0).isEmpty(), "one departure is no interval");

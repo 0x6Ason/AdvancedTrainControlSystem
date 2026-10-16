@@ -58,6 +58,15 @@ public final class EditorApi {
         }
     }
 
+    /** The dispatcher's view of the railway and the orders it can give; everything runs on the server thread. */
+    public interface Dispatcher {
+        /** Trains with their holds and skips, lines, blocks, switch signs and recent events. */
+        JsonObject state();
+
+        /** Carries out an order: {@code {action, train, station, line, notice, sign, heading, minutes, reason}}. */
+        JsonObject act(JsonObject order) throws ApiException;
+    }
+
     /** Writes the diagram layout the editor sends. */
     @FunctionalInterface
     public interface LayoutSaver {
@@ -82,6 +91,26 @@ public final class EditorApi {
     private final ConfigFiles configs;
     private final Function<Network, JsonObject> context;
     private final BiConsumer<Network, Network> saved;
+    private @Nullable Dispatcher dispatcher;
+
+    /** Adds the dispatcher once the runtime exists. */
+    public void setDispatcher(@Nullable Dispatcher newDispatcher) {
+        dispatcher = newDispatcher;
+    }
+
+    public JsonObject dispatchState() throws ApiException {
+        if (dispatcher == null) {
+            throw new ApiException(404, "The dispatcher is not available", null);
+        }
+        return dispatcher.state();
+    }
+
+    public JsonObject dispatch(JsonObject order) throws ApiException {
+        if (dispatcher == null) {
+            throw new ApiException(404, "The dispatcher is not available", null);
+        }
+        return dispatcher.act(order);
+    }
     private final NetworkCodec networkCodec = new NetworkCodec();
     private final FareCodec fareCodec = new FareCodec();
 

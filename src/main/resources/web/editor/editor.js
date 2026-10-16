@@ -376,7 +376,8 @@
     { id: 'displays', label: 'Displays', count: function () { return keys(doc().displays).length; } },
     { id: 'spacer' },
     { id: 'settings', label: 'Settings', count: function () { return configDirty() ? 'edited' : ''; } },
-    { id: 'check', label: 'Check' }
+    { id: 'check', label: 'Check' },
+    { id: 'dispatch', label: 'Dispatch', count: function () { return dispatch.live && dispatch.live.trains ? dispatch.live.trains.length : ''; } }
   ];
 
   // ---- Chrome: header, rail, save bar ---------------------------------------------------------
@@ -487,6 +488,7 @@
       case 'diagram': html = diagramView(); break;
       case 'displays': html = displaysView(); break;
       case 'settings': html = settingsView(); break;
+      case 'dispatch': html = dispatchView(); break;
       default: html = checkView();
     }
     pane.innerHTML = remoteNotice() + '<div class="pane-inner">' + html + '</div>';
@@ -1145,6 +1147,138 @@
     });
   }
 
+  // ---- Dispatch --------------------------------------------------------------------------------
+
+  var dispatch = { live: null, state: null, timer: null, loading: false, error: null, at: 0 };
+
+  function dispatchPoll(force) {
+    clearTimeout(dispatch.timer);
+    if (state.section !== 'dispatch') return;
+    dispatch.timer = setTimeout(function () { dispatchPoll(false); }, 3000);
+    if (dispatch.loading && !force) return;
+    if (document.hidden) return;
+    dispatch.loading = true;
+    Promise.all([request('GET', '/api/live'), request('GET', '/api/dispatch')]).then(function (results) {
+      dispatch.live = results[0];
+      dispatch.state = results[1];
+      dispatch.error = null;
+      dispatch.at = Date.now();
+      dispatch.loading = false;
+      if (state.section === 'dispatch') renderDispatchLive();
+    }).catch(function (error) {
+      dispatch.loading = false;
+      dispatch.error = error.message;
+      if (state.section === 'dispatch') renderDispatchLive();
+    });
+  }
+
+  function order(body, done) {
+    return request('POST', '/api/dispatch', body).then(function (result) {
+      if (result.state) dispatch.state = result.state;
+      toast(done || ('Done: ' + (result.done || body.action)));
+      dispatchPoll(true);
+    }).catch(function (error) { toast(error.message, 'bad'); });
+  }
+
+  function dispatchView() {
+    dispatchPoll(true);
+    return '<h2 class="title">Dispatch</h2><p class="lede">Every train live, with what holds it. Orders take effect at once and are logged. '
+      + 'A hold keeps a train at its current or next station sign; a skip makes it run through a station once, and riders are told.</p>'
+      + '<div id="dispatch-live">' + dispatchLiveHtml() + '</div>';
+  }
+
+  function renderDispatchLive() {
+    var holder = $('dispatch-live');
+    if (!holder) return;
+    var open = {};
+    Array.prototype.forEach.call(holder.querySelectorAll('details'), function (d) { if (d.open && d.id) open[d.id] = true; });
+    var focused = document.activeElement && document.activeElement.closest && document.activeElement.closest('#dispatch-live');
+    if (focused && document.activeElement.tagName !== 'BUTTON') return;
+    holder.innerHTML = dispatchLiveHtml();
+    Object.keys(open).forEach(function (id) { var d = $(id); if (d) d.open = true; });
+    renderRail();
+  }
+
+  function fmtWhen(ms) {
+    var d = new Date(ms);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
+  }
+
+  function dispatchLiveHtml() {
+    var live = dispatch.live, st = dispatch.state;
+    if (dispatch.error && !live) return '<div class="notice bad"><div class="main"><b>No live data</b>' + esc(dispatch.error) + '</div></div>';
+    if (!live || !st) return '<p class="empty">Loading live data&hellip;</p>';
+    var html = '';
+    var age = Math.round((Date.now() - dispatch.at) / 1000);
+    html += '<div class="group-head"><span>Lines</span><span class="hint" style="margin:0">' + (dispatch.error ? 'offline' : 'updated ' + (age < 2 ? 'just now' : age + ' s ago')) + '</span></div>';
+    html += '<ul class="rows">' + (st.lines || []).map(function (l) {
+      return '<li><div class="row" style="cursor:default">' + ATCSMap.bullet({ id: l.id, short: l.short, name: l.name, color: l.color }, 26)
+        + '<span class="main"><span class="name">' + esc(l.name) + (l.suspended ? ' <span class="tag bad">suspended</span>' : '') + '</span>'
+        + (l.suspended ? '<span class="meta">' + esc(l.suspended) + '</span>' : '') + '</span><span class="end">'
+        + (l.suspended ? '<button type="button" class="button small secondary" data-act="dispatch-resume" data-line="' + esc(l.id) + '">Resume</button>'
+          : '<button type="button" class="button small secondary" data-act="dispatch-suspend" data-line="' + esc(l.id) + '">Suspend</button>') + '</span></div></li>';
+    }).join('') + '</ul>';
+
+    var trains = (live.trains || []).slice().sort(function (a, b) { return (a.line + a.name).localeCompare(b.line + b.name); });
+    html += '<div class="group-head"><span>Trains in service (' + trains.length + ')</span></div>';
+    if (!trains.length) html += '<p class="empty">No train is running a service.</p>';
+    html += '<ul class="rows">' + trains.map(function (t) {
+      var entry = serviceIndexOf(t.key), line = lineView(t.line);
+      var stops = entry ? entry.stops : [];
+      var where = t.at ? 'At ' + esc(stationName(t.at)) + (t.platform ? ' <span class="platform">P' + esc(t.platform) + '</span>' : '')
+        : (t.next >= 0 && stops[t.next] ? 'Next ' + esc(stationName(parseStop(stops[t.next]).station)) + (typeof t.eta === 'number' ? ' in ' + Math.round(t.eta) + ' s' : '') : '');
+      var hold = st.holds && st.holds[t.name];
+      var skips = st.skips && st.skips[t.name];
+      var flags = (hold ? '<span class="tag warn" title="' + esc(hold) + '">held</span>' : '') + (t.late ? '<span class="tag bad">late</span>' : '')
+        + (t.held && !hold ? '<span class="tag soft">waiting</span>' : '') + (skips ? '<span class="tag soft">skips ' + esc(skips.map(stationName).join(', ')) + '</span>' : '');
+      var nextStations = [];
+      if (entry && t.next >= 0) {
+        var i = t.next, guard = 0;
+        while (i >= 0 && guard++ < stops.length) { var s = parseStop(stops[i]); if (!s.pass) nextStations.push(s.station); i = i + 1 < stops.length ? i + 1 : (entry.circular ? 0 : -1); if (nextStations.length >= 6) break; }
+      }
+      return '<li><div class="row" style="cursor:default;flex-wrap:wrap">' + bullet(t.line, 24) + '<span class="main"><span class="name">' + esc(t.name) + ' ' + flags + '</span>'
+        + '<span class="meta">' + esc((entry ? entry.name : t.service) + ' to ' + t.destination) + ' · ' + where + '</span>'
+        + (hold ? '<span class="meta">Hold: ' + esc(hold) + '</span>' : '') + '</span><span class="end">'
+        + (hold ? '<button type="button" class="button small" data-act="dispatch-release" data-train="' + esc(t.name) + '">Release</button>'
+          : '<button type="button" class="button small secondary" data-act="dispatch-hold" data-train="' + esc(t.name) + '">Hold</button>')
+        + (nextStations.length ? '<select class="input" style="width:auto;padding:7px 28px 7px 9px;font-size:13px" data-act-change="dispatch-skip" data-train="' + esc(t.name) + '" aria-label="Run through a station">'
+          + '<option value="">Skip&hellip;</option>' + nextStations.map(function (id) { return '<option value="' + esc(id) + '">' + esc(stationName(id)) + '</option>'; }).join('') + '</select>' : '')
+        + '</span></div></li>';
+    }).join('') + '</ul>';
+
+    var blockIds = keys(st.blocks);
+    html += '<details id="d-blocks" class="card" style="margin-top:16px"><summary class="row" style="cursor:pointer"><span class="name">Blocks (' + blockIds.length + ' occupied)</span></summary><div class="card-body">'
+      + (blockIds.length ? '<ul class="coords">' + blockIds.map(function (id) { return '<li><span class="value" style="font-family:var(--font)"><b>' + esc(id) + '</b> · ' + esc(st.blocks[id].train) + ' since ' + fmtWhen(st.blocks[id].since) + '</span></li>'; }).join('') + '</ul>'
+        : '<p class="empty">Every block is free.' + (st.junctionPriority ? ' Junction priority is on.' : '') + '</p>') + '</div></details>';
+
+    var switches = st.switches || [];
+    html += '<details id="d-switches" class="card" style="margin-top:10px"><summary class="row" style="cursor:pointer"><span class="name">Switch signs (' + switches.length + ' loaded)</span></summary><div class="card-body">'
+      + (switches.length ? '<ul class="rows">' + switches.map(function (s) {
+        return '<li><div class="row" style="cursor:default;flex-wrap:wrap"><span class="main"><span class="name mono">' + esc(s.at) + (s.set ? ' <span class="tag warn">set ' + esc(s.set) + ' until ' + fmtWhen(s.until) + '</span>' : '') + '</span>'
+          + '<span class="meta">' + esc(s.rules) + '</span></span><span class="end">'
+          + (s.set ? '<button type="button" class="button small" data-act="dispatch-clear-switch" data-sign="' + esc(s.at) + '">Let rules decide</button>'
+            : '<select class="input" style="width:auto;padding:7px 28px 7px 9px;font-size:13px" data-act-change="dispatch-switch" data-sign="' + esc(s.at) + '" aria-label="Set direction"><option value="">Set&hellip;</option>'
+              + ['left', 'right', 'continue', 'north', 'east', 'south', 'west'].map(function (h) { return '<option value="' + h + '">' + h + ' for 10 min</option>'; }).join('') + '</select>')
+          + '</span></div></li>';
+      }).join('') + '</ul>' : '<p class="empty">No switch sign is in a loaded chunk.</p>') + '</div></details>';
+
+    var events = (st.events || []).slice().reverse();
+    html += '<details id="d-events" class="card" style="margin-top:10px" open><summary class="row" style="cursor:pointer"><span class="name">Recent events</span></summary><div class="card-body">'
+      + (events.length ? '<ul class="coords">' + events.slice(0, 40).map(function (e) {
+        var when = e.t ? new Date(e.t) : null;
+        var text = (e.e || '?') + (e.train ? ' ' + e.train : '') + (e.station ? ' at ' + stationName(e.station) + (e.platform ? ' P' + e.platform : '') : '')
+          + (e.block ? ' block ' + e.block : '') + (e.reason ? ': ' + e.reason : '') + (e.detail ? ': ' + e.detail : '') + (e.to ? ' -> ' + e.to : '');
+        return '<li><span class="value" style="font-family:var(--font)"><span class="mono" style="color:var(--muted)">' + (when && !isNaN(when) ? fmtWhen(when.getTime()) : '') + '</span> ' + esc(text) + '</span></li>';
+      }).join('') + '</ul>' : '<p class="empty">Nothing yet.</p>') + '</div></details>';
+    return html;
+  }
+
+  function serviceIndexOf(key) {
+    if (!key) return null;
+    var parts = key.split('/'), svc = services(parts[0])[parts[1]];
+    return svc ? { name: svc.name || parts[1], stops: svc.stops || [], circular: !!svc.circular } : null;
+  }
+
   // ---- Check -----------------------------------------------------------------------------------
 
   function checkView() {
@@ -1634,6 +1768,7 @@
     state.open = null;
     state.creating = null;
     renderPane();
+    if (section !== 'dispatch') clearTimeout(dispatch.timer);
   }
 
   function openStation(id) {
@@ -2042,7 +2177,22 @@
     restore: restore,
     'load-theirs': loadTheirs,
     'local-undo': function () { localUndo(false); },
-    'local-redo': function () { localUndo(true); }
+    'local-redo': function () { localUndo(true); },
+    'dispatch-hold': function (node) {
+      var train = data(node, 'train');
+      modal({ title: 'Hold ' + train, narrow: true, body: '<label class="field"><span>Reason shown to riders and in the log</span><input type="text" id="hold-reason" placeholder="Track inspection ahead"></label>',
+        buttons: [{ label: 'Cancel', kind: 'secondary' }, { label: 'Hold', kind: 'primary', action: function (values) { order({ action: 'hold', train: train, reason: values['hold-reason'] || '' }, 'Holding ' + train); } }] });
+      setTimeout(function () { var f = $('hold-reason'); if (f) f.focus(); }, 30);
+    },
+    'dispatch-release': function (node) { order({ action: 'release', train: data(node, 'train') }, 'Released ' + data(node, 'train')); },
+    'dispatch-suspend': function (node) {
+      var line = data(node, 'line');
+      modal({ title: 'Suspend ' + lineView(line).name, narrow: true, body: '<p>Boards show Suspended and riders of its trains see the notice. The line keeps running.</p><label class="field"><span>Notice</span><input type="text" id="suspend-notice" placeholder="Please use alternative routes."></label>',
+        buttons: [{ label: 'Cancel', kind: 'secondary' }, { label: 'Suspend', kind: 'danger', action: function (values) { order({ action: 'suspend', line: line, notice: values['suspend-notice'] || '' }, 'Suspended ' + lineView(line).name); } }] });
+      setTimeout(function () { var f = $('suspend-notice'); if (f) f.focus(); }, 30);
+    },
+    'dispatch-resume': function (node) { order({ action: 'resume', line: data(node, 'line') }, 'Resumed ' + lineView(data(node, 'line')).name); },
+    'dispatch-clear-switch': function (node) { order({ action: 'clear-switch', sign: data(node, 'sign') }, 'The switch follows its rules again'); }
   };
 
   function moveSign(node, step) {
@@ -2096,6 +2246,18 @@
         if (node.checked) list.push(pid);
         if (list.length) b.platforms = list; else delete b.platforms;
       }, { render: true, noMap: true });
+    },
+    'dispatch-skip': function (node) {
+      var train = data(node, 'train'), station = node.value;
+      if (!station) return;
+      node.value = '';
+      order({ action: 'skip', train: train, station: station }, train + ' will run through ' + stationName(station));
+    },
+    'dispatch-switch': function (node) {
+      var sign = data(node, 'sign'), heading = node.value;
+      if (!heading) return;
+      node.value = '';
+      order({ action: 'switch', sign: sign, heading: heading, minutes: 10 }, 'Set ' + heading + ' at ' + sign + ' for 10 minutes');
     },
     'pair-keep': function (node) {
       var k = data(node, 'key');
