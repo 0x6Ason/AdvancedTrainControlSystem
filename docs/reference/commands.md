@@ -29,6 +29,9 @@ AdvancedTrainControlSystem
 | `/atcs departures <station> [platform]` | `atcs.use` | Show the next departures from a station |
 | `/atcs transfer ...` | `atcs.use` | Walking transfers between nearby stations (see below) |
 | `/atcs board ...` | `atcs.manage` | Departure boards on signs (see below) |
+| `/atcs display ...` | `atcs.manage` | Pictures in item frames and hologram boards, placed with the wand (see below) |
+| `/atcs wand [pos1\|pos2\|clear\|info]` | `atcs.manage` | Get the selection wand: left click and right click two corners, then place displays or footprints |
+| `/atcs map` | `atcs.use` | Get a hand-held map of the railway that shows where you are |
 | `/atcs import ...` | `atcs.manage` | Set up the network from existing signs and running trains (see below) |
 | `/atcs fare ...` | `atcs.use` | Fares between stations: explicit pairs, zones, and a formula over the route (see below) |
 | `/atcs timing ...` | `atcs.manage` | How good the arrival estimates are, measured against real arrivals (see below) |
@@ -48,6 +51,8 @@ Stations and platforms.
 | `/atcs station remove <station> [confirm]` | `atcs.manage` | Remove a station |
 | `/atcs station bind <station> [platform]` | `atcs.manage` | Use the TrainCarts sign you look at as a platform trigger |
 | `/atcs station unbind` | `atcs.manage` | Stop using the sign you look at as a trigger |
+| `/atcs station bindall <station> [platform]` | `atcs.manage` | Bind every TrainCarts station sign in the wand selection as a platform trigger |
+| `/atcs station footprint <station> [clear]` | `atcs.manage` | Make the wand selection the station's footprint: players inside it are at the station |
 | `/atcs station convert [confirm]` | `atcs.manage` | Turn the TrainCarts station signs of the platforms in network.yml into atcs station signs |
 | `/atcs station platform <station> <platform> [name...]` | `atcs.manage` | Create or rename a platform |
 | `/atcs station locate <station>` | `atcs.manage` | Show the station on maps where you stand |
@@ -124,6 +129,22 @@ Departure boards on signs.
 | `/atcs board unbind` | `atcs.manage` | Remove the sign you look at from its board |
 | `/atcs board remove <id>` | `atcs.manage` | Remove a board (its signs keep their last text) |
 | `/atcs board list` | `atcs.manage` | List boards |
+
+## /atcs display
+
+Pictures in item frames and hologram boards, placed with the wand.
+
+| Command | Permission | |
+|---|---|---|
+| `/atcs display roadmap <line[/service]> <station> [platform]` | `atcs.manage` | Fill the selected item frames with the line's strip diagram and 'you are here' |
+| `/atcs display logo <station>` | `atcs.manage` | Fill the selected item frames with the station's logo |
+| `/atcs display board <station> [platform...]` | `atcs.manage` | Fill the selected item frames with a departure board picture that keeps updating |
+| `/atcs display map [station]` | `atcs.manage` | Fill the selected item frames with the network map, marking the station |
+| `/atcs display status` | `atcs.manage` | Fill the selected item frames with a service status panel of every line |
+| `/atcs display hologram <station> [platform...]` | `atcs.manage` | Put a floating departure board at the selection's centre, or where you look |
+| `/atcs display list` | `atcs.manage` | List displays |
+| `/atcs display remove <display>` | `atcs.manage` | Take a display down: empty its frames or remove its hologram |
+| `/atcs display redraw` | `atcs.manage` | Draw every display again, for example after changing a logo file |
 
 ## /atcs import
 

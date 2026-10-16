@@ -47,6 +47,20 @@ boards:
   # Assumed stop length used in arrival estimates until real stop lengths have been learned.
   default-dwell-seconds: 10
 
+displays:
+  # Displays are pictures on map items in item frames (/atcs display roadmap, logo, board, map,
+  # status) and hologram boards (/atcs display hologram), placed with the wand (/atcs wand).
+  # Frames that hold a display are fixed so players cannot rotate or empty them; set to false to
+  # leave them as they are.
+  fix-frames: true
+  hologram:
+    # How many departures a hologram board lists.
+    departures: 5
+    # Text size, 1 being the vanilla size.
+    scale: 1.0
+    # Whether hologram boards show through blocks.
+    see-through: false
+
 timing:
   # Between 0 and 1: how quickly learned travel times follow new measurements.
   smoothing: 0.3

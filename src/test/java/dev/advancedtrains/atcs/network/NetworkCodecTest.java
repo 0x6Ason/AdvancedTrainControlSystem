@@ -19,7 +19,8 @@ class NetworkCodecTest {
         BlockPos p2 = BlockPos.parse("world,-322,63,-798");
         Station main = new Station("main", "Main St.", Map.of(
                 "1", new Platform("1", "Eastbound", List.of(p1)),
-                "2", new Platform("2", "", List.of(p2))), BlockPos.parse("world,-320,64,-800"));
+                "2", new Platform("2", "", List.of(p2))), BlockPos.parse("world,-320,64,-800"), null,
+                Box.parse("world,-330,62,-810,-310,70,-790"));
         Station nerdy = Station.of("nerdy", "Nerdy St.").withPlatform(Platform.of("1"));
         Service north = new Service(ServiceKey.parse("a/north"), "Local",
                 List.of(Stop.parse("main:1"), Stop.parse("~nerdy"), Stop.of("nerdy")), false,
@@ -35,6 +36,12 @@ class NetworkCodecTest {
                         .withService(north).withService(south))
                 .line(Line.of("b", "Line B", 0x00AA00).withService(other))
                 .board(new Board("main-1", "main", List.of("1"), List.of(BlockPos.parse("world,-320,65,-802"))))
+                .display(new Display("main-roadmap", Display.Kind.ROADMAP, "main", List.of("1"), ServiceKey.parse("a/north"),
+                        2, 1, List.of(new Display.Frame(BlockPos.parse("world,-318,66,-802"), 0, 0, 12),
+                                new Display.Frame(BlockPos.parse("world,-317,66,-802"), 1, 0, 13)), List.of(), null))
+                .display(new Display("map", Display.Kind.MAP, null, List.of(), null, 1, 1, List.of(), List.of(20), null))
+                .display(new Display("main-hologram", Display.Kind.HOLOGRAM, "main", List.of(), null, 0, 0, List.of(), List.of(),
+                        new Display.Hologram("world", -318.5, 66, -800.5, java.util.UUID.fromString("6f3e2a4c-1b2d-4e5f-8a9b-0c1d2e3f4a5b"))))
                 .build();
 
         String yaml = codec.write(network);
@@ -45,9 +52,40 @@ class NetworkCodecTest {
         assertEquals(network.stations(), read.stations());
         assertEquals(network.lines(), read.lines());
         assertEquals(network.boards(), read.boards());
+        assertEquals(network.displays(), read.displays());
+        assertTrue(yaml.contains("footprint: world,-330,62,-810,-310,70,-790"));
         assertEquals(yaml, codec.write(read), "writing is stable");
         assertTrue(yaml.contains("continues-as: south"), "same-line continuation uses the short form");
         assertTrue(yaml.contains("continues-as: b/x"));
+    }
+
+    @Test
+    void badDisplaysAreReportedAndSkipped() {
+        String yaml = """
+                stations:
+                  main:
+                    name: Main
+                displays:
+                  good:
+                    kind: status
+                    maps: [3]
+                  nokind:
+                    kind: picture
+                    station: main
+                  noframes:
+                    kind: logo
+                    station: main
+                  badframe:
+                    kind: logo
+                    station: main
+                    frames:
+                      - at: world,1,2,3
+                """;
+        NetworkCodec.ReadResult result = codec.read(yaml);
+        assertEquals(List.of("good"), List.copyOf(result.network().displays().keySet()));
+        assertEquals(3, result.errors().size(), () -> result.errors().toString());
+        assertTrue(result.errors().get(0).startsWith("displays.nokind: Unknown display kind 'picture'"));
+        assertTrue(result.errors().get(2).contains("each frame needs"));
     }
 
     @Test

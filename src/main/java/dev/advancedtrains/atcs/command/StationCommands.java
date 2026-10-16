@@ -2,6 +2,7 @@ package dev.advancedtrains.atcs.command;
 
 import dev.advancedtrains.atcs.board.DepartureVariables;
 import dev.advancedtrains.atcs.control.StationSignConversion;
+import dev.advancedtrains.atcs.importer.ScannedSign;
 import dev.advancedtrains.atcs.importer.TrainSign;
 import dev.advancedtrains.atcs.network.BlockPos;
 import dev.advancedtrains.atcs.network.Board;
@@ -72,6 +73,20 @@ final class StationCommands {
                             default -> List.of();
                         }),
                 leaf("unbind", MANAGE, "", "Stop using the sign you look at as a trigger", context -> unbind(support, context)),
+                leaf("bindall", MANAGE, "<station> [platform]",
+                        "Bind every TrainCarts station sign in the wand selection as a platform trigger",
+                        context -> bindAll(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.stationIds();
+                            case 1 -> support.platformIds(context.argOr(0, ""));
+                            default -> List.of();
+                        }),
+                leaf("footprint", MANAGE, "<station> [clear]",
+                        "Make the wand selection the station's footprint: players inside it are at the station",
+                        context -> footprint(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.stationIds();
+                            case 1 -> List.of("clear");
+                            default -> List.of();
+                        }),
                 leaf("convert", MANAGE, "[confirm]",
                         "Turn the TrainCarts station signs of the platforms in network.yml into atcs station signs",
                         context -> convert(support, context), (context, index) -> index == 0 ? List.of("confirm") : List.of()),
@@ -180,9 +195,12 @@ final class StationCommands {
         if (found == null) {
             Location at = player.getLocation();
             String world = at.getWorld() == null ? "" : at.getWorld().getName();
-            double best = HERE_RADIUS * HERE_RADIUS;
+            // Inside a station's footprint, only that station's platforms count; the nearest wins.
+            Station inside = network.stationAt(world, at.getX(), at.getY(), at.getZ()).orElse(null);
+            double best = inside == null ? HERE_RADIUS * HERE_RADIUS : Double.MAX_VALUE;
             for (Map.Entry<BlockPos, PlatformRef> trigger : network.triggers().entrySet()) {
-                if (!trigger.getKey().world().equals(world)) {
+                if (!trigger.getKey().world().equals(world)
+                        || inside != null && !trigger.getValue().stationId().equals(inside.id())) {
                     continue;
                 }
                 double distance = trigger.getKey().distanceSquared(at.getX(), at.getY(), at.getZ());
@@ -191,9 +209,16 @@ final class StationCommands {
                     found = trigger.getValue();
                 }
             }
+            if (found == null && inside != null) {
+                context.sender().sendMessage(Chat.header(inside.name()));
+                Chat.info(context.sender(), "You are inside the footprint of " + inside.name()
+                        + ", which has no platform triggers yet. Bind its station signs with /atcs station bind or bindall.");
+                return;
+            }
         }
         if (found == null) {
-            throw new CommandError("No platform within " + HERE_RADIUS + " blocks. Stand on a platform, or look at its TrainCarts station sign.");
+            throw new CommandError("No platform within " + HERE_RADIUS + " blocks. Stand on a platform, look at its"
+                    + " TrainCarts station sign, or give the station a footprint with /atcs station footprint.");
         }
         Station station = network.station(found.stationId()).orElseThrow();
         Platform platform = station.platform(found.platformId()).orElseThrow();
@@ -353,6 +378,106 @@ final class StationCommands {
                 .station(current.station(station.id()).orElseThrow().withPlatform(platform)).build());
         Chat.success(context.sender(), "Trains at " + position.coordinates() + " are now at " + station.name()
                 + " platform " + platform.displayName());
+    }
+
+    /** Binds every TrainCarts station sign inside the wand selection, each as its own platform unless one is named. */
+    private static void bindAll(Support support, CommandContext context) throws CommandError {
+        Player player = context.player();
+        Station station = support.station(context.arg(0));
+        dev.advancedtrains.atcs.network.Box selection = DisplayCommands.selection(support, player);
+        if (selection.volume() > 200_000) {
+            throw new CommandError("That selection is " + selection.volume() + " blocks; select just the platforms");
+        }
+        World world = Bukkit.getWorld(selection.world());
+        if (world == null) {
+            throw new CommandError("World " + selection.world() + " is not loaded");
+        }
+        String fixedPlatform = context.size() > 1 ? Support.id("platform", context.arg(1)) : null;
+        Network network = support.network();
+        List<Block> signs = new ArrayList<>();
+        int already = 0;
+        for (int chunkX = selection.minX() >> 4; chunkX <= selection.maxX() >> 4; chunkX++) {
+            for (int chunkZ = selection.minZ() >> 4; chunkZ <= selection.maxZ() >> 4; chunkZ++) {
+                for (org.bukkit.block.BlockState state : world.getChunkAt(chunkX, chunkZ).getTileEntities()) {
+                    Block block = state.getBlock();
+                    BlockPos position = Support.position(block);
+                    if (!selection.contains(position) || !isTrainCartsSign(block)) {
+                        continue;
+                    }
+                    Optional<TrainSign> parsed = TrainSign.parse(new ScannedSign(position, true, plainLines(block)));
+                    if (parsed.isEmpty() || !parsed.get().action().equals("station")) {
+                        continue;
+                    }
+                    if (network.platformAt(position).isPresent()) {
+                        already++;
+                        continue;
+                    }
+                    signs.add(block);
+                }
+            }
+        }
+        if (signs.isEmpty()) {
+            throw new CommandError("No unbound TrainCarts station signs in the selection (" + selection.describe() + ")"
+                    + (already > 0 ? "; " + already + " already bound" : ""));
+        }
+        signs.sort(java.util.Comparator.comparingInt(Block::getX).thenComparingInt(Block::getZ).thenComparingInt(Block::getY));
+        List<String> bound = new ArrayList<>();
+        support.edit(current -> {
+            Station updated = current.station(station.id()).orElseThrow();
+            for (Block block : signs) {
+                BlockPos position = Support.position(block);
+                String platformId = fixedPlatform != null ? fixedPlatform
+                        : updated.platforms().isEmpty() ? "1" : nextPlatformId(updated);
+                Platform platform = updated.platform(platformId).orElse(Platform.of(platformId)).withTrigger(position);
+                updated = updated.withPlatform(platform);
+                bound.add(position.coordinates() + " -> platform " + platformId);
+            }
+            return current.toBuilder().station(updated).build();
+        });
+        Chat.success(context.sender(), "Bound " + bound.size() + " sign(s) at " + station.name()
+                + (already > 0 ? " (" + already + " were already bound)" : "") + ":");
+        bound.forEach(line -> context.sender().sendMessage(Component.text("  " + line, NamedTextColor.GRAY)));
+    }
+
+    private static List<String> plainLines(Block block) {
+        List<String> lines = new ArrayList<>();
+        if (block.getState() instanceof Sign sign) {
+            for (Component line : sign.getSide(Side.FRONT).lines()) {
+                lines.add(PlainTextComponentSerializer.plainText().serialize(line));
+            }
+        }
+        return lines;
+    }
+
+    /** Sets or clears the station's footprint from the wand selection. */
+    private static void footprint(Support support, CommandContext context) throws CommandError {
+        Station station = support.station(context.arg(0));
+        if (context.argOr(1, "").equalsIgnoreCase("clear")) {
+            support.edit(current -> current.toBuilder()
+                    .station(current.station(station.id()).orElseThrow().withFootprint(null)).build());
+            Chat.success(context.sender(), station.name() + " has no footprint any more");
+            return;
+        }
+        Player player = context.player();
+        dev.advancedtrains.atcs.network.Box selection = DisplayCommands.selection(support, player);
+        Network network = support.network();
+        for (Station other : network.stations().values()) {
+            if (other.id().equals(station.id()) || other.footprint() == null) {
+                continue;
+            }
+            dev.advancedtrains.atcs.network.Box theirs = other.footprint();
+            boolean overlaps = theirs.world().equals(selection.world())
+                    && theirs.minX() <= selection.maxX() && selection.minX() <= theirs.maxX()
+                    && theirs.minY() <= selection.maxY() && selection.minY() <= theirs.maxY()
+                    && theirs.minZ() <= selection.maxZ() && selection.minZ() <= theirs.maxZ();
+            if (overlaps) {
+                throw new CommandError("That overlaps the footprint of " + other.name() + " (" + theirs.describe() + ")");
+            }
+        }
+        support.edit(current -> current.toBuilder()
+                .station(current.station(station.id()).orElseThrow().withFootprint(selection)).build());
+        Chat.success(context.sender(), station.name() + " now occupies " + selection.describe()
+                + " (from " + support.selections().source(player) + ")");
     }
 
     private record PlannedConversion(Block block, PlatformRef platform, StationSignConversion conversion) {

@@ -17,9 +17,11 @@ import java.util.Optional;
  * @param location  optional explicit map position; otherwise derived from the platform triggers
  * @param code      optional short code for sign variables, for example {@code "gb"}; when absent
  *                  one is derived from the id (see {@link StationCodes})
+ * @param footprint optional box the station occupies, set with the wand; players inside it are at
+ *                  the station even without a sign nearby, and maps draw it as a shape
  */
 public record Station(String id, String name, Map<String, Platform> platforms, @Nullable BlockPos location,
-                      @Nullable String code) {
+                      @Nullable String code, @Nullable Box footprint) {
 
     public Station {
         id = Ids.normalize("station", id);
@@ -31,8 +33,13 @@ public record Station(String id, String name, Map<String, Platform> platforms, @
         code = code == null || code.isBlank() ? null : StationCodes.normalize(code);
     }
 
+    public Station(String id, String name, Map<String, Platform> platforms, @Nullable BlockPos location,
+                   @Nullable String code) {
+        this(id, name, platforms, location, code, null);
+    }
+
     public Station(String id, String name, Map<String, Platform> platforms, @Nullable BlockPos location) {
-        this(id, name, platforms, location, null);
+        this(id, name, platforms, location, null, null);
     }
 
     public static Station of(String id, String name) {
@@ -76,27 +83,31 @@ public record Station(String id, String name, Map<String, Platform> platforms, @
     }
 
     public Station withName(String newName) {
-        return new Station(id, newName, platforms, location, code);
+        return new Station(id, newName, platforms, location, code, footprint);
     }
 
     public Station withLocation(@Nullable BlockPos newLocation) {
-        return new Station(id, name, platforms, newLocation, code);
+        return new Station(id, name, platforms, newLocation, code, footprint);
     }
 
     /** The station with an explicit short code, or with a derived one again when {@code null}. */
     public Station withCode(@Nullable String newCode) {
-        return new Station(id, name, platforms, location, newCode);
+        return new Station(id, name, platforms, location, newCode, footprint);
+    }
+
+    public Station withFootprint(@Nullable Box newFootprint) {
+        return new Station(id, name, platforms, location, code, newFootprint);
     }
 
     public Station withPlatform(Platform platform) {
         Map<String, Platform> updated = new LinkedHashMap<>(platforms);
         updated.put(platform.id(), platform);
-        return new Station(id, name, updated, location, code);
+        return new Station(id, name, updated, location, code, footprint);
     }
 
     public Station withoutPlatform(String platformId) {
         Map<String, Platform> updated = new LinkedHashMap<>(platforms);
         updated.remove(platformId);
-        return new Station(id, name, updated, location, code);
+        return new Station(id, name, updated, location, code, footprint);
     }
 }

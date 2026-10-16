@@ -16,7 +16,9 @@ import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import dev.advancedtrains.atcs.api.FareApi;
+import dev.advancedtrains.atcs.display.DisplayService;
 import dev.advancedtrains.atcs.display.Logos;
+import dev.advancedtrains.atcs.selection.SelectionService;
 import dev.advancedtrains.atcs.fare.FareStore;
 import dev.advancedtrains.atcs.runtime.FareService;
 import dev.advancedtrains.atcs.placeholder.AtcsPlaceholders;
@@ -58,6 +60,8 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
     private AtcsSignAction signAction;
     private FareStore fares;
     private FareService fareService;
+    private DisplayService displays;
+    private SelectionService selections;
 
     @Override
     public void onEnable() {
@@ -75,6 +79,10 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
 
             TrainCartsTrains trains = new TrainCartsTrains();
             runtime = new RailwayRuntime(this, store, trains, trains, new SignLevers(), settings, messages, Clock.systemUTC());
+            displays = new DisplayService(this, settings.displays(), new Logos(dataPath().resolve("logos"), getLogger()));
+            runtime.setDisplays(displays);
+            selections = new SelectionService(this, getServer().getPluginManager().getPlugin("WorldEdit") != null);
+            getServer().getPluginManager().registerEvents(selections, this);
             runtime.start(createMap(), createSignLink(), createWeb());
             importer = new ImportService(this, store, runtime.trips()::trips,
                     settings.importer().settings(), settings.importer().chunksPerTick());
@@ -93,13 +101,15 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             TrainCarts.plugin.getSignController().redetectSignActions();
 
             PluginCommand command = Objects.requireNonNull(getCommand("atcs"), "atcs command missing from plugin.yml");
-            AtcsCommand executor = new AtcsCommand(new Support(store, runtime, trains, importer, this, fareService), getLogger());
+            AtcsCommand executor = new AtcsCommand(new Support(store, runtime, trains, importer, this, fareService, displays, selections),
+                    getLogger());
             command.setExecutor(executor);
             command.setTabCompleter(executor);
 
             Network network = store.network();
             getLogger().info("Network: " + network.stations().size() + " stations, " + network.lines().size()
-                    + " lines, " + network.services().size() + " services, " + network.boards().size() + " boards");
+                    + " lines, " + network.services().size() + " services, " + network.boards().size() + " boards, "
+                    + network.displays().size() + " displays");
             if (network.stations().isEmpty()) {
                 getLogger().info("No stations yet. Start with /atcs import scan, or /atcs station create.");
             }
@@ -176,7 +186,8 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         int platforms = network.stations().values().stream().mapToInt(station -> station.platforms().size()).sum();
         lines.add("Network: " + network.stations().size() + " stations (" + platforms + " platforms, "
                 + network.triggers().size() + " triggers), " + network.lines().size() + " lines, "
-                + network.services().size() + " services, " + network.boards().size() + " boards");
+                + network.services().size() + " services, " + network.boards().size() + " boards, "
+                + network.displays().size() + " displays");
         if (!store.writable()) {
             lines.add("network.yml has " + store.loadErrors().size() + " error(s) and is read-only: " + store.loadErrors().get(0));
         }

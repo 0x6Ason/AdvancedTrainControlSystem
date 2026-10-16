@@ -45,6 +45,15 @@ TrainCarts server, configured with files and in-game commands.
   `atcs station` signs, keeping their delay, direction, `route`, offset, launch distance and speed,
   and leaves every other sign (refill stops, test stations) alone. Without `confirm` it only lists
   what it would change.
+- The wand: `/atcs wand` selects two corners (WorldEdit's selection is used when there is one);
+  `/atcs station footprint` records the box a station occupies, used by `/atcs station here` and
+  drawn on BlueMap, and `/atcs station bindall` binds every TrainCarts station sign in it at once.
+- Displays: `/atcs display roadmap|logo|board|map|status` fill the item frames you selected with
+  one picture drawn on map items (a strip diagram with "you are here", the station logo, a
+  departure board that keeps updating, the network map along the recorded track, a service status
+  panel); `/atcs display hologram` places a floating departure board on a text display entity;
+  `/atcs map` hands out a map of the railway that shows where you are. All recorded under
+  `displays:` in network.yml, redrawn after restarts, removed with `/atcs display remove`.
 - Station logos and line badges, generated from the network (a ring in the line colours with the
   station's short code), with `logos/<station>.png` and `logos/line-<id>.png` as overrides.
 - BlueMap: one marker set per line plus Stations, Walking transfers and Trains; stations drawn as

@@ -25,7 +25,7 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
 
 | Package | Role |
 |---|---|
-| `network` | Immutable model (`Network`, `Station`, `Platform`, `Line`, `Service`, `Stop`, `Board`), YAML codec, and `NetworkStore` which owns `network.yml` |
+| `network` | Immutable model (`Network`, `Station`, `Platform`, `Line`, `Service`, `Stop`, `Board`, `Display`, `Box`), YAML codec, and `NetworkStore` which owns `network.yml` |
 | `operation` | The railway logic: `JourneyTracker` (where each train is on its service), `ServiceResolver` (which service a train runs), `TravelTimes` and `EtaCalculator` (learned times and estimates), `Departures`, `TrackPaths` (recorded track for maps), `TripLog` and `RouteSuggester` (service suggestions), `AtcsSign` (sign text) |
 | `control` | What `atcs station` and `atcs switch` signs decide: `StationControl` (stop or run through, headway and section holds), `StopOptions` and `SwitchRules` (sign text) |
 | `importer` | Drafting stations from signs (`StationImporter`), the loaded-chunk `SignScanner`, the proposal file and merging it into the network |
@@ -33,6 +33,8 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
 | `traincarts` | The only package that imports TrainCarts: event listener, the `atcs` sign action, and the `TrainHandle` implementation |
 | `passenger` | Boss bars, titles, chat, action bar and sounds for riders |
 | `board` | Sign departure boards and SignLink variables |
+| `display` | Logos, and the displays in the world: `DisplayRenderer` draws roadmaps, boards, maps and status panels as pictures, `DisplayService` puts them on map items in item frames and keeps hologram boards on text display entities |
+| `selection` | The wand: each player's two corners, or WorldEdit's selection when it has one |
 | `map` | `MapLayer` and `MapGeometry` (what to draw), `BlueMapLayer` (how) |
 | `command` | The `/atcs` command tree |
 | `config` | `config.yml` and `messages.yml` |

@@ -1,6 +1,7 @@
 package dev.advancedtrains.atcs.runtime;
 
 import dev.advancedtrains.atcs.board.BoardService;
+import dev.advancedtrains.atcs.display.DisplayService;
 import dev.advancedtrains.atcs.board.SignLinkPublisher;
 import dev.advancedtrains.atcs.config.AtcsSettings;
 import dev.advancedtrains.atcs.config.Messages;
@@ -170,6 +171,7 @@ public final class RailwayRuntime {
     private final TrackPaths paths = new TrackPaths();
     private final TripLog trips = new TripLog();
     private final BoardService boards;
+    private @Nullable DisplayService displays;
     private final Map<String, Set<BlockPos>> observedTriggers = new HashMap<>();
     private final List<BukkitTask> tasks = new ArrayList<>();
     /** Writes learned data in order, off the server thread; drained before the final save. */
@@ -233,6 +235,9 @@ public final class RailwayRuntime {
             mapDirty = true;
             webDirty = true;
             boards.invalidate();
+            if (displays != null) {
+                displays.networkChanged();
+            }
             List<JourneyEvent> relocated = tracker.relocate(network, clock.instant());
             if (debug && !relocated.isEmpty()) {
                 logger.info("[debug] network changed -> " + relocated);
@@ -240,6 +245,11 @@ public final class RailwayRuntime {
             assignFromNewSpawnSigns(network);
             refreshHeldChunks(network);
         });
+    }
+
+    /** The displays in the world (map pictures and holograms), refreshed with the boards. */
+    public void setDisplays(@Nullable DisplayService displayService) {
+        this.displays = displayService;
     }
 
     public void start(@Nullable MapLayer mapLayer, @Nullable SignLinkPublisher signLinkPublisher,
@@ -304,6 +314,9 @@ public final class RailwayRuntime {
         estimates = null;
         display.configure(newSettings.passenger(), newMessages);
         boards.invalidate();
+        if (displays != null) {
+            displays.reconfigure(newSettings.displays());
+        }
         map = mapLayer;
         signLink = signLinkPublisher;
         if (web != null) {
@@ -1072,7 +1085,8 @@ public final class RailwayRuntime {
 
     private void refreshBoards() {
         Network network = store.network();
-        if (network.boards().isEmpty() && signLink == null) {
+        DisplayService displayService = displays;
+        if (network.boards().isEmpty() && signLink == null && (displayService == null || network.displays().isEmpty())) {
             return;
         }
         Collection<JourneySnapshot> journeys = tracker.snapshots();
@@ -1083,6 +1097,10 @@ public final class RailwayRuntime {
             if (signLink != null) {
                 signLink.publish(network, messages, settings.signLink().departuresPerStation(), stationId ->
                         byStation.computeIfAbsent(stationId, id -> departures(id, platform -> true, journeys)));
+            }
+            if (displayService != null && !network.displays().isEmpty()) {
+                displayService.tick(network, messages, paths, new Locator(network), (stationId, platformFilter, count) ->
+                        departures(stationId, platformFilter, journeys).stream().limit(count).toList());
             }
         } catch (RuntimeException exception) {
             logger.log(Level.WARNING, "Could not update departure displays", exception);

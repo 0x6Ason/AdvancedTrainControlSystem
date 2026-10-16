@@ -49,7 +49,7 @@ public final class ReferenceDocs {
     // ---------------------------------------------------------------- commands
 
     static String commands() {
-        AtcsCommand command = new AtcsCommand(new Support(null, null, null, null, null, null), Logger.getLogger("atcs-docs"));
+        AtcsCommand command = new AtcsCommand(new Support(null, null, null, null, null, null, null, null), Logger.getLogger("atcs-docs"));
         StringBuilder text = new StringBuilder(GENERATED);
         text.append("# Commands\n\n");
         text.append("Every command starts with `/atcs` (alias `/traincontrol`). `/atcs help` and `/atcs <group> help` list what you may use. ");

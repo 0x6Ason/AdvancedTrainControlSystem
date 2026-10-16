@@ -23,6 +23,9 @@ repositories {
     maven("https://repo.extendedclip.com/releases/") {
         name = "ExtendedClip"
     }
+    maven("https://maven.enginehub.org/repo/") {
+        name = "EngineHub"
+    }
 }
 
 dependencies {
@@ -37,6 +40,8 @@ dependencies {
     compileOnly("com.bergerkiller.bukkit:SignLink:1.21.5-v1") { isTransitive = false }
     compileOnly("de.bluecolored:bluemap-api:2.7.3")
     compileOnly("me.clip:placeholderapi:2.11.6")
+    compileOnly("com.sk89q.worldedit:worldedit-core:7.3.9") { isTransitive = false }
+    compileOnly("com.sk89q.worldedit:worldedit-bukkit:7.3.9") { isTransitive = false }
 
     testImplementation(platform("org.junit:junit-bom:5.13.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
@@ -113,6 +118,19 @@ val generateDocs by tasks.registering(JavaExec::class) {
     classpath = sourceSets.test.get().runtimeClasspath
     mainClass.set("dev.advancedtrains.atcs.command.ReferenceDocs")
     args("docs/reference")
+    workingDir = projectDir
+}
+
+// Renders sample displays (roadmap, board, map, status, logo) into docs/images/displays from the
+// staging network fixture, for the documentation. Not checked by a test: text rendering differs
+// slightly between JDKs.
+val generatePreviews by tasks.registering(JavaExec::class) {
+    group = "documentation"
+    description = "Renders sample display pictures under docs/images/displays."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("dev.advancedtrains.atcs.display.DisplayPreviews")
+    args("docs/images/displays")
     workingDir = projectDir
 }
 

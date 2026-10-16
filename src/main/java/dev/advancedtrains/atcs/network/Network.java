@@ -29,6 +29,7 @@ public final class Network {
     private final Map<String, String> codes;
     private final Map<BlockPos, PlatformRef> triggers;
     private final Map<BlockPos, String> boardSigns;
+    private final Map<String, Display> displays;
     private final Map<BlockPos, ServiceKey> spawnSigns;
     private final Map<ServiceKey, Service> services;
     private final Map<String, List<Line>> linesByStation;
@@ -126,6 +127,23 @@ public final class Network {
         }
         this.boardSigns = Collections.unmodifiableMap(boardIndex);
 
+        this.displays = Collections.unmodifiableMap(new LinkedHashMap<>(builder.displays));
+        for (Display display : displays.values()) {
+            if (display.stationId() != null && !stations.containsKey(display.stationId())) {
+                problems.add("Display " + display.id() + " is at unknown station '" + display.stationId() + "'");
+            } else if (display.stationId() != null) {
+                Station station = stations.get(display.stationId());
+                for (String platformId : display.platforms()) {
+                    if (!station.platforms().containsKey(platformId)) {
+                        problems.add("Display " + display.id() + " filters unknown platform '" + platformId + "'");
+                    }
+                }
+            }
+            if (display.service() != null && !serviceIndex.containsKey(display.service())) {
+                problems.add("Display " + display.id() + " draws unknown service " + display.service());
+            }
+        }
+
         this.transfers = List.copyOf(builder.transfers.values());
         Map<String, List<Transfer>> walkIndex = new HashMap<>();
         for (Transfer transfer : transfers) {
@@ -152,8 +170,28 @@ public final class Network {
         builder.stations.putAll(stations);
         builder.lines.putAll(lines);
         builder.boards.putAll(boards);
+        builder.displays.putAll(displays);
         transfers.forEach(transfer -> builder.transfers.put(transfer.key(), transfer));
         return builder;
+    }
+
+    public Map<String, Display> displays() {
+        return displays;
+    }
+
+    public Optional<Display> display(String id) {
+        return Optional.ofNullable(displays.get(id));
+    }
+
+    /** The station whose footprint contains the position, if any. */
+    public Optional<Station> stationAt(String world, double x, double y, double z) {
+        for (Station station : stations.values()) {
+            Box footprint = station.footprint();
+            if (footprint != null && footprint.contains(world, x, y, z)) {
+                return Optional.of(station);
+            }
+        }
+        return Optional.empty();
     }
 
     public Map<String, Station> stations() {
@@ -267,9 +305,20 @@ public final class Network {
         private final Map<String, Station> stations = new LinkedHashMap<>();
         private final Map<String, Line> lines = new LinkedHashMap<>();
         private final Map<String, Board> boards = new LinkedHashMap<>();
+        private final Map<String, Display> displays = new LinkedHashMap<>();
         private final Map<String, Transfer> transfers = new LinkedHashMap<>();
 
         private Builder() {
+        }
+
+        public Builder display(Display display) {
+            displays.put(display.id(), display);
+            return this;
+        }
+
+        public Builder removeDisplay(String id) {
+            displays.remove(id);
+            return this;
         }
 
         /** Adds a walking transfer, replacing one between the same two stations. */

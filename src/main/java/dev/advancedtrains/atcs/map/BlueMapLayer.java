@@ -4,12 +4,15 @@ import com.flowpowered.math.vector.Vector3d;
 import de.bluecolored.bluemap.api.BlueMapAPI;
 import de.bluecolored.bluemap.api.BlueMapMap;
 import de.bluecolored.bluemap.api.BlueMapWorld;
+import de.bluecolored.bluemap.api.markers.ExtrudeMarker;
 import de.bluecolored.bluemap.api.markers.LineMarker;
 import de.bluecolored.bluemap.api.markers.MarkerSet;
 import de.bluecolored.bluemap.api.markers.POIMarker;
 import de.bluecolored.bluemap.api.math.Color;
+import de.bluecolored.bluemap.api.math.Shape;
 import dev.advancedtrains.atcs.config.AtcsSettings;
 import dev.advancedtrains.atcs.display.Logos;
+import dev.advancedtrains.atcs.network.Box;
 import dev.advancedtrains.atcs.network.Line;
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.Service;
@@ -188,6 +191,22 @@ public final class BlueMapLayer implements MapLayer {
                 marker.setDetail(base + "</div>");
                 stationMarkers.put(point.station().id(), marker);
                 set(sets, STATIONS_SET, "Stations", point.position().world()).put("station_" + point.station().id(), marker);
+                Box footprint = point.station().footprint();
+                if (footprint != null) {
+                    int rgb = point.lines().isEmpty() ? 0x9E9E9E : point.lines().get(0).color();
+                    ExtrudeMarker shape = ExtrudeMarker.builder()
+                            .label(point.station().name())
+                            .shape(Shape.createRect(footprint.minX(), footprint.minZ(), footprint.maxX() + 1, footprint.maxZ() + 1),
+                                    footprint.minY(), footprint.maxY() + 1)
+                            .centerPosition()
+                            .fillColor(new Color(rgb, 0.18f))
+                            .lineColor(new Color(rgb, 0.8f))
+                            .lineWidth(2)
+                            .depthTestEnabled(true)
+                            .build();
+                    shape.setDetail(base + "</div>");
+                    set(sets, STATIONS_SET, "Stations", footprint.world()).put("footprint_" + point.station().id(), shape);
+                }
             }
         }
         networkSets.forEach((id, old) -> detach(old, id));

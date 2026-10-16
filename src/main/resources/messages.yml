@@ -44,6 +44,13 @@ passenger:
   # Lines reached through a walking transfer, as part of <interchanges>. <lines>, <station>.
   interchange-walk: "<lines> <gray>(walk to <station>)</gray>"
 
+hologram:
+  # A hologram board (/atcs display hologram): the header, then one line per departure.
+  header: "<white><b><station></b></white><platform_suffix>"
+  platform-suffix: " <gray>Platform <platform></gray>"
+  departure: "<line_color><b><line_short></b></line_color> <white><destination></white>  <status>  <dark_gray>P<platform></dark_gray>"
+  empty: "<gray>No departures</gray>"
+
 board:
   # Each board sign shows one departure on its four lines.
   departure:

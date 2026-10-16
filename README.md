@@ -285,6 +285,38 @@ Boards show the line badge, service, destination, a countdown (or *Arriving* / *
 platform. The layout is in `messages.yml`.
 
 <!-- --8<-- [end:boards] -->
+<!-- --8<-- [start:displays] -->
+## Displays and the wand
+
+Pictures on map items in item frames, and floating hologram boards, placed where you select.
+
+```
+/atcs wand                               (a wand: left click one corner, right click the other)
+/atcs display roadmap 1/north main 1     (the selected frames show line 1's strip diagram, "you are here" at Main St.)
+/atcs display logo main                  (the station's logo)
+/atcs display board main 1               (a departure board picture that keeps updating)
+/atcs display map main                   (the network map, marking Main St.)
+/atcs display status                     (every line and whether it runs)
+/atcs display hologram main 1            (a floating departure board at the selection's centre, or where you look)
+/atcs display list | remove <id> | redraw
+/atcs map                                (a hand-held map of the railway that shows where you are)
+```
+
+Hang the item frames first, as many as you like in a rectangle on one wall: a roadmap reads best
+on a row of four, a logo on one, a board on two by two. ATCS fills them as one picture, fixes the
+frames so players cannot turn or empty them (`displays.fix-frames`), records the display under
+`displays:` in `network.yml` and draws it again after a restart. Roadmaps, logos and maps are
+drawn again when the network changes, boards and holograms whenever a departure changes. When
+WorldEdit is installed its selection is used instead of the wand's whenever you have one.
+
+The wand also gives a station a footprint and binds signs in bulk:
+
+```
+/atcs station footprint main    (players inside are at Main St. for /atcs station here; BlueMap draws the box)
+/atcs station bindall main      (every TrainCarts station sign in the selection becomes a platform trigger)
+```
+
+<!-- --8<-- [end:displays] -->
 <!-- --8<-- [start:commands] -->
 ## Commands
 
@@ -292,7 +324,7 @@ platform. The layout is in `messages.yml`.
 |---|---|---|
 | `/atcs departures <station> [platform]` | atcs.use | Next departures |
 | `/atcs station list\|info\|here` | atcs.use | Stations; `here` names the platform you stand on |
-| `/atcs station create\|rename\|remove\|bind\|unbind\|platform\|locate\|code\|convert` | atcs.manage | Edit stations; `convert` rewrites TrainCarts station signs as `atcs station` signs |
+| `/atcs station create\|rename\|remove\|bind\|unbind\|bindall\|footprint\|platform\|locate\|code\|convert` | atcs.manage | Edit stations; `bindall` and `footprint` use the wand selection; `convert` rewrites TrainCarts station signs as `atcs station` signs |
 | `/atcs line list\|info` | atcs.use | Lines |
 | `/atcs line create\|rename\|color\|badge\|addstop\|suspend\|resume\|remove` | atcs.manage | Edit lines; `addstop` adds a stop to every service running between two stations |
 | `/atcs service info` | atcs.use | A service and what has been learned about it |
@@ -302,6 +334,9 @@ platform. The layout is in `messages.yml`.
 | `/atcs transfer list` | atcs.use | Walking transfers |
 | `/atcs transfer add\|remove` | atcs.manage | Edit walking transfers |
 | `/atcs board create\|add\|unbind\|remove\|list` | atcs.manage | Departure boards |
+| `/atcs wand [pos1\|pos2\|clear\|info]` | atcs.manage | The selection wand |
+| `/atcs display roadmap\|logo\|board\|map\|status\|hologram\|list\|remove\|redraw` | atcs.manage | Pictures in the selected item frames and hologram boards |
+| `/atcs map` | atcs.use | A hand-held map of the railway |
 | `/atcs import scan\|stations\|services\|write\|apply\|reset` | atcs.manage | Set-up from the world |
 | `/atcs fare check\|info` | atcs.use | The fare between two stations and how it was worked out |
 | `/atcs fare generate\|apply\|set\|zone\|zonefare\|formula\|currency` | atcs.manage | Edit fares |
@@ -346,9 +381,9 @@ All in `plugins/AdvancedTrainControlSystem/`:
 
 | File | |
 |---|---|
-| `config.yml` | Behaviour: what passengers see, sounds, boards, BlueMap, SignLink, website, importer |
-| `messages.yml` | Every passenger text and the board layout, in [MiniMessage](https://docs.advntr.dev/minimessage/format.html) |
-| `network.yml` | Stations, lines, services and boards. Edit in game or by hand, then `/atcs reload` |
+| `config.yml` | Behaviour: what passengers see, sounds, boards, displays, BlueMap, SignLink, website, importer |
+| `messages.yml` | Every passenger text and the board and hologram layouts, in [MiniMessage](https://docs.advntr.dev/minimessage/format.html) |
+| `network.yml` | Stations, lines, services, boards and displays. Edit in game or by hand, then `/atcs reload` |
 | `fares.yml` | Fares: pairs, zones and the formula. Edit in game or by hand, then `/atcs reload` |
 | `fare-matrix.yml` | The draft `/atcs fare generate` writes and `/atcs fare apply` loads |
 | `import-proposal.yml` | Written by `/atcs import write` for review |
@@ -403,7 +438,8 @@ BlueMap's own menu toggles each. Stations are their logos: a ring in the colours
 calling there with the station's short code, generated from the network, and stations served by
 one line fade out when the map is far out so interchanges and ends stand out. A station's popup
 lists its next departures and links to the website; a train's shows where it is going and when it
-is due, and trains are drawn as their line's badge. Your own pictures replace any logo: put
+is due, and trains are drawn as their line's badge. A station with a footprint (`/atcs station
+footprint`) is also drawn as a translucent box. Your own pictures replace any logo: put
 `<station>.png` or `line-<id>.png` into the plugin's `logos/` folder.
 
 **SignLink** — publishes the next departures of every station and every platform as variables

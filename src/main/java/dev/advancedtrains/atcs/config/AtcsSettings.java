@@ -20,6 +20,7 @@ import java.util.Locale;
 public record AtcsSettings(
         Passenger passenger,
         Boards boards,
+        Displays displays,
         Timing timing,
         BlueMap blueMap,
         SignLink signLink,
@@ -51,6 +52,17 @@ public record AtcsSettings(
             @Nullable Sound arrivalSound,
             @Nullable Sound departureSound,
             @Nullable Sound approachingSound) {
+    }
+
+    /**
+     * Displays in the world: pictures on map items in item frames, and hologram boards.
+     *
+     * @param fixFrames          whether frames that hold a display are fixed so players cannot rotate or empty them
+     * @param hologramDepartures how many departures a hologram board lists
+     * @param hologramScale      text size of hologram boards, 1 being the vanilla size
+     * @param hologramSeeThrough whether hologram boards show through blocks
+     */
+    public record Displays(boolean fixFrames, int hologramDepartures, double hologramScale, boolean hologramSeeThrough) {
     }
 
     public record Boards(int refreshTicks, double defaultDwellSeconds) {
@@ -162,6 +174,11 @@ public record AtcsSettings(
         Boards boards = new Boards(
                 reader.integer("boards.refresh-ticks", 20, 5, 1200),
                 reader.decimal("boards.default-dwell-seconds", 10, 0, 600));
+        Displays displays = new Displays(
+                reader.bool("displays.fix-frames", true),
+                reader.integer("displays.hologram.departures", 5, 1, 20),
+                reader.decimal("displays.hologram.scale", 1.0, 0.25, 8),
+                reader.bool("displays.hologram.see-through", false));
         Timing timing = new Timing(
                 reader.decimal("timing.smoothing", 0.3, 0.01, 1),
                 reader.integer("timing.save-interval-minutes", 5, 1, 1440));
@@ -225,7 +242,7 @@ public record AtcsSettings(
                 reader.bool("logging.positions", false),
                 reader.integer("logging.max-megabytes", 8, 1, 512));
 
-        return new AtcsSettings(passenger, boards, timing, blueMap, signLink, web, importer, assignment, trains, spawning,
+        return new AtcsSettings(passenger, boards, displays, timing, blueMap, signLink, web, importer, assignment, trains, spawning,
                 control, logging, reader.bool("debug", false), List.copyOf(warnings));
     }
 

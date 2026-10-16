@@ -4,12 +4,15 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Reads and writes {@code network.yml}.
@@ -78,6 +81,18 @@ public final class NetworkCodec {
                 }
             }
         }
+        ConfigurationSection displays = root.getConfigurationSection("displays");
+        if (displays != null) {
+            Set<String> seenDisplays = new HashSet<>();
+            for (String displayKey : displays.getKeys(false)) {
+                Display display = readDisplay(displays, displayKey, errors);
+                if (display != null && !seenDisplays.add(display.id())) {
+                    errors.add("displays." + displayKey + ": duplicate display id '" + display.id() + "' (ids are case-insensitive)");
+                } else if (display != null) {
+                    builder.display(display);
+                }
+            }
+        }
         Set<String> walks = new HashSet<>();
         for (Transfer transfer : readTransfers(root, errors)) {
             if (!walks.add(transfer.key())) {
@@ -87,6 +102,53 @@ public final class NetworkCodec {
             }
         }
         return new ReadResult(builder.build(), errors);
+    }
+
+    private static @Nullable Display readDisplay(ConfigurationSection section, String key, List<String> errors) {
+        String path = "displays." + key;
+        ConfigurationSection node = section.getConfigurationSection(key);
+        if (node == null) {
+            errors.add(path + ": expected a section");
+            return null;
+        }
+        try {
+            Display.Kind kind = Display.Kind.parse(node.getString("kind", ""));
+            String serviceText = node.getString("service");
+            ServiceKey service = serviceText == null || serviceText.isBlank() ? null : ServiceKey.parse(serviceText);
+            List<Display.Frame> frames = new ArrayList<>();
+            for (Map<?, ?> item : node.getMapList("frames")) {
+                Object at = item.get("at");
+                Object map = item.get("map");
+                if (at == null || !(map instanceof Number)) {
+                    throw new IllegalArgumentException("each frame needs 'at: world,x,y,z' and 'map: id'");
+                }
+                frames.add(new Display.Frame(BlockPos.parse(String.valueOf(at)),
+                        item.get("column") instanceof Number column ? column.intValue() : 0,
+                        item.get("row") instanceof Number row ? row.intValue() : 0,
+                        ((Number) map).intValue()));
+            }
+            int columns = node.getInt("columns", frames.stream().mapToInt(Display.Frame::column).max().orElse(-1) + 1);
+            int rows = node.getInt("rows", frames.stream().mapToInt(Display.Frame::row).max().orElse(-1) + 1);
+            Display.Hologram hologram = null;
+            String at = node.getString("at");
+            if (at != null && !at.isBlank()) {
+                String entity = node.getString("entity");
+                UUID uuid = null;
+                if (entity != null && !entity.isBlank()) {
+                    try {
+                        uuid = UUID.fromString(entity);
+                    } catch (IllegalArgumentException exception) {
+                        throw new IllegalArgumentException("entity '" + entity + "' is not a UUID");
+                    }
+                }
+                hologram = Display.Hologram.parse(at, uuid);
+            }
+            return new Display(key, kind, node.getString("station"), stringOrList(node, "platforms", "platform"), service,
+                    columns, rows, frames, node.getIntegerList("maps"), hologram);
+        } catch (IllegalArgumentException exception) {
+            errors.add(path + ": " + exception.getMessage());
+            return null;
+        }
     }
 
     private static List<Transfer> readTransfers(ConfigurationSection root, List<String> errors) {
@@ -162,12 +224,14 @@ public final class NetworkCodec {
                     }
                 }
                 String location = node.getString("location");
+                String footprint = node.getString("footprint");
                 Station station = new Station(
                         stationKey,
                         node.getString("name", ""),
                         platforms,
                         location == null || location.isBlank() ? null : BlockPos.parse(location),
-                        node.getString("code"));
+                        node.getString("code"),
+                        footprint == null || footprint.isBlank() ? null : Box.parse(footprint));
                 if (!seen.add(station.id())) {
                     throw new IllegalArgumentException("duplicate station id '" + station.id() + "' (ids are case-insensitive)");
                 }
@@ -419,6 +483,48 @@ public final class NetworkCodec {
             node.set("signs", board.signs().stream().map(BlockPos::format).toList());
         }
 
+        if (!network.displays().isEmpty()) {
+            ConfigurationSection displays = root.createSection("displays");
+            for (Display display : network.displays().values()) {
+                ConfigurationSection node = displays.createSection(display.id());
+                node.set("kind", display.kind().key());
+                if (display.stationId() != null) {
+                    node.set("station", display.stationId());
+                }
+                if (!display.platforms().isEmpty()) {
+                    node.set("platforms", display.platforms());
+                }
+                if (display.service() != null) {
+                    node.set("service", display.service().toString());
+                }
+                if (display.columns() > 0 || display.rows() > 0) {
+                    node.set("columns", display.columns());
+                    node.set("rows", display.rows());
+                }
+                if (!display.frames().isEmpty()) {
+                    List<Map<String, Object>> frames = new ArrayList<>();
+                    for (Display.Frame frame : display.frames()) {
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("at", frame.at().format());
+                        item.put("column", frame.column());
+                        item.put("row", frame.row());
+                        item.put("map", frame.map());
+                        frames.add(item);
+                    }
+                    node.set("frames", frames);
+                }
+                if (!display.maps().isEmpty()) {
+                    node.set("maps", display.maps());
+                }
+                if (display.hologram() != null) {
+                    node.set("at", display.hologram().formatPosition());
+                    if (display.hologram().entity() != null) {
+                        node.set("entity", display.hologram().entity().toString());
+                    }
+                }
+            }
+        }
+
         if (!network.transfers().isEmpty()) {
             List<Map<String, Object>> transfers = new ArrayList<>();
             for (Transfer transfer : network.transfers()) {
@@ -499,6 +605,9 @@ public final class NetworkCodec {
             }
             if (station.location() != null) {
                 node.set("location", station.location().format());
+            }
+            if (station.footprint() != null) {
+                node.set("footprint", station.footprint().format());
             }
             ConfigurationSection platforms = node.createSection("platforms");
             for (Platform platform : station.platforms().values()) {

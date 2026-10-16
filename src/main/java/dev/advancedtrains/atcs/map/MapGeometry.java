@@ -96,7 +96,7 @@ public final class MapGeometry {
      * Where several lines run the same stretch of track (same world, same two ends), draws them
      * side by side instead of on top of each other.
      */
-    static List<Segment> spread(List<Segment> segments) {
+    public static List<Segment> spread(List<Segment> segments) {
         Map<String, List<Integer>> groups = new LinkedHashMap<>();
         for (int index = 0; index < segments.size(); index++) {
             groups.computeIfAbsent(stretchKey(segments.get(index)), ignored -> new ArrayList<>()).add(index);

@@ -9,7 +9,9 @@ import dev.advancedtrains.atcs.network.NetworkStore;
 import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.network.ServiceKey;
 import dev.advancedtrains.atcs.network.Station;
+import dev.advancedtrains.atcs.display.DisplayService;
 import dev.advancedtrains.atcs.runtime.FareService;
+import dev.advancedtrains.atcs.selection.SelectionService;
 import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import dev.advancedtrains.atcs.runtime.TrainHandle;
 import dev.advancedtrains.atcs.runtime.TrainSource;
@@ -34,15 +36,27 @@ public final class Support {
     final ImportService importer;
     final PluginControl control;
     final FareService fares;
+    private final DisplayService displays;
+    private final SelectionService selections;
 
     public Support(NetworkStore store, RailwayRuntime runtime, TrainSource trains, ImportService importer, PluginControl control,
-                   FareService fares) {
+                   FareService fares, DisplayService displays, SelectionService selections) {
         this.store = store;
         this.runtime = runtime;
         this.trains = trains;
         this.importer = importer;
         this.control = control;
         this.fares = fares;
+        this.displays = displays;
+        this.selections = selections;
+    }
+
+    DisplayService displays() {
+        return displays;
+    }
+
+    SelectionService selections() {
+        return selections;
     }
 
     /** Plugin-level operations available to commands. */
