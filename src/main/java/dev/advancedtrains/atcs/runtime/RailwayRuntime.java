@@ -23,7 +23,10 @@ import dev.advancedtrains.atcs.network.ServiceKey;
 import dev.advancedtrains.atcs.network.Station;
 import dev.advancedtrains.atcs.network.Stop;
 import dev.advancedtrains.atcs.operation.Departures;
+import dev.advancedtrains.atcs.operation.ConsistentEstimates;
+import dev.advancedtrains.atcs.operation.Estimator;
 import dev.advancedtrains.atcs.operation.EtaCalculator;
+import dev.advancedtrains.atcs.operation.EtaContext;
 import dev.advancedtrains.atcs.operation.EtaSamples;
 import dev.advancedtrains.atcs.operation.JourneyEvent;
 import dev.advancedtrains.atcs.operation.JourneyPhase;
@@ -65,6 +68,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -103,6 +107,64 @@ public final class RailwayRuntime {
     private final StationControl control = new StationControl();
     /** The hold reason last logged per train, so debug output shows changes only. */
     private final Map<String, String> holdReasons = new HashMap<>();
+    /** Where each loaded train is and how fast it moves, refreshed every second. */
+    private record TrainState(String world, double x, double y, double z, double speed, Instant at, @Nullable Instant standingSince) {
+    }
+
+    private static final double STANDING_SPEED = 0.02;
+    private static final Duration STANDING_AFTER = Duration.ofSeconds(2);
+    private static final Duration STATE_FRESH = Duration.ofSeconds(5);
+    private final Map<String, TrainState> trainStates = new HashMap<>();
+    /** What the estimator may know beyond learned times; see {@link EtaContext}. */
+    private final EtaContext context = new EtaContext() {
+        @Override
+        public OptionalDouble segmentProgress(String trainId, Service service, int fromIndex) {
+            TrainState state = trainStates.get(trainId);
+            if (state == null || Duration.between(state.at(), clock.instant()).compareTo(STATE_FRESH) > 0) {
+                return OptionalDouble.empty();
+            }
+            return paths.progress(service, fromIndex, state.world(), state.x(), state.y(), state.z());
+        }
+
+        @Override
+        public boolean standing(String trainId) {
+            TrainState state = trainStates.get(trainId);
+            return state != null && state.standingSince() != null
+                    && Duration.between(state.standingSince(), clock.instant()).compareTo(STANDING_AFTER) >= 0;
+        }
+
+        @Override
+        public OptionalDouble remainingStop(String trainId, Instant now) {
+            return control.remainingStop(trainId, tracker.snapshots(), now, other -> untilNextStation(other, now));
+        }
+
+        @Override
+        public @Nullable String holdReason(String trainId) {
+            String reason = holdReasons.get(trainId);
+            return reason == null || reason.isEmpty() ? null : reason;
+        }
+    };
+    private @Nullable ConsistentEstimates estimates;
+    private @Nullable Instant estimatesAt;
+
+    /** Seconds until a running train reaches the next station on its service, pass stops included. */
+    private OptionalDouble untilNextStation(JourneySnapshot journey, Instant now) {
+        Service service = journey.service() == null ? null : store.network().service(journey.service()).orElse(null);
+        if (service == null) {
+            return OptionalDouble.empty();
+        }
+        int next = journey.phase() == JourneyPhase.COMPLETED ? -1 : service.nextIndex(journey.lastIndex());
+        return next < 0 ? OptionalDouble.empty() : eta.secondsUntil(journey, service, next, now);
+    }
+
+    /** The estimator every display asks at this moment: all trains projected together, rebuilt as time moves on. */
+    private Estimator estimator(Instant now) {
+        if (estimates == null || estimatesAt == null || Duration.between(estimatesAt, now).toMillis() > 400) {
+            estimates = ConsistentEstimates.compute(tracker.snapshots(), store.network(), eta, now);
+            estimatesAt = now;
+        }
+        return estimates;
+    }
     private final TrackPaths paths = new TrackPaths();
     private final TripLog trips = new TripLog();
     private final BoardService boards;
@@ -160,7 +222,7 @@ public final class RailwayRuntime {
         this.eventLog = new EventLog(data.resolve("events.log"), settings.logging().maxMegabytes() * 1024L * 1024L,
                 writer, logger, settings.logging().events(), settings.logging().positions());
         this.times = new TravelTimes(settings.timing().smoothing());
-        this.eta = new EtaCalculator(times, settings.boards().defaultDwellSeconds());
+        this.eta = new EtaCalculator(times, settings.boards().defaultDwellSeconds(), context);
         this.display = new PassengerDisplay(settings.passenger(), messages);
         this.boards = new BoardService(logger);
         this.recorder = new ServiceRecorder(store::network);
@@ -195,6 +257,7 @@ public final class RailwayRuntime {
         tasks.clear();
         display.clear();
         indicators.shutdown();
+        eventLog.close();
         chunkKeeper.release();
         if (map != null) {
             map.close();
@@ -235,7 +298,8 @@ public final class RailwayRuntime {
         debug = newSettings.debug();
         eventLog.configure(newSettings.logging().events(), newSettings.logging().positions());
         times.setSmoothing(newSettings.timing().smoothing());
-        eta = new EtaCalculator(times, newSettings.boards().defaultDwellSeconds());
+        eta = new EtaCalculator(times, newSettings.boards().defaultDwellSeconds(), context);
+        estimates = null;
         display.configure(newSettings.passenger(), newMessages);
         boards.invalidate();
         map = mapLayer;
@@ -417,7 +481,13 @@ public final class RailwayRuntime {
             logger.info("[debug] " + train.name() + (decision.stops() ? " stops at " : " runs through ") + platform
                     + ": " + decision.reason());
         }
-        return decision.stops() ? StationControl.Plan.of(options, rules.rules()) : null;
+        if (!decision.stops()) {
+            return null;
+        }
+        StationControl.Plan plan = StationControl.Plan.of(options, rules.rules());
+        control.standing(train.name(), platform, plan, clock.instant());
+        estimates = null;
+        return plan;
     }
 
     /** Why a train standing at a station sign must keep standing, or empty when it may leave. */
@@ -591,6 +661,9 @@ public final class RailwayRuntime {
         }
         tracker.forget(name);
         samples.forget(name);
+        control.left(name);
+        trainStates.remove(name);
+        holdReasons.remove(name);
         paths.forget(name);
         display.remove(name);
         recorder.trainRemoved(name);
@@ -690,8 +763,9 @@ public final class RailwayRuntime {
     }
 
     public Optional<TrainView> view(String trainName) {
+        Instant now = clock.instant();
         return tracker.snapshot(trainName)
-                .flatMap(journey -> TrainView.of(journey, store.network(), times, eta, clock.instant()));
+                .flatMap(journey -> TrainView.of(journey, store.network(), times, estimator(now), context, now));
     }
 
     public List<Departures.Departure> departures(String stationId, Predicate<String> platformFilter) {
@@ -700,7 +774,8 @@ public final class RailwayRuntime {
 
     private List<Departures.Departure> departures(String stationId, Predicate<String> platformFilter,
                                                   Collection<JourneySnapshot> journeys) {
-        return Departures.from(stationId, platformFilter, journeys, store.network(), times, eta, clock.instant());
+        Instant now = clock.instant();
+        return Departures.from(stationId, platformFilter, journeys, store.network(), times, estimator(now), now);
     }
 
     public TravelTimes times() {
@@ -796,7 +871,10 @@ public final class RailwayRuntime {
             }
             if (event instanceof JourneyEvent.Departed departed) {
                 control.departed(departed);
+            } else if (event instanceof JourneyEvent.UnassignedDeparted) {
+                control.left(train.name());
             }
+            estimates = null;
             if (event instanceof JourneyEvent.ServiceChanged changed && changed.to() != null) {
                 Set<String> tags = train.info().tags();
                 Optional<ServiceKey> tagged = ServiceResolver.taggedService(tags);
@@ -879,6 +957,27 @@ public final class RailwayRuntime {
     private void observeTrains(Network network) {
         Instant now = clock.instant();
         tick++;
+        Set<String> loaded = new HashSet<>();
+        for (TrainHandle train : trains.loadedTrains()) {
+            loaded.add(train.name());
+            Location head = train.headLocation();
+            if (head == null || head.getWorld() == null) {
+                continue;
+            }
+            double speed = train.speed();
+            TrainState previous = trainStates.get(train.name());
+            Instant standingSince = speed >= STANDING_SPEED ? null
+                    : previous != null && previous.standingSince() != null ? previous.standingSince() : now;
+            TrainState state = new TrainState(head.getWorld().getName(), head.getX(), head.getY(), head.getZ(), speed, now, standingSince);
+            trainStates.put(train.name(), state);
+            JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+            if (eventLog.positions() && tick % 2 == 0 && journey != null && journey.phase() == JourneyPhase.IN_TRANSIT) {
+                eventLog.position(train.name(), journey.service() == null ? null : journey.service().toString(),
+                        state.world(), state.x(), state.y(), state.z(), speed, now);
+            }
+        }
+        trainStates.keySet().retainAll(loaded);
+        Estimator shown = estimator(now);
         for (JourneySnapshot journey : tracker.snapshots()) {
             if (journey.service() == null || journey.phase() == JourneyPhase.COMPLETED) {
                 continue;
@@ -891,22 +990,8 @@ public final class RailwayRuntime {
             if (next < 0) {
                 continue;
             }
-            eta.secondsUntil(journey, service, next, now)
+            shown.secondsUntil(journey, service, next, now)
                     .ifPresent(seconds -> samples.predicted(journey.trainId(), service.key(), next, seconds, now));
-        }
-        if (eventLog.positions() && tick % 2 == 0) {
-            for (TrainHandle train : trains.loadedTrains()) {
-                JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
-                if (journey == null || journey.phase() != JourneyPhase.IN_TRANSIT) {
-                    continue;
-                }
-                Location head = train.headLocation();
-                if (head == null || head.getWorld() == null) {
-                    continue;
-                }
-                eventLog.position(train.name(), journey.service() == null ? null : journey.service().toString(),
-                        head.getWorld().getName(), head.getX(), head.getY(), head.getZ(), train.speed(), now);
-            }
         }
     }
 

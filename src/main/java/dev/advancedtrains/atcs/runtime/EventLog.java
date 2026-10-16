@@ -4,6 +4,7 @@ import dev.advancedtrains.atcs.network.PlatformRef;
 import dev.advancedtrains.atcs.operation.JourneyEvent;
 import org.jspecify.annotations.Nullable;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -20,16 +21,23 @@ import java.util.logging.Logger;
  * Appends every arrival, departure, hold and (optionally) train position to {@code data/events.log}
  * as one JSON object per line, for debugging after the fact and for replaying through the
  * estimator. The file is rotated to {@code events.1.log} when it grows past the limit, so it is
- * bounded. Writes happen off the server thread, in order.
+ * bounded. Writes happen off the server thread, in order, through one writer that is kept open
+ * and flushed about once a second (opening the file for every line is far too slow on some
+ * systems).
  */
 public final class EventLog {
+    private static final long FLUSH_MILLIS = 1000;
+
     private final Path file;
     private final long maxBytes;
     private final Executor executor;
     private final Logger logger;
     private volatile boolean enabled;
     private volatile boolean positions;
+    /** Used on the executor's thread only. */
+    private @Nullable BufferedWriter writer;
     private long written = -1;
+    private long lastFlush;
 
     public EventLog(Path file, long maxBytes, Executor executor, Logger logger, boolean enabled, boolean positions) {
         this.file = file;
@@ -109,6 +117,21 @@ public final class EventLog {
                 .append(reason == null ? "" : ",\"reason\":" + quote(reason)).append('}').toString());
     }
 
+    /** Flushes and closes the file; queued lines written first. Call before the executor shuts down. */
+    public void close() {
+        executor.execute(() -> {
+            try {
+                if (writer != null) {
+                    writer.close();
+                }
+            } catch (IOException exception) {
+                logger.log(Level.WARNING, "Could not close the event log", exception);
+            } finally {
+                writer = null;
+            }
+        });
+    }
+
     private static StringBuilder start(Instant at, String kind) {
         return new StringBuilder(160).append("{\"t\":\"").append(at).append("\",\"e\":\"").append(kind).append('"');
     }
@@ -166,17 +189,31 @@ public final class EventLog {
                 written = Files.exists(file) ? Files.size(file) : 0;
             }
             if (written > maxBytes) {
+                if (writer != null) {
+                    writer.close();
+                    writer = null;
+                }
                 Path previous = file.resolveSibling(file.getFileName().toString().replace(".log", ".1.log"));
                 Files.move(file, previous, StandardCopyOption.REPLACE_EXISTING);
                 written = 0;
             }
-            Files.createDirectories(file.toAbsolutePath().getParent());
-            byte[] bytes = (line + "\n").getBytes(StandardCharsets.UTF_8);
-            Files.write(file, bytes, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            written += bytes.length;
+            if (writer == null) {
+                Files.createDirectories(file.toAbsolutePath().getParent());
+                writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                lastFlush = System.currentTimeMillis();
+            }
+            writer.write(line);
+            writer.write('\n');
+            written += line.length() + 1;
+            long now = System.currentTimeMillis();
+            if (now - lastFlush >= FLUSH_MILLIS) {
+                writer.flush();
+                lastFlush = now;
+            }
         } catch (IOException exception) {
             logger.log(Level.WARNING, "Could not write the event log; it is switched off until reload", exception);
             enabled = false;
+            writer = null;
         }
     }
 }

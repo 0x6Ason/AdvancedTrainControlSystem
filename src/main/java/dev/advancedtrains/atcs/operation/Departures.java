@@ -54,7 +54,7 @@ public final class Departures {
             Collection<JourneySnapshot> journeys,
             Network network,
             TravelTimes times,
-            EtaCalculator eta,
+            Estimator eta,
             Instant now) {
         List<Departure> result = new ArrayList<>();
         for (JourneySnapshot journey : journeys) {

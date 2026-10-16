@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalDouble;
 
 import static dev.advancedtrains.atcs.TestNetworks.network;
 import static dev.advancedtrains.atcs.TestNetworks.service;
@@ -115,6 +116,33 @@ class StationControlTest {
         assertEquals(JourneyPhase.IN_TRANSIT, other.phase());
         assertEquals(Optional.empty(),
                 control.holdReason("mine", new PlatformRef("s2", "1"), tracker.snapshots(), network, plan, T0.plusSeconds(15)));
+    }
+
+    @Test
+    void predictsHowLongARuleKeepsATrain() {
+        StationControl control = new StationControl();
+        PlatformRef platform = new PlatformRef("s2", "1");
+        StationControl.Plan plan = StationControl.Plan.of(StopOptions.parse("10 gap 60 block"), StationControl.Rules.DEFAULT);
+        enter("first", LOCAL, "s2", T0);
+        for (JourneyEvent event : leave("first", LOCAL, "s2", T0.plusSeconds(10))) {
+            if (event instanceof JourneyEvent.Departed departed) {
+                control.departed(departed);
+            }
+        }
+        enter("second", LOCAL, "s2", T0.plusSeconds(20));
+        control.standing("second", platform, plan, T0.plusSeconds(20));
+        Instant now = T0.plusSeconds(23);
+        assertEquals(Optional.empty(), control.standingAt("nobody"));
+        assertTrue(control.remainingStop("nobody", tracker.snapshots(), now, other -> OptionalDouble.empty()).isEmpty());
+        OptionalDouble remaining = control.remainingStop("second", tracker.snapshots(), now, other -> OptionalDouble.of(30));
+        assertEquals(47, remaining.getAsDouble(), 0.01, "the headway (60 s after the first left at +10) outlasts dwell (7 s) and the train ahead (30.5 s)");
+        remaining = control.remainingStop("second", tracker.snapshots(), now, other -> OptionalDouble.of(55));
+        assertEquals(55.5, remaining.getAsDouble(), 0.01, "the train ahead takes longer than the headway");
+        enter("first", LOCAL, "s3", T0.plusSeconds(40));
+        remaining = control.remainingStop("second", tracker.snapshots(), T0.plusSeconds(75), other -> OptionalDouble.of(99));
+        assertEquals(0, remaining.getAsDouble(), 0.01, "section clear and headway over: nothing holds it");
+        control.left("second");
+        assertTrue(control.remainingStop("second", tracker.snapshots(), now, other -> OptionalDouble.empty()).isEmpty());
     }
 
     @Test

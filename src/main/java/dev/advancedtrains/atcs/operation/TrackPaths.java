@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 
 /**
  * Records the track each service's trains follow between consecutive stops, so maps can draw lines
@@ -98,6 +99,50 @@ public final class TrackPaths {
             return Optional.empty();
         }
         return Optional.ofNullable(paths.segments[fromIndex]);
+    }
+
+    /** How far from the recorded path a head position may be to count as on it, in blocks. */
+    static final double NEAR = 8;
+
+    /**
+     * How much of the recorded path from stop {@code fromIndex} a train at the given head position
+     * has covered, 0 to 1 by path length; empty when the segment is not recorded, the world
+     * differs, or the position is further than {@link #NEAR} blocks from the path.
+     */
+    public OptionalDouble progress(Service service, int fromIndex, String world, double x, double y, double z) {
+        Path path = path(service, fromIndex).orElse(null);
+        if (path == null || !path.world().equals(world) || path.points().size() < 2) {
+            return OptionalDouble.empty();
+        }
+        List<Point> points = path.points();
+        double total = 0;
+        double best = NEAR * NEAR;
+        double bestAlong = -1;
+        double along = 0;
+        for (int index = 0; index + 1 < points.size(); index++) {
+            Point start = points.get(index);
+            Point end = points.get(index + 1);
+            double dx = end.x() - start.x();
+            double dy = end.y() - start.y();
+            double dz = end.z() - start.z();
+            double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            double t = length == 0 ? 0 : ((x - start.x()) * dx + (y - start.y()) * dy + (z - start.z()) * dz) / (length * length);
+            t = Math.max(0, Math.min(1, t));
+            double px = start.x() + t * dx - x;
+            double py = start.y() + t * dy - y;
+            double pz = start.z() + t * dz - z;
+            double distance = px * px + py * py + pz * pz;
+            if (distance < best) {
+                best = distance;
+                bestAlong = along + t * length;
+            }
+            along += length;
+            total = along;
+        }
+        if (bestAlong < 0 || total <= 0) {
+            return OptionalDouble.empty();
+        }
+        return OptionalDouble.of(bestAlong / total);
     }
 
     public int recordedSegments(Service service) {

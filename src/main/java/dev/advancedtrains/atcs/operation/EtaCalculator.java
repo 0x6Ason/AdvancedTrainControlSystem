@@ -7,21 +7,39 @@ import java.time.Instant;
 import java.util.OptionalDouble;
 
 /**
- * Estimates when a train reaches a stop of its service from learned segment and dwell times.
+ * Estimates when a train reaches a stop of its service from learned segment and dwell times,
+ * corrected by what the {@link EtaContext} knows: a train's place on its segment (a slow or held
+ * train stops counting down instead of sitting on "Arriving"), and the time ATCS itself will keep
+ * it at a platform.
  */
-public final class EtaCalculator {
+public final class EtaCalculator implements Estimator {
     private final TravelTimes times;
     private final double defaultDwellSeconds;
+    private final EtaContext context;
 
     public EtaCalculator(TravelTimes times, double defaultDwellSeconds) {
-        this.times = times;
-        this.defaultDwellSeconds = defaultDwellSeconds;
+        this(times, defaultDwellSeconds, EtaContext.NONE);
     }
 
-    /**
-     * Seconds until the train reaches stop {@code target}: zero while it stands there, empty when
-     * the journey state or the learned timings are insufficient.
-     */
+    public EtaCalculator(TravelTimes times, double defaultDwellSeconds, EtaContext context) {
+        this.times = times;
+        this.defaultDwellSeconds = defaultDwellSeconds;
+        this.context = context;
+    }
+
+    public EtaCalculator withContext(EtaContext newContext) {
+        return new EtaCalculator(times, defaultDwellSeconds, newContext);
+    }
+
+    /** Seconds trains stand at the stop: learned, else the configured default (0 for a run-through). */
+    public double dwell(Service service, int index) {
+        if (!service.stop(index).stops()) {
+            return times.dwellSeconds(service, index).orElse(0);
+        }
+        return times.dwellSeconds(service, index).orElse(defaultDwellSeconds);
+    }
+
+    @Override
     public OptionalDouble secondsUntil(JourneySnapshot journey, Service service, int target, Instant now) {
         if (target < 0 || target >= service.size()) {
             return OptionalDouble.empty();
@@ -42,8 +60,7 @@ public final class EtaCalculator {
                     }
                     double remainingDwell = 0;
                     if (journey.phase() == JourneyPhase.AT_STOP) {
-                        double dwell = times.dwellSeconds(service, last).orElse(defaultDwellSeconds);
-                        remainingDwell = Math.max(0, dwell - elapsed(journey.arrivedAt(), now));
+                        remainingDwell = remainingAtStop(journey, service, last, now);
                     }
                     OptionalDouble segment = times.segmentSeconds(service, last);
                     if (segment.isEmpty()) {
@@ -80,11 +97,7 @@ public final class EtaCalculator {
             if (cursor == target) {
                 return OptionalDouble.of(total);
             }
-            if (service.stop(cursor).stops()) {
-                total += times.dwellSeconds(service, cursor).orElse(defaultDwellSeconds);
-            } else {
-                total += times.dwellSeconds(service, cursor).orElse(0);
-            }
+            total += dwell(service, cursor);
             OptionalDouble segment = times.segmentSeconds(service, cursor);
             if (segment.isEmpty()) {
                 return OptionalDouble.empty();
@@ -95,6 +108,21 @@ public final class EtaCalculator {
         return OptionalDouble.empty();
     }
 
+    /** Seconds until the train leaves the stop it stands at: what ATCS decided, else learned dwell minus the time stood. */
+    double remainingAtStop(JourneySnapshot journey, Service service, int index, Instant now) {
+        OptionalDouble controlled = context.remainingStop(journey.trainId(), now);
+        if (controlled.isPresent()) {
+            return Math.max(0, controlled.getAsDouble());
+        }
+        return Math.max(0, dwell(service, index) - elapsed(journey.arrivedAt(), now));
+    }
+
+    /**
+     * Seconds left on the segment the train is on: the learned time counted down by the clock
+     * since departure, but never less than the share of the recorded path still ahead says. A
+     * train that is slow, held or standing therefore stops counting down instead of sitting on
+     * "Arriving"; a train on time is unaffected.
+     */
     private OptionalDouble remainingSegment(JourneySnapshot journey, Service service, Instant now) {
         if (journey.lastIndex() < 0 || journey.segmentStart() == null) {
             return OptionalDouble.empty();
@@ -103,7 +131,17 @@ public final class EtaCalculator {
         if (segment.isEmpty()) {
             return OptionalDouble.empty();
         }
-        return OptionalDouble.of(Math.max(0, segment.getAsDouble() - elapsed(journey.segmentStart(), now)));
+        double byClock = Math.max(0, segment.getAsDouble() - elapsed(journey.segmentStart(), now));
+        OptionalDouble progress = context.segmentProgress(journey.trainId(), service, journey.lastIndex());
+        if (progress.isPresent()) {
+            double byPath = segment.getAsDouble() * (1 - Math.max(0, Math.min(1, progress.getAsDouble())));
+            return OptionalDouble.of(Math.max(byClock, byPath));
+        }
+        if (context.standing(journey.trainId())) {
+            // No path to measure against: freeze at a floor instead of counting into "Arriving".
+            return OptionalDouble.of(Math.max(byClock, 5));
+        }
+        return OptionalDouble.of(byClock);
     }
 
     private static double elapsed(Instant since, Instant now) {

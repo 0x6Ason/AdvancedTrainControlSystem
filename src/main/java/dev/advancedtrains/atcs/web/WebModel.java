@@ -160,6 +160,7 @@ public final class WebModel {
             entry.put("next", running.nextIndex());
             entry.put("fraction", fraction(journey, running.service(), times, now));
             entry.put("eta", running.etaNext().isPresent() ? round(running.etaNext().getAsDouble()) : null);
+            entry.put("held", running.held() || running.holdReason() != null);
             entry.put("at", journey.currentStationId());
             entry.put("platform", journey.platform() == null ? null : journey.platform().platformId());
             entry.put("since", journey.phase() == JourneyPhase.AT_STOP && journey.arrivedAt() != null

@@ -164,11 +164,13 @@ public final class PassengerDisplay {
         } else if (view.atTerminus()) {
             key = "passenger.boss-bar.terminating";
         } else if (view.atStop()) {
-            key = "passenger.boss-bar.at-station";
+            key = view.holdReason() != null && messages.has("passenger.boss-bar.waiting")
+                    ? "passenger.boss-bar.waiting" : "passenger.boss-bar.at-station";
         } else {
-            key = "passenger.boss-bar.running";
+            key = view.held() && messages.has("passenger.boss-bar.held") ? "passenger.boss-bar.held" : "passenger.boss-bar.running";
         }
-        return messages.render(key, placeholders);
+        return messages.render(key, TagResolver.resolver(placeholders,
+                Placeholder.unparsed("reason", view.holdReason() == null ? "" : view.holdReason())));
     }
 
     /** Follows a train that was renamed. */

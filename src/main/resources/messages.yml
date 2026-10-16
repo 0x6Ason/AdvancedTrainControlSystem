@@ -21,6 +21,10 @@ passenger:
     at-station: "<line_color><b><line_short></b></line_color> <white><station></white> <dark_gray>|</dark_gray> <gray><service> to <destination></gray>"
     terminating: "<line_color><b><line_short></b></line_color> <white><station></white> <dark_gray>|</dark_gray> <gray>This train terminates here</gray>"
     not-in-service: "<line_color><b><line_short></b></line_color> <gray>Not in service</gray>"
+    # While ATCS keeps the train at the platform for a headway or the train in front; <reason> says why.
+    waiting: "<line_color><b><line_short></b></line_color> <white><station></white> <dark_gray>|</dark_gray> <gray>Waiting: <reason></gray>"
+    # A train standing still between stations: the estimate stops counting down.
+    held: "<line_color><b><line_short></b></line_color> <white><service> to <destination></white> <dark_gray>|</dark_gray> <gray>Next:</gray> <white><next></white> <dark_gray>(held)</dark_gray>"
     suspended: "<red><b>Service suspended</b></red> <dark_gray>|</dark_gray> <white><suspension></white>"
   boarding: "<gray>This is a</gray> <line_color><line></line_color> <gray><service> service to</gray> <white><destination></white>"
   arrival-title: "<line_color><station></line_color>"

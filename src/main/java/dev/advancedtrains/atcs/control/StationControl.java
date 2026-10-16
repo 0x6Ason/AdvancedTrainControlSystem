@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.function.Function;
 
 /**
  * What an {@code atcs station} sign does with a train: whether it stops there at all (an express
@@ -93,6 +95,68 @@ public final class StationControl {
     }
 
     private final Map<String, Instant> departures = new HashMap<>();
+    /** Trains standing at a station sign, with the rule they stand under. */
+    private final Map<String, Standing> standing = new HashMap<>();
+
+    /** A train at an {@code atcs station} sign: where, under which plan, since when. */
+    public record Standing(PlatformRef platform, Plan plan, Instant arrivedAt) {
+    }
+
+    /** The sign decided the train stops here under this plan. */
+    public void standing(String trainId, PlatformRef platform, Plan plan, Instant now) {
+        standing.put(trainId, new Standing(platform, plan, now));
+    }
+
+    public Optional<Standing> standingAt(String trainId) {
+        return Optional.ofNullable(standing.get(trainId));
+    }
+
+    /** The train left its platform (or was removed); it stands under no rule any more. */
+    public void left(String trainId) {
+        standing.remove(trainId);
+    }
+
+    /**
+     * Seconds until the rule lets a standing train go: the rest of its dwell, then the headway
+     * after the last departure of its line, then the time the train in front needs to reach its
+     * next station (asked through {@code untilNextStationOf}), capped at the maximum hold. Empty
+     * when the train stands under no rule.
+     */
+    public OptionalDouble remainingStop(String trainId, Collection<JourneySnapshot> journeys, Instant now,
+                                        Function<JourneySnapshot, OptionalDouble> untilNextStationOf) {
+        Standing stand = standing.get(trainId);
+        if (stand == null) {
+            return OptionalDouble.empty();
+        }
+        Plan plan = stand.plan();
+        double dwellLeft = Math.max(0, plan.dwellSeconds() - Duration.between(stand.arrivedAt(), now).toMillis() / 1000.0);
+        double remaining = dwellLeft;
+        String lineId = null;
+        for (JourneySnapshot journey : journeys) {
+            if (journey.trainId().equals(trainId) && journey.service() != null) {
+                lineId = journey.service().lineId();
+            }
+        }
+        if (plan.headwaySeconds() > 0 && lineId != null) {
+            Instant last = departures.get(key(stand.platform(), lineId));
+            if (last != null) {
+                remaining = Math.max(remaining, plan.headwaySeconds() - Duration.between(last, now).toMillis() / 1000.0);
+            }
+        }
+        if (plan.holdForSection()) {
+            for (JourneySnapshot other : journeys) {
+                if (other.trainId().equals(trainId) || other.phase() != JourneyPhase.IN_TRANSIT
+                        || !stand.platform().equals(other.lastPlatform())) {
+                    continue;
+                }
+                OptionalDouble ahead = untilNextStationOf.apply(other);
+                if (ahead.isPresent()) {
+                    remaining = Math.max(remaining, ahead.getAsDouble() + 0.5);
+                }
+            }
+        }
+        return OptionalDouble.of(Math.min(remaining, Math.max(dwellLeft, plan.maxHoldSeconds())));
+    }
 
     /**
      * Decides from what the journey tracker made of the train's arrival. {@code events} are the
@@ -152,6 +216,7 @@ public final class StationControl {
     /** Remembers when a train of a line left a platform, for headways. */
     public void departed(JourneyEvent.Departed event) {
         departures.put(key(event.platform(), event.service().lineId()), event.at());
+        standing.remove(event.trainId());
     }
 
     public Optional<Instant> lastDeparture(PlatformRef platform, String lineId) {

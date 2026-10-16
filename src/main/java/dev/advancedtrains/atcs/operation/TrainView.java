@@ -3,6 +3,7 @@ package dev.advancedtrains.atcs.operation;
 import dev.advancedtrains.atcs.network.Line;
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.Service;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -12,9 +13,11 @@ import java.util.OptionalDouble;
 /**
  * Everything passenger displays need to describe a train on a service at one moment.
  *
- * @param nextIndex the next calling stop (-1 when none)
- * @param etaNext   seconds until the next calling stop, when known
- * @param progress  share of the trip completed, 0 to 1
+ * @param nextIndex  the next calling stop (-1 when none)
+ * @param etaNext    seconds until the next calling stop, when known
+ * @param progress   share of the trip completed, 0 to 1
+ * @param held       the train stands still between stations
+ * @param holdReason why ATCS keeps the train at its platform, or null
  */
 public record TrainView(
         Line line,
@@ -22,13 +25,20 @@ public record TrainView(
         JourneySnapshot journey,
         int nextIndex,
         OptionalDouble etaNext,
-        float progress) {
+        float progress,
+        boolean held,
+        @Nullable String holdReason) {
+
+    public static Optional<TrainView> of(JourneySnapshot journey, Network network, TravelTimes times, Estimator eta, Instant now) {
+        return of(journey, network, times, eta, EtaContext.NONE, now);
+    }
 
     public static Optional<TrainView> of(
             JourneySnapshot journey,
             Network network,
             TravelTimes times,
-            EtaCalculator eta,
+            Estimator eta,
+            EtaContext context,
             Instant now) {
         if (journey.service() == null) {
             return Optional.empty();
@@ -42,10 +52,13 @@ public record TrainView(
         OptionalDouble etaNext = next >= 0 && journey.phase() != JourneyPhase.AT_STOP
                 ? eta.secondsUntil(journey, service, next, now)
                 : OptionalDouble.empty();
-        return Optional.of(new TrainView(line, service, journey, next, etaNext, progress(journey, service, times, now)));
+        boolean held = journey.phase() == JourneyPhase.IN_TRANSIT && context.standing(journey.trainId());
+        String reason = journey.phase() == JourneyPhase.AT_STOP ? context.holdReason(journey.trainId()) : null;
+        return Optional.of(new TrainView(line, service, journey, next, etaNext,
+                progress(journey, service, times, context, now), held, reason));
     }
 
-    private static float progress(JourneySnapshot journey, Service service, TravelTimes times, Instant now) {
+    private static float progress(JourneySnapshot journey, Service service, TravelTimes times, EtaContext context, Instant now) {
         int spans = service.circular() ? service.size() : service.size() - 1;
         if (spans <= 0) {
             return 0;
@@ -56,8 +69,11 @@ public record TrainView(
             case AT_STOP, PASSING -> Math.max(0, journey.lastIndex());
             case IN_TRANSIT -> {
                 double done = Math.max(0, journey.lastIndex());
+                OptionalDouble onPath = context.segmentProgress(journey.trainId(), service, journey.lastIndex());
                 OptionalDouble segment = times.segmentSeconds(service, journey.lastIndex());
-                if (journey.segmentStart() != null && segment.isPresent() && segment.getAsDouble() > 0) {
+                if (onPath.isPresent()) {
+                    done += Math.min(0.95, Math.max(0, onPath.getAsDouble()));
+                } else if (journey.segmentStart() != null && segment.isPresent() && segment.getAsDouble() > 0) {
                     double elapsed = Duration.between(journey.segmentStart(), now).toMillis() / 1000.0;
                     done += Math.min(0.95, Math.max(0, elapsed / segment.getAsDouble()));
                 }
