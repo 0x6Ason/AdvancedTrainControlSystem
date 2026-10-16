@@ -37,6 +37,12 @@ public final class AtcsCommand implements TabExecutor {
                         problems.stream().limit(10).forEach(problem -> Chat.warn(context.sender(), " - " + problem));
                     }
                 }),
+                leaf("lint", MANAGE, "", "Check the network for what will not work or not show, with what to do about it",
+                        context -> MaintenanceCommands.lint(support, context)),
+                leaf("undo", MANAGE, "", "Restore network.yml as it was before the last command edit",
+                        context -> MaintenanceCommands.undo(support, context)),
+                leaf("history", MANAGE, "", "List the earlier versions of network.yml that /atcs undo can restore",
+                        context -> MaintenanceCommands.history(support, context)),
                 leaf("debug", MANAGE, "[on|off]", "Log every platform signal and journey event to the console", context -> {
                     boolean enabled = context.size() == 0 ? !support.control.debug() : context.arg(0).equalsIgnoreCase("on");
                     support.control.setDebug(enabled);

@@ -18,6 +18,7 @@ import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import dev.advancedtrains.atcs.api.FareApi;
 import dev.advancedtrains.atcs.fare.FareStore;
 import dev.advancedtrains.atcs.runtime.FareService;
+import dev.advancedtrains.atcs.placeholder.AtcsPlaceholders;
 import dev.advancedtrains.atcs.traincarts.AtcsSignAction;
 import dev.advancedtrains.atcs.traincarts.SignLevers;
 import dev.advancedtrains.atcs.web.WebSite;
@@ -81,6 +82,9 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             fareService = new FareService(this, fares, store, runtime::times, runtime.measure());
             getServer().getServicesManager().register(FareApi.class, fareService, this, ServicePriority.Normal);
             runtime.setFareSummary(fareService::summary);
+            if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null) {
+                registerPlaceholders(trains);
+            }
 
             getServer().getPluginManager().registerEvents(new TrainCartsListener(this, store, runtime), this);
             signAction = SignAction.register(new AtcsSignAction(store, runtime));
@@ -119,6 +123,16 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         }
         if (runtime != null) {
             runtime.stop();
+        }
+    }
+
+    /** Only called when PlaceholderAPI is present, so its classes are never loaded otherwise. */
+    private void registerPlaceholders(TrainCartsTrains trains) {
+        try {
+            new AtcsPlaceholders(runtime, trains, store, () -> messages, fareService, getPluginMeta().getVersion()).register();
+            getLogger().info("PlaceholderAPI placeholders registered: %atcs_line%, %atcs_next_time_<station>% and more");
+        } catch (RuntimeException | LinkageError exception) {
+            getLogger().log(Level.WARNING, "Could not register PlaceholderAPI placeholders", exception);
         }
     }
 

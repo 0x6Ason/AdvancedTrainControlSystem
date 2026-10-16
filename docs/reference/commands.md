@@ -17,6 +17,9 @@ AdvancedTrainControlSystem
 |---|---|---|
 | `/atcs status` | `atcs.manage` | Show plugin, network and integration status |
 | `/atcs reload` | `atcs.manage` | Reload config.yml, messages.yml and network.yml |
+| `/atcs lint` | `atcs.manage` | Check the network for what will not work or not show, with what to do about it |
+| `/atcs undo` | `atcs.manage` | Restore network.yml as it was before the last command edit |
+| `/atcs history` | `atcs.manage` | List the earlier versions of network.yml that /atcs undo can restore |
 | `/atcs debug [on\|off]` | `atcs.manage` | Log every platform signal and journey event to the console |
 | `/atcs station ...` | `atcs.use` | Stations and platforms (see below) |
 | `/atcs line ...` | `atcs.use` | Lines and their colours (see below) |

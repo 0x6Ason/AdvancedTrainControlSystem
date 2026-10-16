@@ -306,6 +306,8 @@ platform. The layout is in `messages.yml`.
 | `/atcs fare check\|info` | atcs.use | The fare between two stations and how it was worked out |
 | `/atcs fare generate\|apply\|set\|zone\|zonefare\|formula\|currency` | atcs.manage | Edit fares |
 | `/atcs timing report\|reset` | atcs.manage | How good the arrival estimates are, measured against real arrivals |
+| `/atcs lint` | atcs.manage | Check the network for what will not work or not show, with what to do about it |
+| `/atcs undo`, `/atcs history` | atcs.manage | Restore network.yml as it was before the last command edit; the last 25 versions are kept |
 | `/atcs status`, `/atcs reload`, `/atcs debug` | atcs.manage | Administration |
 
 `/atcs line suspend a Signal failure at Main St.` shows the notice on the boss bar of Line A trains
@@ -416,6 +418,17 @@ a longer one cut to three letters (`liberty` is `lib`). `/atcs station info` sho
 Standing on a platform, `/atcs station here` says which station and platform it is, which trains
 use it, and the variables for it (click one to copy it). Building signs with variables needs
 SignLink's `signlink.addsign` permission.
+
+### PlaceholderAPI
+
+With PlaceholderAPI installed, ATCS registers placeholders for scoreboards, holograms and chat
+plugins. About the player's train: `%atcs_line%`, `%atcs_line_short%`, `%atcs_service%`,
+`%atcs_destination%`, `%atcs_next%`, `%atcs_eta%`, `%atcs_train%`, `%atcs_status%` and
+`%atcs_station%` (the station the train is at; off a train, the nearest station). About a station's
+next departure: `%atcs_next_dest_main%`, `%atcs_next_time_main%`, `%atcs_next_line_main%`,
+`%atcs_next_service_main%`, `%atcs_next_platform_main%`; add `:2` for one platform
+(`%atcs_next_time_main:2%`) and `_2` or `_3` for the second or third departure. `%atcs_fare_main:golden-beach%`
+gives the configured fare and `%atcs_station_name_main%` a station's name.
 
 ## Walking transfers
 

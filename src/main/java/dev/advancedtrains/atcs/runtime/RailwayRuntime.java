@@ -388,6 +388,13 @@ public final class RailwayRuntime {
         chunkKeeper.keep(positions);
     }
 
+    /** Positions of ATCS stop and station signs seen so far, per station. */
+    public Map<String, Set<BlockPos>> observedTriggers() {
+        Map<String, Set<BlockPos>> copy = new HashMap<>();
+        observedTriggers.forEach((station, positions) -> copy.put(station, Set.copyOf(positions)));
+        return copy;
+    }
+
     /** The {@code atcs indicator} signs currently loaded. */
     public IndicatorService indicators() {
         return indicators;

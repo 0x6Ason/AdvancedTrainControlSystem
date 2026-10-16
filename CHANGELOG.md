@@ -45,6 +45,15 @@ TrainCarts server, configured with files and in-game commands.
   `atcs station` signs, keeping their delay, direction, `route`, offset, launch distance and speed,
   and leaves every other sign (refill stops, test stations) alone. Without `confirm` it only lists
   what it would change.
+- `/atcs undo` and `/atcs history`: every command edit keeps the previous network.yml (the last
+  25), and undo restores it.
+- `/atcs lint`: stations without a platform or sign, platforms without triggers, stations no
+  service calls at, lines without services, stops listed twice, boards whose signs are gone,
+  transfers that cannot be estimated, fares that name nothing and pairs with no route, each with
+  what to do about it.
+- PlaceholderAPI placeholders: `%atcs_line%`, `%atcs_next%`, `%atcs_eta%` and more for the
+  player's train, `%atcs_next_time_<station>%` and friends for a station's departures,
+  `%atcs_fare_<from>:<to>%`.
 - Fares: `fares.yml` with explicit pairs, zones and a formula over the route (stops, changes,
   track distance); `/atcs fare check` explains a fare; `/atcs fare generate` and `apply` draft and
   load the whole matrix with hand corrections kept; the planner shows fares on route cards; a

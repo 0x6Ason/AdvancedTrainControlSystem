@@ -6,6 +6,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -91,10 +95,72 @@ public final class NetworkStore {
         }
         Network updated = change.apply(network);
         String content = codec.write(updated);
+        if (knownContent != null && !knownContent.equals(content)) {
+            keep(knownContent);
+        }
         Files2.writeAtomically(file, content);
         knownContent = content;
         replace(updated);
         return updated;
+    }
+
+    /** How many earlier versions of the file are kept for {@link #undo()}. */
+    public static final int HISTORY = 25;
+    private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS").withZone(ZoneOffset.UTC);
+
+    private Path historyDirectory() {
+        return file.resolveSibling("history");
+    }
+
+    /** Saves the version about to be replaced, so an edit can be undone. */
+    private void keep(String previous) throws IOException {
+        Path directory = historyDirectory();
+        Files.createDirectories(directory);
+        Files.writeString(directory.resolve("network-" + STAMP.format(Instant.now()) + ".yml"), previous, StandardCharsets.UTF_8);
+        List<Path> entries = history();
+        for (int index = HISTORY; index < entries.size(); index++) {
+            Files.deleteIfExists(entries.get(index));
+        }
+    }
+
+    /** Earlier versions, newest first. */
+    public synchronized List<Path> history() throws IOException {
+        Path directory = historyDirectory();
+        if (!Files.isDirectory(directory)) {
+            return List.of();
+        }
+        try (var stream = Files.list(directory)) {
+            return stream.filter(path -> path.getFileName().toString().startsWith("network-") && path.toString().endsWith(".yml"))
+                    .sorted(Comparator.comparing((Path path) -> path.getFileName().toString()).reversed())
+                    .toList();
+        }
+    }
+
+    /**
+     * Restores the newest earlier version. The version undone is kept as {@code undone-*.yml} in
+     * the history folder in case it is wanted back.
+     */
+    public synchronized Network undo() throws EditRejectedException, IOException {
+        List<Path> entries = history();
+        if (entries.isEmpty()) {
+            throw new EditRejectedException("There is nothing to undo: no earlier version of " + file.getFileName() + " is kept");
+        }
+        Path latest = entries.get(0);
+        String content = Files.readString(latest, StandardCharsets.UTF_8);
+        NetworkCodec.ReadResult result = codec.read(content);
+        if (!result.clean()) {
+            throw new EditRejectedException("The earlier version " + latest.getFileName() + " has errors: " + result.errors().get(0));
+        }
+        String current = Files.exists(file) ? Files.readString(file, StandardCharsets.UTF_8) : null;
+        if (current != null) {
+            Files.writeString(historyDirectory().resolve("undone-" + STAMP.format(Instant.now()) + ".yml"), current, StandardCharsets.UTF_8);
+        }
+        Files2.writeAtomically(file, content);
+        Files.deleteIfExists(latest);
+        knownContent = content;
+        loadErrors = List.of();
+        replace(result.network());
+        return result.network();
     }
 
     private void replace(Network updated) {

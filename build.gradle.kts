@@ -20,6 +20,9 @@ repositories {
     maven("https://repo.bluecolored.de/releases") {
         name = "BlueColored"
     }
+    maven("https://repo.extendedclip.com/releases/") {
+        name = "ExtendedClip"
+    }
 }
 
 dependencies {
@@ -33,6 +36,7 @@ dependencies {
     // Optional integrations, activated only when the plugin is installed.
     compileOnly("com.bergerkiller.bukkit:SignLink:1.21.5-v1") { isTransitive = false }
     compileOnly("de.bluecolored:bluemap-api:2.7.3")
+    compileOnly("me.clip:placeholderapi:2.11.6")
 
     testImplementation(platform("org.junit:junit-bom:5.13.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
