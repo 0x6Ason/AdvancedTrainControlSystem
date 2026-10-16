@@ -15,6 +15,9 @@ import dev.advancedtrains.atcs.network.NetworkStore;
 import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.runtime.RailwayRuntime;
+import dev.advancedtrains.atcs.api.FareApi;
+import dev.advancedtrains.atcs.fare.FareStore;
+import dev.advancedtrains.atcs.runtime.FareService;
 import dev.advancedtrains.atcs.traincarts.AtcsSignAction;
 import dev.advancedtrains.atcs.traincarts.SignLevers;
 import dev.advancedtrains.atcs.web.WebSite;
@@ -23,6 +26,7 @@ import dev.advancedtrains.atcs.traincarts.TrainCartsTrains;
 import org.bukkit.World;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jspecify.annotations.Nullable;
 
@@ -50,6 +54,8 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
     private RailwayRuntime runtime;
     private ImportService importer;
     private AtcsSignAction signAction;
+    private FareStore fares;
+    private FareService fareService;
 
     @Override
     public void onEnable() {
@@ -70,6 +76,11 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             runtime.start(createMap(), createSignLink(), createWeb());
             importer = new ImportService(this, store, runtime.trips()::trips,
                     settings.importer().settings(), settings.importer().chunksPerTick());
+            fares = new FareStore(dataPath().resolve("fares.yml"));
+            fares.load().forEach(error -> getLogger().warning("fares.yml: " + error));
+            fareService = new FareService(this, fares, store, runtime::times, runtime.measure());
+            getServer().getServicesManager().register(FareApi.class, fareService, this, ServicePriority.Normal);
+            runtime.setFareSummary(fareService::summary);
 
             getServer().getPluginManager().registerEvents(new TrainCartsListener(this, store, runtime), this);
             signAction = SignAction.register(new AtcsSignAction(store, runtime));
@@ -77,7 +88,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             TrainCarts.plugin.getSignController().redetectSignActions();
 
             PluginCommand command = Objects.requireNonNull(getCommand("atcs"), "atcs command missing from plugin.yml");
-            AtcsCommand executor = new AtcsCommand(new Support(store, runtime, trains, importer, this), getLogger());
+            AtcsCommand executor = new AtcsCommand(new Support(store, runtime, trains, importer, this, fareService), getLogger());
             command.setExecutor(executor);
             command.setTabCompleter(executor);
 
@@ -130,7 +141,13 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             problems.add("Could not read network.yml: " + exception.getMessage());
         }
         store.network().issues().forEach(issue -> problems.add("Network: " + issue));
+        try {
+            fares.load().forEach(error -> problems.add("fares.yml: " + error));
+        } catch (IOException exception) {
+            problems.add("Could not read fares.yml: " + exception.getMessage());
+        }
         runtime.reconfigure(settings, messages, createMap(), createSignLink(), createWeb());
+        runtime.setFareSummary(fareService::summary);
         importer.configure(settings.importer().settings(), settings.importer().chunksPerTick());
         return problems;
     }

@@ -9,6 +9,7 @@ import dev.advancedtrains.atcs.network.NetworkStore;
 import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.network.ServiceKey;
 import dev.advancedtrains.atcs.network.Station;
+import dev.advancedtrains.atcs.runtime.FareService;
 import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import dev.advancedtrains.atcs.runtime.TrainHandle;
 import dev.advancedtrains.atcs.runtime.TrainSource;
@@ -32,13 +33,16 @@ public final class Support {
     final TrainSource trains;
     final ImportService importer;
     final PluginControl control;
+    final FareService fares;
 
-    public Support(NetworkStore store, RailwayRuntime runtime, TrainSource trains, ImportService importer, PluginControl control) {
+    public Support(NetworkStore store, RailwayRuntime runtime, TrainSource trains, ImportService importer, PluginControl control,
+                   FareService fares) {
         this.store = store;
         this.runtime = runtime;
         this.trains = trains;
         this.importer = importer;
         this.control = control;
+        this.fares = fares;
     }
 
     /** Plugin-level operations available to commands. */

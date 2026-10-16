@@ -514,7 +514,19 @@
     if (trip.walkSeconds) facts.push(walkTime(trip.walkSeconds));
     var stops = trip.legs.reduce(function (n, leg) { return n + leg.calls; }, 0);
     if (stops) facts.push(plural(stops, 'stop'));
+    var fare = fareBetween(planFrom, planTo);
+    if (fare !== null) facts.push(fare);
     return facts.join(' · ');
+  }
+
+  /* The configured fare between two stations as text, or null when fares are not set up. */
+  function fareBetween(fromId, toId) {
+    var fares = network && network.fares;
+    if (!fares || !fares.configured || !fares.matrix || !fares.matrix[fromId]) return null;
+    var amount = fares.matrix[fromId][toId];
+    if (typeof amount !== 'number') return null;
+    var text = amount === Math.round(amount) ? String(amount) : amount.toFixed(2);
+    return (fares.currency || '') + text;
   }
 
   function legWhen(leg, index, trip) {

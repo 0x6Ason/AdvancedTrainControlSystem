@@ -27,6 +27,7 @@ AdvancedTrainControlSystem
 | `/atcs transfer ...` | `atcs.use` | Walking transfers between nearby stations (see below) |
 | `/atcs board ...` | `atcs.manage` | Departure boards on signs (see below) |
 | `/atcs import ...` | `atcs.manage` | Set up the network from existing signs and running trains (see below) |
+| `/atcs fare ...` | `atcs.use` | Fares between stations: explicit pairs, zones, and a formula over the route (see below) |
 | `/atcs timing ...` | `atcs.manage` | How good the arrival estimates are, measured against real arrivals (see below) |
 
 ## /atcs station
@@ -133,6 +134,22 @@ Set up the network from existing signs and running trains.
 | `/atcs import write [min-trips]` | `atcs.manage` | Write both proposals to import-proposal.yml for review |
 | `/atcs import apply` | `atcs.manage` | Add the reviewed import-proposal.yml to the network |
 | `/atcs import reset` | `atcs.manage` | Forget the scanned signs |
+
+## /atcs fare
+
+Fares between stations: explicit pairs, zones, and a formula over the route.
+
+| Command | Permission | |
+|---|---|---|
+| `/atcs fare check <from> <to>` | `atcs.use` | The fare between two stations and how it was worked out |
+| `/atcs fare info` | `atcs.use` | Currency, formula, zones and explicit pairs |
+| `/atcs fare generate` | `atcs.manage` | Write the fare of every pair of stations as a draft (fare-matrix.yml) to correct by hand |
+| `/atcs fare apply [confirm]` | `atcs.manage` | Load the corrected draft into fares.yml; your changes are kept from then on |
+| `/atcs fare set <from> <to> <fare\|auto>` | `atcs.manage` | Set the fare between two stations by hand, or let zones and formula decide again |
+| `/atcs fare zone <station> <zone\|none>` | `atcs.manage` | Put a station in a zone |
+| `/atcs fare zonefare <zone> <zone> <fare\|none>` | `atcs.manage` | The fare between two zones (a zone with itself too) |
+| `/atcs fare formula <flat\|per-stop\|per-change\|round-to\|minimum> <value>` | `atcs.manage` | Set a part of the formula; distance bands are edited in fares.yml |
+| `/atcs fare currency <symbol>` | `atcs.manage` | The symbol shown with fares, for example $ |
 
 ## /atcs timing
 

@@ -33,6 +33,7 @@ import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.operation.JourneySnapshot;
 import dev.advancedtrains.atcs.operation.JourneyTracker;
 import dev.advancedtrains.atcs.operation.RouteMatcher;
+import dev.advancedtrains.atcs.operation.RouteMeasure;
 import dev.advancedtrains.atcs.operation.ServiceResolver;
 import dev.advancedtrains.atcs.operation.StopObservation;
 import dev.advancedtrains.atcs.operation.TrackPaths;
@@ -74,6 +75,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -842,6 +844,51 @@ public final class RailwayRuntime {
         return new Locator(store.network());
     }
 
+    private @Nullable Supplier<Map<String, Object>> fareSummary;
+
+    /** What the website shows about fares; set by the plugin once the fare service exists. */
+    public void setFareSummary(@Nullable Supplier<Map<String, Object>> supplier) {
+        fareSummary = supplier;
+        webDirty = true;
+    }
+
+    /** Fares were edited: the website's network data is written again. */
+    public void fareTableChanged() {
+        webDirty = true;
+    }
+
+    /**
+     * Track length from a stop to the next: along the recorded path where one exists, else the
+     * straight line between the two stops' positions, else unknown.
+     */
+    public RouteMeasure measure() {
+        return (service, index) -> {
+            Optional<TrackPaths.Path> path = paths.path(service, index);
+            if (path.isPresent() && path.get().points().size() >= 2) {
+                double length = 0;
+                List<TrackPaths.Point> points = path.get().points();
+                for (int point = 0; point + 1 < points.size(); point++) {
+                    TrackPaths.Point a = points.get(point);
+                    TrackPaths.Point b = points.get(point + 1);
+                    length += Math.sqrt(Math.pow(a.x() - b.x(), 2) + Math.pow(a.y() - b.y(), 2) + Math.pow(a.z() - b.z(), 2));
+                }
+                return OptionalDouble.of(length);
+            }
+            int next = service.nextIndex(index);
+            if (next < 0) {
+                return OptionalDouble.empty();
+            }
+            Network network = store.network();
+            Locator locator = new Locator(network);
+            Optional<BlockPos> from = network.station(service.stop(index).stationId()).flatMap(station -> locator.stop(station, service.stop(index)));
+            Optional<BlockPos> to = network.station(service.stop(next).stationId()).flatMap(station -> locator.stop(station, service.stop(next)));
+            if (from.isEmpty() || to.isEmpty() || !from.get().world().equals(to.get().world())) {
+                return OptionalDouble.empty();
+            }
+            return OptionalDouble.of(Math.sqrt(from.get().distanceSquared(to.get())));
+        };
+    }
+
     // ---------------------------------------------------------------- internals
 
     private void handle(TrainHandle train, List<JourneyEvent> events) {
@@ -1045,8 +1092,9 @@ public final class RailwayRuntime {
         Instant now = clock.instant();
         if (webDirty || webWrites % 20 == 0) {
             webDirty = false;
+            Supplier<Map<String, Object>> fares = fareSummary;
             String json = WebModel.network(settings.web().title(), settings.web().refreshSeconds(), network,
-                    new Locator(network), times, settings.boards().defaultDwellSeconds(), now);
+                    new Locator(network), times, settings.boards().defaultDwellSeconds(), fares == null ? null : fares.get(), now);
             writer.execute(() -> site.write("network.json", json));
         }
         webWrites++;

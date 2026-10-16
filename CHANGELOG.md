@@ -45,6 +45,14 @@ TrainCarts server, configured with files and in-game commands.
   `atcs station` signs, keeping their delay, direction, `route`, offset, launch distance and speed,
   and leaves every other sign (refill stops, test stations) alone. Without `confirm` it only lists
   what it would change.
+- Fares: `fares.yml` with explicit pairs, zones and a formula over the route (stops, changes,
+  track distance); `/atcs fare check` explains a fare; `/atcs fare generate` and `apply` draft and
+  load the whole matrix with hand corrections kept; the planner shows fares on route cards; a
+  `FareApi` service and `FareQuoteEvent` for other plugins.
+- Arrival estimates take the train's place on the recorded track, standing trains and the time
+  a station sign holds a train into account, and every train of a service is projected in running
+  order so a follower is never shown arriving before the train in front has left. A replay harness
+  scores the estimator on logged data.
 - Arrival estimates are scored against real arrivals: `/atcs timing report` shows the mean and
   worst error per service and stop at two minutes, one minute and thirty seconds out, so changes
   to the estimator can be checked and the stops that lie can be found.

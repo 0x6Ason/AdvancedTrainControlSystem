@@ -12,6 +12,7 @@ import dev.advancedtrains.atcs.network.Station;
 import dev.advancedtrains.atcs.network.Stop;
 import dev.advancedtrains.atcs.network.Transfer;
 import dev.advancedtrains.atcs.operation.Departures;
+import org.jspecify.annotations.Nullable;
 import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.operation.JourneySnapshot;
 import dev.advancedtrains.atcs.operation.TrainView;
@@ -39,11 +40,22 @@ public final class WebModel {
     /** Stations, lines and services with everything learned about them, for the map and the planner. */
     public static String network(String title, int refreshSeconds, Network network, StationLocator locator,
                                  TravelTimes times, double defaultDwellSeconds, Instant now) {
+        return network(title, refreshSeconds, network, locator, times, defaultDwellSeconds, null, now);
+    }
+
+    /**
+     * @param fares the currency and the fare of every pair of stations ({@code matrix.from.to}), or null
+     */
+    public static String network(String title, int refreshSeconds, Network network, StationLocator locator,
+                                 TravelTimes times, double defaultDwellSeconds, @Nullable Map<String, Object> fares, Instant now) {
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("title", title);
         root.put("refreshSeconds", refreshSeconds);
         root.put("generated", now.toEpochMilli());
         root.put("defaultDwell", defaultDwellSeconds);
+        if (fares != null) {
+            root.put("fares", fares);
+        }
         List<Object> stations = new ArrayList<>();
         for (Station station : network.stations().values()) {
             Map<String, Object> entry = new LinkedHashMap<>();

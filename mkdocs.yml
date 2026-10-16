@@ -55,6 +55,7 @@ nav:
       - Departure boards: operators/boards.md
       - Files: operators/files.md
       - Website and maps: operators/website.md
+      - Fares: operators/fares.md
       - Integrations: operators/integrations.md
       - Troubleshooting: operators/troubleshooting.md
   - Reference:

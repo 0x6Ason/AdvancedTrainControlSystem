@@ -303,6 +303,8 @@ platform. The layout is in `messages.yml`.
 | `/atcs transfer add\|remove` | atcs.manage | Edit walking transfers |
 | `/atcs board create\|add\|unbind\|remove\|list` | atcs.manage | Departure boards |
 | `/atcs import scan\|stations\|services\|write\|apply\|reset` | atcs.manage | Set-up from the world |
+| `/atcs fare check\|info` | atcs.use | The fare between two stations and how it was worked out |
+| `/atcs fare generate\|apply\|set\|zone\|zonefare\|formula\|currency` | atcs.manage | Edit fares |
 | `/atcs timing report\|reset` | atcs.manage | How good the arrival estimates are, measured against real arrivals |
 | `/atcs status`, `/atcs reload`, `/atcs debug` | atcs.manage | Administration |
 
@@ -345,6 +347,8 @@ All in `plugins/AdvancedTrainControlSystem/`:
 | `config.yml` | Behaviour: what passengers see, sounds, boards, BlueMap, SignLink, website, importer |
 | `messages.yml` | Every passenger text and the board layout, in [MiniMessage](https://docs.advntr.dev/minimessage/format.html) |
 | `network.yml` | Stations, lines, services and boards. Edit in game or by hand, then `/atcs reload` |
+| `fares.yml` | Fares: pairs, zones and the formula. Edit in game or by hand, then `/atcs reload` |
+| `fare-matrix.yml` | The draft `/atcs fare generate` writes and `/atcs fare apply` loads |
 | `import-proposal.yml` | Written by `/atcs import write` for review |
 | `data/timings.yml`, `data/track-paths.yml`, `data/trips.yml`, `data/eta-samples.yml` | Learned travel times, recorded track, observed trips and scored estimates; safe to delete |
 | `data/events.log` | Every arrival, departure, hold and service change, one JSON line each, rotated at `logging.max-megabytes` |
@@ -438,6 +442,50 @@ MTR map does, and the trip planner walks it when that is quicker. Arrival announ
 the lines at the other end: *Change here for Line A, Line 1 (walk to Main St.).*
 
 <!-- --8<-- [end:integrations] -->
+
+<!-- --8<-- [start:fares] -->
+## Fares
+
+ATCS knows the network, so it can say what a journey should cost: the route between two stations,
+its stops and changes, and the track distance from the recorded paths. Fares live in `fares.yml`
+in three layers; the highest that applies wins:
+
+1. **Pairs**: an explicit fare between two stations, in either direction (`main|golden-beach: 12`).
+2. **Zones**: each station in a zone (`zones: {main: 1, golden-beach: 2}`) and a fare per pair of
+   zones (`zone-fares: {1-2: 8, 1-1: 4}`).
+3. **Formula**: `flat` + `per-stop` for each stop travelled past + `per-change` for each change of
+   train + a `distance-bands` part over the track distance, rounded to `round-to` and never under
+   `minimum`.
+
+```
+/atcs fare formula flat 2
+/atcs fare formula per-stop 0.5
+/atcs fare zone main 1
+/atcs fare zonefare 1 2 8
+/atcs fare set main golden-beach 12
+/atcs fare check main golden-beach
+```
+
+`check` prints the fare and the reasoning: which layer answered, the route it assumed, the stops,
+changes and distance. That is how a wrong price is understood instead of guessed at.
+
+For a whole network, `/atcs fare generate` writes every pair of stations with its fare to
+`fare-matrix.yml`; correct the ones that are wrong by hand and run `/atcs fare apply`. Every pair
+then becomes explicit, and the ones you changed are marked `keep: true` so a later `generate`
+never touches them, while the rest follow the formula and zones again.
+
+The website's trip planner shows the fare on each route. Other plugins (a card or gate plugin, a
+shop) get fares from Bukkit's services manager:
+
+```java
+FareApi fares = Bukkit.getServicesManager().load(FareApi.class);
+fares.quote("main", "golden-beach").ifPresent(quote -> charge(player, quote.fare()));
+```
+
+Every quote through the API passes a `FareQuoteEvent`, in which another plugin may change the fare
+(a discount, a daily cap) and say why.
+<!-- --8<-- [end:fares] -->
+
 <!-- --8<-- [start:website] -->
 ## Website
 
