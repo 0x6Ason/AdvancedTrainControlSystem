@@ -228,6 +228,7 @@ public final class JourneyTracker {
         journey.offRouteVisit = false;
         journey.segmentStart = null;
         journey.lastIndex = -1;
+        journey.skipStations.clear();
         if (journey.isVisiting()) {
             int index = service == null ? -1 : locate(service, journey.platform.stationId(), -1);
             journey.lastIndex = index;
@@ -404,6 +405,7 @@ public final class JourneyTracker {
         events.add(new JourneyEvent.TripCompleted(journey.trainId, at, service.key()));
         journey.service = continuation.key();
         journey.approachAnnouncedFor = -1;
+        journey.skipStations.clear();
         events.add(new JourneyEvent.ServiceChanged(journey.trainId, at, service.key(), continuation.key()));
         int start = locate(continuation, platform.stationId(), -1);
         if (start < 0) {

@@ -1234,7 +1234,7 @@
       var nextStations = [];
       if (entry && t.next >= 0) {
         var i = t.next, guard = 0;
-        while (i >= 0 && guard++ < stops.length) { var s = parseStop(stops[i]); if (!s.pass) nextStations.push(s.station); i = i + 1 < stops.length ? i + 1 : (entry.circular ? 0 : -1); if (nextStations.length >= 6) break; }
+        while (i >= 0 && guard++ < stops.length) { var s = parseStop(stops[i]); if (!s.pass && s.station !== t.at) nextStations.push(s.station); i = i + 1 < stops.length ? i + 1 : (entry.circular ? 0 : -1); if (nextStations.length >= 6) break; }
       }
       return '<li><div class="row" style="cursor:default;flex-wrap:wrap">' + bullet(t.line, 24) + '<span class="main"><span class="name">' + esc(t.name) + ' ' + flags + '</span>'
         + '<span class="meta">' + esc((entry ? entry.name : t.service) + ' to ' + t.destination) + ' · ' + where + '</span>'

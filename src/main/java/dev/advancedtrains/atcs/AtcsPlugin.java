@@ -372,8 +372,9 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
                             if (store.network().station(station).isEmpty()) {
                                 throw new EditorApi.ApiException(404, "Unknown station " + station, null);
                             }
-                            if (!runtime.skipStop(train, station)) {
-                                throw new EditorApi.ApiException(409, "ATCS does not follow " + name + " yet; it has to pass a platform first", null);
+                            java.util.Optional<String> problem = runtime.skipStop(train, station);
+                            if (problem.isPresent()) {
+                                throw new EditorApi.ApiException(409, problem.get(), null);
                             }
                         }
                         default -> runtime.unskipStop(train, order.get("station").getAsString());

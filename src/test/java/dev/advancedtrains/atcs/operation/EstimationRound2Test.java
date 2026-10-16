@@ -158,6 +158,10 @@ class EstimationRound2Test {
         assertEquals(JourneyPhase.PASSING, tracker.snapshot("t").orElseThrow().phase());
         assertTrue(tracker.skips("t").isEmpty(), "once");
         assertFalse(tracker.unskip("t", "s2"));
+        assertTrue(tracker.skip("t", "s3"));
+        tracker.assign("t", ServiceKey.parse("b/other"), network.toBuilder()
+                .line(Line.of("b", "Line B", 0x1E88E5).withService(service("b/other", "s3", "s2", "s1"))).build(), T0.plusSeconds(90));
+        assertTrue(tracker.skips("t").isEmpty(), "a new run starts without skips");
     }
 
     @Test

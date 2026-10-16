@@ -702,19 +702,24 @@ public final class RailwayRuntime {
 
     // ---------------------------------------------------------------- dispatcher orders
 
-    /** The train runs through the station next time; riders aboard are told. */
-    public boolean skipStop(TrainHandle train, String stationId) {
-        if (!tracker.skip(train.name(), stationId)) {
-            return false;
-        }
-        eventLog.note(train.name(), "skip", stationId, clock.instant());
+    /** The train runs through the station next time; riders aboard are told. Returns why not, or empty when done. */
+    public Optional<String> skipStop(TrainHandle train, String stationId) {
         Network network = store.network();
+        JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+        if (journey == null) {
+            return Optional.of("ATCS does not follow " + train.name() + " yet; it has to pass a platform first");
+        }
+        if (journey.phase() == JourneyPhase.AT_STOP && stationId.equals(journey.currentStationId())) {
+            return Optional.of(train.name() + " is standing at " + network.stationName(stationId) + " already");
+        }
+        tracker.skip(train.name(), stationId);
+        eventLog.note(train.name(), "skip", stationId, clock.instant());
         net.kyori.adventure.text.Component notice = messages.render("passenger.skip-stop",
                 net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("station", network.stationName(stationId)));
         for (Player rider : train.riders()) {
             rider.sendMessage(notice);
         }
-        return true;
+        return Optional.empty();
     }
 
     public boolean unskipStop(TrainHandle train, String stationId) {
