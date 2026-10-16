@@ -195,6 +195,84 @@ schematic diagram (`layout.js` lays it out, `map.js` draws it) and the recorded 
 - A hand-held **network map item** (`/atcs map`) that shows the diagram with the player's position,
   and a **roadmap** in item frames (item 3). Both reuse the display renderer.
 
+## 7. Time estimation
+
+Today an estimate is one smoothed number per service and segment (`TravelTimes`, exponential
+smoothing with outliers damped), plus one smoothed dwell per stop, summed along the service by
+`EtaCalculator`. The remaining time on the current segment is the learned time minus the time
+elapsed, nothing else. That is right for a simple line and wrong in exactly the places a
+complicated railway has: junctions where trains wait for each other, shared track where a local
+holds up the express behind it, headway and section holds, termini with variable turn-arounds,
+branches, long segments through stations without triggers. Each of those gets its own fix, and
+the first three are the ones that matter most.
+
+### Measure first
+
+- **Record predictions against outcomes.** Every time an arrival is predicted and then happens,
+  log the pair (`data/eta-samples.yml`, bounded). `/atcs timing report` shows the mean and the
+  worst errors per service and stop, so every change below can be shown to help, and the stops
+  that lie are found instead of guessed.
+- **A replay harness in the tests**: feed `trips.yml` and the recorded tracks through the
+  estimator and score it. Model changes then compete on the same data.
+
+### Know where the train is, not only how long it has been gone
+
+- **Progress along the recorded track.** Head positions are already sampled for `TrackPaths`.
+  Record each segment's path with timestamps, so the stored path knows how long trains usually
+  take from every point of it to the platform. The estimate then comes from the train's actual
+  position on that path, not the clock. A train that is slow, held or stopped mid-segment stops
+  counting down instead of sitting on *Arriving* for a minute.
+- **Standing still means held.** When a train in transit has no speed, show *Held* (or *Waiting at
+  Main St.* when ATCS itself holds it) rather than a shrinking number, and add the expected hold.
+- **The approach as a final correction.** The time from the approach distance to the platform is
+  nearly constant; learn it per stop and snap the estimate to it when the approach fires.
+
+### Predict what ATCS controls instead of learning it
+
+- **Split dwell from hold.** At an `atcs station` sign the configured dwell is known; the extra
+  time is headway or section waiting. Learn the dwell cleanly and compute the hold from the rule:
+  with `gap 60s` the train leaves at the later of arrival plus dwell and the previous departure
+  plus sixty seconds; with `block` it leaves when the train in front reaches its next station,
+  whose arrival is itself being estimated. Chain them.
+- **One train per platform.** A train cannot arrive before the train ahead has left the platform
+  and the separation has passed. Estimate all trains of a service together, in order, with that
+  constraint, instead of each on its own. This is the single largest fix for shared track and
+  bunched lines.
+- **Junction merges.** With the rail graph (item 6) and junction priority (item 5) known, a train
+  about to yield at a merge gets the other train's passing time added.
+- **Turn-around at termini**: learn the time from arriving as one service to departing as the
+  continuation separately from dwell, since it is a different thing with a different spread.
+
+### Learn from less data, and the right data
+
+- **Learn per physical segment, not per service.** A local and an express cover the same track
+  between two stations; today each learns alone. Key the learned time by the two platforms and
+  the recorded path, with a small per-service adjustment, so services share samples and a new
+  express is accurate from its first run.
+- **Context where it matters.** The segment after a junction depends on where the train came
+  from, and peak hours hold more; keep a value per context (previous stop; time-of-day bucket)
+  and fall back to the plain segment value when a context has too few samples.
+- **Priors for unlearned segments.** Until a segment is learned, estimate it from the distance
+  along the recorded track (or straight-line distance) at the railway's typical speed, shown in
+  grey as an estimate, instead of *Expected*.
+- **Stations without triggers.** A segment that spans an untriggered stop is never learned today
+  (the sample is only taken between consecutive triggered stops). Attribute the measured time to
+  the stops it spans in proportion to the track distance, and have `/atcs lint` name stops that
+  have never reported.
+- **Robust statistics.** Keep a median and a spread (P50 and P90) per value instead of one mean:
+  show *3 to 5 min* where the spread is wide, say *Delayed* once a train is past its P90, and
+  relearn fast after a sustained change (several samples all on one side) rather than at the
+  smoothing rate. Discard samples from trains that were unloaded mid-segment (already the case)
+  and from trains ATCS held, which are not travel time.
+
+### Keep every display honest and consistent
+
+- One estimator on the server, used by the boss bar, boards, SignLink, BlueMap and the website.
+  The planner today re-implements the projection in JavaScript with fixed assumptions (a
+  90-second wait, 15 seconds per change); write the projected arrivals into the live data and
+  learn the real intervals per service and station, so *trains every ~4 min* replaces the guess.
+- Never show *Arriving* for long: *Due*, then *Delayed*, each with the reason when ATCS knows it.
+
 ## More ideas
 
 Grouped, with the cheap ones marked *(quick win)*.
@@ -266,8 +344,13 @@ CI, releases, metrics and the API module are under *Open source* below.
 
 ## Open source
 
-The repository is public but not yet open source: there is no licence file, so nobody may legally
-use or fork the code. In order:
+Deliberately last: the author wants the system finished and running well before it is handed
+out. Until then the repository is public but carries no licence, which means all rights are
+reserved and nobody may legally use or fork the code, which is exactly the state wanted while
+finalising. Only the licence, the contributor material, publishing and the community items wait;
+CI, tests, the docs site and the changelog discipline below are quality work and start now.
+
+When the time comes, in order:
 
 1. **A licence.** MIT or Apache-2.0 (Apache adds a patent grant and is the more usual choice for
    plugins other plugins build against). TrainCarts and BKCommonLib are compile-only
@@ -328,26 +411,32 @@ good and already too long for one page. The plan:
 
 ## Suggested order
 
-1. Licence, `CONTRIBUTING.md`, CI with the build and tests, and the docs site skeleton. A day's
-   work that makes everything after it shareable.
-2. Fares and `/atcs fare check`: fixes a live problem, pure core work.
-3. Quick wins that need little design: network undo, lint, PlaceholderAPI, generated references.
-4. Logos, then the BlueMap improvements that use them (icons, per-line sets, live details).
-5. The wand, then roadmap displays and hologram boards on top of it.
-6. The rail graph and re-recording, then the schematic's stable layout, overrides and live trains.
-7. Editor backend and the network editor views, with map overrides and export.
-8. Control, starting with even-spacing regulation, then blocks on the rail graph, timetables,
+1. CI with the build and tests, the docs site skeleton, generated references. Private quality
+   work that makes everything after it checkable.
+2. Measure the estimates (`/atcs timing report`, the replay harness), then the three big
+   estimation fixes: progress along the track, holds predicted from the rules, one train per
+   platform.
+3. Fares and `/atcs fare check`: fixes a live problem, pure core work.
+4. Quick wins that need little design: network undo, lint, PlaceholderAPI.
+5. Logos, then the BlueMap improvements that use them (icons, per-line sets, live details).
+6. The wand, then roadmap displays and hologram boards on top of it.
+7. The rail graph and re-recording, then the schematic's stable layout, overrides and live
+   trains, and the second round of estimation (shared segments, context, junction merges).
+8. Editor backend and the network editor views, with map overrides and export.
+9. Control, starting with even-spacing regulation, then blocks on the rail graph, timetables,
    then the dispatcher view.
-9. Public API module, the compatibility matrix in CI, and a 1.0 that freezes the formats.
-10. The rest as they come up.
+10. Polish: compatibility matrix in CI, performance on big networks, format migrations, the
+    estimation error report at a level the author is happy to publish.
+11. Open source: licence, contributor material, the public API module, Hangar and Modrinth.
 
 ## Milestones
 
 | Version | Theme |
 |---|---|
 | 0.2 | The redesign now on `main`: network model, journeys, passenger information, boards, maps, website, station and switch signs |
-| 0.3 | Open-source basics, fares, undo and lint, PlaceholderAPI, docs site |
+| 0.3 | CI and docs site, measured estimates and the first estimation fixes, fares, undo and lint, PlaceholderAPI |
 | 0.4 | Logos, wand, displays, hologram boards, BlueMap improvements |
-| 0.5 | Rail graph, schematic layout work, web editor |
+| 0.5 | Rail graph, schematic layout work, second round of estimation, web editor |
 | 0.6 | Control: regulation, blocks, timetables, dispatcher |
-| 1.0 | Stable formats and API, compatibility matrix in CI, complete docs, published on Hangar and Modrinth |
+| 0.7 | Polish: compatibility matrix, performance, migrations, complete docs |
+| 1.0 | Stable formats and API, licence, public API module, published on Hangar and Modrinth |
