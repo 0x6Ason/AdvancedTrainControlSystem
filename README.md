@@ -23,10 +23,13 @@ call and let the others run through (an express on a local track), hold trains a
 
 | | |
 |---|---|
-| Server | Paper (or a fork) 1.21.4 or newer |
-| Java | 21 or newer |
-| Required | TrainCarts 2.x and BKCommonLib |
-| Optional | BlueMap 5.x (network map), SignLink (sign variables) |
+| Server | Paper (or a fork) 1.21.4 or newer; built and tested against 1.21.4, 1.21.11 and 26.3 |
+| Java | 21 or newer (Paper 26 needs 25) |
+| Required | TrainCarts 2.0.0 or newer and BKCommonLib 2.0.1 or newer; tested with 2.0.0/2.0.1 and 2.0.2/2.0.4 |
+| Optional | BlueMap 5.x (network map), SignLink (sign variables), WorldEdit 7.3.x (the wand's selection), PlaceholderAPI 2.11.x |
+
+Every build in CI compiles and tests against the oldest and the newest of those, so a new
+server or TrainCarts release that breaks something is caught before it reaches you.
 
 ## Installing
 

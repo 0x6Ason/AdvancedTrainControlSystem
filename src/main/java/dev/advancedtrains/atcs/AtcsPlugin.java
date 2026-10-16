@@ -78,6 +78,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
     public void onEnable() {
         try {
             retireLegacyData();
+            upgradeFiles();
             saveDefaultConfig();
             if (!Files.exists(dataPath().resolve("messages.yml"))) {
                 saveResource("messages.yml", false);
@@ -165,6 +166,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
     @Override
     public List<String> reload() {
         List<String> problems = new ArrayList<>();
+        upgradeFiles();
         reloadConfig();
         settings = readSettings();
         problems.addAll(settings.warnings());
@@ -563,6 +565,26 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         }
         read.warnings().forEach(warning -> getLogger().warning("config.yml " + warning));
         return read;
+    }
+
+    /**
+     * Brings config.yml and messages.yml up to this version's layout: new options are added with
+     * their comments, the operator's values stay, and the old file is kept next to it. A file
+     * that is not valid YAML is left alone and reported.
+     */
+    private void upgradeFiles() {
+        for (String name : List.of("config.yml", "messages.yml")) {
+            try (InputStream bundled = getResource(name)) {
+                if (bundled == null) {
+                    continue;
+                }
+                dev.advancedtrains.atcs.config.ConfigUpgrader.upgrade(dataPath().resolve(name),
+                        new String(bundled.readAllBytes(), StandardCharsets.UTF_8),
+                        name.equals("config.yml") ? AtcsSettings.CONFIG_VERSION : -1, getLogger());
+            } catch (IOException exception) {
+                getLogger().log(Level.WARNING, "Could not upgrade " + name, exception);
+            }
+        }
     }
 
     private Messages readMessages() {

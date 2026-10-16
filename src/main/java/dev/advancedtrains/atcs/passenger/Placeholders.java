@@ -74,7 +74,6 @@ public final class Placeholders {
                 .build();
     }
 
-    /** The other lines calling at a station, each in its own colour. */
     /**
      * The other lines passengers can change to at a station: those calling there, then those at
      * stations a walking transfer away, each walk named once ("Line 1 (walk to Main St.)").

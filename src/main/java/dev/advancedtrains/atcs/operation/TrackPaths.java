@@ -186,7 +186,6 @@ public final class TrackPaths {
         }
     }
 
-    /** Whether paths changed since the last {@link #save}. */
     /**
      * Keeps recorded paths across an edit of a service's stops: a segment stays when both its stops
      * are still there and still follow each other.

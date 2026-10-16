@@ -10,7 +10,7 @@ The file as the plugin writes it on first start, with every setting explained in
 # Stations, lines, services and departure boards are defined in network.yml.
 # Passenger texts and board layouts are in messages.yml.
 # Apply changes with /atcs reload.
-config-version: 2
+config-version: 3
 
 passenger:
   # Passenger information is shown to riders with the atcs.passenger permission (everyone by default).

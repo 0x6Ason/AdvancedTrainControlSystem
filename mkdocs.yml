@@ -53,6 +53,7 @@ nav:
       - Set-up: operators/setup.md
       - Signs: operators/signs.md
       - Departure boards: operators/boards.md
+      - Arrival estimates: operators/estimates.md
       - Displays and the wand: operators/displays.md
       - Files: operators/files.md
       - Website and maps: operators/website.md

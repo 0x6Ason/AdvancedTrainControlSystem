@@ -35,7 +35,7 @@ public record AtcsSettings(
         boolean debug,
         List<String> warnings) {
 
-    public static final int CONFIG_VERSION = 2;
+    public static final int CONFIG_VERSION = 3;
 
     public enum UnassignedTrains { NONE, TITLE }
 
@@ -145,8 +145,6 @@ public record AtcsSettings(
      * @param rules           stopping policies, default dwell, headway and section holding
      * @param setDestinations keep each train's TrainCarts destination at its next calling stop, so
      *                        TrainCarts path-finding routes it there
-     */
-    /**
      * @param junctionPriority whether a train waits at its platform for a train about to cross the junction ahead
      * @param priority         line ids in order of precedence at junctions; lines not listed come last
      */

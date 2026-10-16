@@ -57,6 +57,12 @@ TrainCarts server, configured with files and in-game commands.
   to cross the junction ahead, the late train or the listed line first; `/atcs train skip`,
   `/atcs switch list|set|clear`; a Dispatch section in the web editor with every train live,
   holds, skips, suspensions, blocks, switches and recent events.
+- Polish: `config.yml` and `messages.yml` are upgraded in place on start and on `/atcs reload`
+  (new options added with their comments, own values kept, the old file saved next to it, and
+  unknown options named); a compatibility matrix in CI builds against the newest 1.21 Paper and
+  the current Paper 26 with TrainCarts 2.0.2; a test keeps the per-second work of a 300-station
+  railway with 150 trains in a few milliseconds; *Arrival estimates* page in the docs with the
+  report read and a railway's real figures.
 - The web editor (`integrations.editor`, off by default; `/atcs editor` prints a one-time link):
   stations and platforms, lines, services with their stops drawn as the line, boards, walking
   transfers, fares, diagram adjustments and the configuration files, beside the website's diagram

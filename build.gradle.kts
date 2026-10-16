@@ -6,8 +6,16 @@ group = "dev.advancedtrains"
 version = "0.2.0-SNAPSHOT"
 
 // The oldest server API ATCS compiles against. Anything newer in the 1.21 line keeps working,
-// so stick to this API surface instead of bumping it for convenience.
-val paperApiVersion = "1.21.4-R0.1-SNAPSHOT"
+// so stick to this API surface instead of bumping it for convenience. CI's compatibility matrix
+// overrides these (-PpaperApi=... -PtrainCarts=... -PbkCommonLib=... -PsignLink=...) to prove
+// the build against newer servers and TrainCarts builds without changing the baseline here.
+fun versionOf(property: String, default: String): String =
+    (project.findProperty(property) as String?)?.takeIf { it.isNotBlank() } ?: default
+
+val paperApiVersion = versionOf("paperApi", "1.21.4-R0.1-SNAPSHOT")
+val trainCartsVersion = versionOf("trainCarts", "2.0.0")
+val bkCommonLibVersion = versionOf("bkCommonLib", "2.0.1")
+val signLinkVersion = versionOf("signLink", "1.21.5-v1")
 
 repositories {
     mavenCentral()
@@ -33,11 +41,11 @@ dependencies {
 
     // Provided by the server. Only the long-stable parts of these APIs are used, so any
     // TrainCarts 2.x build works; never add an exact-version check at runtime.
-    compileOnly("com.bergerkiller.bukkit:TrainCarts:2.0.0") { isTransitive = false }
-    compileOnly("com.bergerkiller.bukkit:BKCommonLib:2.0.1") { isTransitive = false }
+    compileOnly("com.bergerkiller.bukkit:TrainCarts:$trainCartsVersion") { isTransitive = false }
+    compileOnly("com.bergerkiller.bukkit:BKCommonLib:$bkCommonLibVersion") { isTransitive = false }
 
     // Optional integrations, activated only when the plugin is installed.
-    compileOnly("com.bergerkiller.bukkit:SignLink:1.21.5-v1") { isTransitive = false }
+    compileOnly("com.bergerkiller.bukkit:SignLink:$signLinkVersion") { isTransitive = false }
     compileOnly("de.bluecolored:bluemap-api:2.7.3")
     compileOnly("me.clip:placeholderapi:2.11.6")
     compileOnly("com.sk89q.worldedit:worldedit-core:7.3.9") { isTransitive = false }
@@ -51,7 +59,9 @@ dependencies {
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        // Java 21 is what the plugin needs; Paper 26.x API artifacts are built for Java 25, so the
+        // compatibility matrix passes -PjavaVersion=25 for those rows.
+        languageVersion.set(JavaLanguageVersion.of(versionOf("javaVersion", "21").toInt()))
     }
 }
 
@@ -84,7 +94,7 @@ val verifyEnglishTextPolicy by tasks.registering {
 }
 
 tasks.withType<JavaCompile>().configureEach {
-    options.release.set(21)
+    options.release.set(versionOf("javaVersion", "21").toInt())
     options.encoding = "UTF-8"
     options.compilerArgs.addAll(listOf("-Xlint:all", "-Xlint:-processing", "-Xlint:-serial"))
 }
