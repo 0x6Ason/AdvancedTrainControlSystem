@@ -25,6 +25,7 @@ public record AtcsSettings(
         BlueMap blueMap,
         SignLink signLink,
         Web web,
+        Editor editor,
         Importer importer,
         Assignment assignment,
         Trains trains,
@@ -99,6 +100,16 @@ public record AtcsSettings(
      * @param folder where to write; empty for BlueMap's web root plus {@code /atcs}
      */
     public record Web(boolean enabled, String folder, String title, int refreshSeconds, boolean blueMapButton) {
+    }
+
+    /**
+     * The web editor's server.
+     *
+     * @param bind           the address to listen on; localhost unless it sits behind a reverse proxy
+     * @param host           the host name links use, when it differs from {@code bind}
+     * @param sessionMinutes how long a session stays signed in while unused
+     */
+    public record Editor(boolean enabled, String bind, int port, String host, int sessionMinutes) {
     }
 
     public record Importer(StationImporter.Settings settings, int chunksPerTick) {
@@ -211,6 +222,13 @@ public record AtcsSettings(
                 reader.integer("integrations.web.refresh-seconds", 3, 1, 60),
                 reader.bool("integrations.web.bluemap-button", true));
 
+        Editor editor = new Editor(
+                reader.bool("integrations.editor.enabled", false),
+                reader.string("integrations.editor.bind", "127.0.0.1"),
+                reader.integer("integrations.editor.port", 8111, 1, 65535),
+                reader.string("integrations.editor.host", ""),
+                reader.integer("integrations.editor.session-minutes", 120, 1, 10080));
+
         StationImporter.Settings defaults = StationImporter.Settings.defaults();
         Importer importer = new Importer(new StationImporter.Settings(
                 reader.strings("importer.arrival-prefixes", defaults.arrivalPrefixes()),
@@ -247,8 +265,8 @@ public record AtcsSettings(
                 reader.bool("logging.positions", false),
                 reader.integer("logging.max-megabytes", 8, 1, 512));
 
-        return new AtcsSettings(passenger, boards, displays, timing, blueMap, signLink, web, importer, assignment, trains, spawning,
-                control, logging, reader.bool("debug", false), List.copyOf(warnings));
+        return new AtcsSettings(passenger, boards, displays, timing, blueMap, signLink, web, editor, importer, assignment, trains,
+                spawning, control, logging, reader.bool("debug", false), List.copyOf(warnings));
     }
 
     private record Reader(ConfigurationSection config, List<String> warnings) {

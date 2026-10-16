@@ -72,6 +72,15 @@ public final class Support {
 
         /** Loaded worlds in which TrainCarts is enabled. */
         List<org.bukkit.World> railwayWorlds();
+
+        /** A fresh one-time link to the web editor, or empty with the reason when it is not running. */
+        default java.util.Optional<String> editorLink() {
+            return java.util.Optional.empty();
+        }
+
+        default String editorState() {
+            return "The web editor is off: set integrations.editor.enabled to true in config.yml and /atcs reload";
+        }
     }
 
     Network network() {

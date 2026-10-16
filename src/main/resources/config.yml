@@ -101,6 +101,20 @@ integrations:
     # How often trains and departures are written, in seconds.
     refresh-seconds: 3
     bluemap-button: true
+  editor:
+    # The web editor: stations, lines and services, boards, transfers, fares, the diagram and
+    # the configuration files, in a browser. Off until enabled. /atcs editor prints a one-time
+    # link; every save goes through the same checks as the commands, and a file edited by hand
+    # on disk is never overwritten.
+    enabled: false
+    # Listens on this address and port. Keep 127.0.0.1 and put a reverse proxy in front for
+    # access from elsewhere, or set the server's address to open it up directly.
+    bind: 127.0.0.1
+    port: 8111
+    # The host name the printed link uses, when it differs from the bind address (behind a proxy).
+    host: ""
+    # A session ends after this long without use.
+    session-minutes: 120
 
 trains:
   # Name trains after their service when ATCS assigns one, for example A-to-main-2 instead of

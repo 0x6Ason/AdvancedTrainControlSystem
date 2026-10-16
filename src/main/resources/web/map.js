@@ -3,7 +3,9 @@
  * Navigation: wheel or pinch to zoom, drag to pan, double-click to zoom in. Taps are matched to
  * the nearest station within a finger's reach (or on its label), so small dots are easy to hit.
  * Panels covering part of the map (the bottom sheet on phones) are set as insets, and fitting or
- * revealing a station uses only the part that can be seen. */
+ * revealing a station uses only the part that can be seen.
+ * With options.onMoveStation (the editor), a station can be dragged: it snaps to the diagram's
+ * grid, guide lines show the cell, and dropping it reports the cell to pin it to. */
 (function (root) {
   'use strict';
 
@@ -88,7 +90,7 @@
   function create(svg, wrap, options) {
     options = options || {};
     var layout = null, lineById = {}, stationNodes = {}, labelNodes = {}, groups = null;
-    var trains = [], trainNodes = {}, trainsShown = true;
+    var trains = [], trainNodes = {}, trainsShown = false;
     var home = null, view = null, fitted = true, framePending = false;
     var highlighted = '', selected = null;
     // The part of the map covered by panels, in pixels (the bottom sheet on phones).
@@ -228,13 +230,75 @@
       dragging = false;
     }
 
+    // ---- Moving a station (editor only) ------------------------------------------------------
+
+    var moving = null;
+
+    /* The grid of the current layout: column and row spacing in map units. */
+    function gridSteps() {
+      var arrangement = layout && layout.detail && layout.detail.arrangement;
+      return arrangement && arrangement.length >= 2 ? { u: arrangement[0], v: arrangement[1] } : { u: layout.cell, v: layout.cell };
+    }
+
+    /* The map point under a screen point. */
+    function toMap(clientX, clientY) {
+      var rect = measure(), s = view.w / rect.width;
+      return { u: view.x + (clientX - rect.left) * s, v: view.y + (clientY - rect.top) * s };
+    }
+
+    function startMove(id) {
+      var station = layout.stations[id];
+      moving = { id: id, from: { u: station.u, v: station.v }, cell: null };
+      svg.classList.add('moving');
+      if (stationNodes[id]) stationNodes[id].classList.add('moving');
+      if (labelNodes[id]) labelNodes[id].classList.add('moving');
+    }
+
+    function updateMove(clientX, clientY) {
+      var at = toMap(clientX, clientY), steps = gridSteps();
+      var column = Math.round(at.u / steps.u), row = Math.round(at.v / steps.v);
+      var u = column * steps.u, v = row * steps.v;
+      moving.cell = { column: column, row: row, u: u, v: v };
+      var shift = 'translate(' + (u - moving.from.u).toFixed(1) + ' ' + (v - moving.from.v).toFixed(1) + ')';
+      if (stationNodes[moving.id]) stationNodes[moving.id].setAttribute('transform', shift);
+      if (labelNodes[moving.id]) labelNodes[moving.id].setAttribute('transform', shift);
+      clear(groups.guides);
+      var b = layout.bounds || { minU: 0, maxU: 0, minV: 0, maxV: 0 }, pad = layout.cell * 3;
+      el('line', { 'class': 'guide', x1: u, y1: Math.min(b.minV, v) - pad, x2: u, y2: Math.max(b.maxV, v) + pad }, groups.guides);
+      el('line', { 'class': 'guide', x1: Math.min(b.minU, u) - pad, y1: v, x2: Math.max(b.maxU, u) + pad, y2: v }, groups.guides);
+      var taken = Object.keys(layout.stations).some(function (other) {
+        return other !== moving.id && Math.abs(layout.stations[other].u - u) < 1 && Math.abs(layout.stations[other].v - v) < 1;
+      });
+      el('rect', { 'class': 'guide-cell' + (taken ? ' taken' : ''), x: u - 14, y: v - 14, width: 28, height: 28 }, groups.guides);
+      var tag = el('text', { 'class': 'guide-label', x: u + 18, y: v - 18 }, groups.guides);
+      tag.textContent = taken ? 'Taken' : 'Column ' + column + ', row ' + row;
+    }
+
+    function endMove(commit) {
+      var done = moving;
+      moving = null;
+      svg.classList.remove('moving');
+      if (groups && groups.guides) clear(groups.guides);
+      if (!done) return;
+      if (stationNodes[done.id]) { stationNodes[done.id].removeAttribute('transform'); stationNodes[done.id].classList.remove('moving'); }
+      if (labelNodes[done.id]) { labelNodes[done.id].removeAttribute('transform'); labelNodes[done.id].classList.remove('moving'); }
+      if (commit && done.cell && options.onMoveStation) {
+        var moved = Math.abs(done.cell.u - done.from.u) > 0.5 || Math.abs(done.cell.v - done.from.v) > 0.5;
+        if (moved) options.onMoveStation(done.id, done.cell.column, done.cell.row);
+      }
+    }
+
     svg.addEventListener('pointerdown', function (event) {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
       pointers[event.pointerId] = { x: event.clientX, y: event.clientY };
       var ids = Object.keys(pointers);
       if (ids.length === 1) {
         startPress(event.pointerId, event.clientX, event.clientY, event.pointerType);
+        if (options.onMoveStation && layout && view) {
+          press.station = stationAt(event.clientX, event.clientY, event.pointerType !== 'mouse');
+        }
       } else if (ids.length === 2) {
+        if (moving) endMove(false);
         if (press) press.tap = false;
         press = null;
         pinchDistance = distance(ids);
@@ -261,11 +325,22 @@
         return;
       }
       if (!press || press.id !== event.pointerId) return;
+      if (moving) {
+        updateMove(event.clientX, event.clientY);
+        return;
+      }
       if (!dragging) {
         var threshold = press.type === 'mouse' ? 4 : 10;
         if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < threshold) return;
-        dragging = true;
         press.tap = false;
+        if (press.station) {
+          // Pressed on a station in the editor: move it instead of the map.
+          try { svg.setPointerCapture(event.pointerId); } catch (ignored) { /* not supported */ }
+          startMove(press.station);
+          updateMove(event.clientX, event.clientY);
+          return;
+        }
+        dragging = true;
         // Continue from here, so the map does not jump by the threshold.
         press.x = event.clientX;
         press.y = event.clientY;
@@ -283,6 +358,7 @@
 
     function release(event) {
       if (!pointers[event.pointerId]) return;
+      if (moving && press && press.id === event.pointerId) endMove(event.type === 'pointerup');
       var wasTap = event.type === 'pointerup' && press && press.id === event.pointerId && press.tap && Object.keys(pointers).length === 1;
       var tapType = press ? press.type : 'mouse';
       delete pointers[event.pointerId];
@@ -329,9 +405,10 @@
     function draw() {
       clear(svg);
       groups = {};
-      ['lines', 'transfers', 'route', 'trains', 'stations', 'labels'].forEach(function (name) {
+      ['lines', 'transfers', 'route', 'trains', 'stations', 'labels', 'guides'].forEach(function (name) {
         groups[name] = el('g', { 'class': name }, svg);
       });
+      if (options.onMoveStation) svg.classList.add('editable');
       groups.trains.classList.toggle('hidden', !trainsShown);
       trainNodes = {};
       lineById = {};

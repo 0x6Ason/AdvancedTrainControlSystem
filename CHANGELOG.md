@@ -45,6 +45,15 @@ TrainCarts server, configured with files and in-game commands.
   `atcs station` signs, keeping their delay, direction, `route`, offset, launch distance and speed,
   and leaves every other sign (refill stops, test stations) alone. Without `confirm` it only lists
   what it would change.
+- The web editor (`integrations.editor`, off by default; `/atcs editor` prints a one-time link):
+  stations and platforms, lines, services with their stops drawn as the line, boards, walking
+  transfers, fares, diagram adjustments and the configuration files, beside the website's diagram
+  where stations can be dragged to pin them. Every change is checked by the code that reads the
+  files and shown with the same messages; saving goes through the same store as the commands, so
+  an edit made in game meanwhile is shown side by side instead of overwritten; learned times are
+  kept for stops that stay; local undo and redo, a review of the file as it will be written, and
+  `/atcs undo` from the header. The server is the JDK's own, bound to localhost unless configured.
+- The website's diagram is static again by default: live trains are a button away, not on.
 - The website diagram stays put: a browser lays the next network out from the layout it drew,
   the server hands out `data/map-layout.yml` when the editor saved one, and `?fresh` starts over.
   Hand adjustments under `map:` in network.yml: `/atcs station map <station> pin|unpin|hide|show|label`

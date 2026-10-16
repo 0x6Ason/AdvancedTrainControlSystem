@@ -16,6 +16,7 @@ import dev.advancedtrains.atcs.network.Board;
 import dev.advancedtrains.atcs.network.Fleet;
 import dev.advancedtrains.atcs.network.Line;
 import dev.advancedtrains.atcs.network.Network;
+import dev.advancedtrains.atcs.network.NetworkLint;
 import dev.advancedtrains.atcs.network.NetworkStore;
 import dev.advancedtrains.atcs.network.Platform;
 import dev.advancedtrains.atcs.network.PlatformRef;
@@ -1168,6 +1169,29 @@ public final class RailwayRuntime {
         }
     }
 
+    /** The website's live data: every tracked train and the next departures of every station. */
+    public String liveJson(Instant now) {
+        Network network = store.network();
+        return WebModel.live(network, tracker.snapshots(), journey -> view(journey.trainId()),
+                station -> departures(station, platform -> true), times, WEB_DEPARTURES, now);
+    }
+
+    /** What the network check needs from the running railway: seen triggers, signs in the world, learned segments. */
+    public NetworkLint.Inputs lintInputs(dev.advancedtrains.atcs.fare.@Nullable FareTable fares,
+                                         java.util.function.@Nullable BiPredicate<String, String> routeExists) {
+        return new NetworkLint.Inputs(observedTriggers(), RailwayRuntime::signExists,
+                service -> times.learnedSegments(service), fares, routeExists);
+    }
+
+    /** Whether a sign still stands at the position; true when its chunk is not loaded, so nothing is reported in error. */
+    public static boolean signExists(BlockPos position) {
+        org.bukkit.World world = org.bukkit.Bukkit.getWorld(position.world());
+        if (world == null || !world.isChunkLoaded(position.chunkX(), position.chunkZ())) {
+            return true;
+        }
+        return world.getBlockAt(position.x(), position.y(), position.z()).getState() instanceof org.bukkit.block.Sign;
+    }
+
     /** Writes the website's data files: the network when it changed (and now and then for learned times), the trains always. */
     private void refreshWeb() {
         WebSite site = web;
@@ -1185,8 +1209,7 @@ public final class RailwayRuntime {
             writer.execute(() -> site.write("network.json", json));
         }
         webWrites++;
-        String live = WebModel.live(network, tracker.snapshots(), journey -> view(journey.trainId()),
-                station -> departures(station, platform -> true), times, WEB_DEPARTURES, now);
+        String live = liveJson(now);
         writer.execute(() -> site.write("live.json", live));
     }
 
@@ -1296,6 +1319,11 @@ public final class RailwayRuntime {
             layout.put("arrangement", yaml.getList("arrangement"));
         }
         return layout;
+    }
+
+    /** The saved diagram layout ({@code stations: {id: [column, row]}, arrangement}), or null. */
+    public @Nullable Map<String, Object> savedLayout() {
+        return savedLayout;
     }
 
     /** Writes the diagram layout the editor sends, and hands it to the website on its next refresh. */

@@ -341,6 +341,7 @@ The wand also gives a station a footprint and binds signs in bulk:
 | `/atcs fare check\|info` | atcs.use | The fare between two stations and how it was worked out |
 | `/atcs fare generate\|apply\|set\|zone\|zonefare\|formula\|currency` | atcs.manage | Edit fares |
 | `/atcs timing report\|reset` | atcs.manage | How good the arrival estimates are, measured against real arrivals |
+| `/atcs editor` | atcs.manage | A one-time link to the web editor (`integrations.editor`) |
 | `/atcs lint` | atcs.manage | Check the network for what will not work or not show, with what to do about it |
 | `/atcs undo`, `/atcs history` | atcs.manage | Restore network.yml as it was before the last command edit; the last 25 versions are kept |
 | `/atcs status`, `/atcs reload`, `/atcs debug` | atcs.manage | Administration |
@@ -592,6 +593,42 @@ The map needs station positions: ATCS takes them from the platform signs trains 
 Links to a station or a trip can be shared, for example `/atcs/#plan=liberty,main`.
 
 <!-- --8<-- [end:website] -->
+<!-- --8<-- [start:editor] -->
+## Web editor
+
+Stations, lines and services, boards, walking transfers, fares, the diagram and the configuration
+files, edited in a browser instead of in chat. It is off until you turn it on:
+
+```yaml
+integrations:
+  editor:
+    enabled: true      # then /atcs reload
+    bind: 127.0.0.1    # localhost only; put a reverse proxy in front to reach it from elsewhere
+    port: 8111
+```
+
+Run `/atcs editor` in game and click the link; it works once, for ten minutes, and signs that
+browser in until the session has gone unused for `session-minutes`.
+
+The diagram from the website sits on the left and redraws as you edit. Tap a station to open it,
+or drag it to pin it to another cell. On the right, a rail of sections lists stations, lines,
+boards, transfers, fares, diagram adjustments, displays, settings and the network check. Stop
+lists are drawn as the line itself: drag the dots to reorder, mark a stop as run through, pick a
+platform. "Make the return service" reverses a service and links the two at their termini.
+
+Nothing is written until you save. Every change is checked by the same code that reads
+`network.yml`, so a mistake shows at once, with the same message a command would give, next to
+the thing it is about; *Review* shows the file exactly as it will be written. Saving goes
+through the same store as the commands: if someone edited the network in game or on disk
+meanwhile, the editor shows both versions and asks which to keep, and learned travel times and
+recorded track are kept for the stops that stay. Ctrl+S saves, Ctrl+Z and Ctrl+Shift+Z undo and
+redo everything since the page was opened, and *Restore previous version* in the header is
+`/atcs undo`. Saving `config.yml` or `messages.yml` under *Settings* reloads ATCS.
+
+Displays are put up and taken down in game, because they need the world: the editor lists them
+with the command that removes each.
+
+<!-- --8<-- [end:editor] -->
 <!-- --8<-- [start:troubleshooting] -->
 ## Troubleshooting
 

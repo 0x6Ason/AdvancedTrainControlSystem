@@ -37,6 +37,20 @@ public final class AtcsCommand implements TabExecutor {
                         problems.stream().limit(10).forEach(problem -> Chat.warn(context.sender(), " - " + problem));
                     }
                 }),
+                leaf("editor", MANAGE, "", "A one-time link to the web editor (stations, lines, boards, fares, the diagram, config)",
+                        context -> {
+                            java.util.Optional<String> link = support.control.editorLink();
+                            if (link.isEmpty()) {
+                                throw new CommandError(support.control.editorState());
+                            }
+                            context.sender().sendMessage(Component.text()
+                                    .append(Component.text("ATCS ", NamedTextColor.GOLD))
+                                    .append(Component.text("Open the editor (the link works once, for ten minutes): ", NamedTextColor.GREEN))
+                                    .append(Component.text(link.get(), NamedTextColor.AQUA)
+                                            .clickEvent(net.kyori.adventure.text.event.ClickEvent.openUrl(link.get()))
+                                            .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(Component.text("Open in your browser"))))
+                                    .build());
+                        }),
                 leaf("lint", MANAGE, "", "Check the network for what will not work or not show, with what to do about it",
                         context -> MaintenanceCommands.lint(support, context)),
                 leaf("undo", MANAGE, "", "Restore network.yml as it was before the last command edit",

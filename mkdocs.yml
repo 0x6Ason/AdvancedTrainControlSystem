@@ -56,6 +56,7 @@ nav:
       - Displays and the wand: operators/displays.md
       - Files: operators/files.md
       - Website and maps: operators/website.md
+      - Web editor: operators/editor.md
       - Fares: operators/fares.md
       - Integrations: operators/integrations.md
       - Troubleshooting: operators/troubleshooting.md

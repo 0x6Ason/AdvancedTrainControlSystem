@@ -18,6 +18,11 @@ import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import dev.advancedtrains.atcs.api.FareApi;
 import dev.advancedtrains.atcs.display.DisplayService;
 import dev.advancedtrains.atcs.display.Logos;
+import dev.advancedtrains.atcs.editor.EditorApi;
+import dev.advancedtrains.atcs.editor.EditorServer;
+import dev.advancedtrains.atcs.network.NetworkLint;
+import java.util.Map;
+import dev.advancedtrains.atcs.network.Station;
 import dev.advancedtrains.atcs.operation.RailGraph;
 import dev.advancedtrains.atcs.selection.SelectionService;
 import dev.advancedtrains.atcs.fare.FareStore;
@@ -63,6 +68,9 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
     private FareService fareService;
     private DisplayService displays;
     private SelectionService selections;
+    private @Nullable EditorServer editor;
+    /** The settings the running editor was started with. */
+    private AtcsSettings.@Nullable Editor editorSettings;
 
     @Override
     public void onEnable() {
@@ -96,6 +104,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
                 registerPlaceholders(trains);
             }
 
+            startEditor();
             getServer().getPluginManager().registerEvents(new TrainCartsListener(this, store, runtime), this);
             signAction = SignAction.register(new AtcsSignAction(store, runtime));
             // Signs in chunks loaded before this point are matched to the action only now.
@@ -126,6 +135,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
 
     @Override
     public void onDisable() {
+        stopEditor();
         if (signAction != null) {
             SignAction.unregister(signAction);
             signAction = null;
@@ -175,7 +185,147 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         runtime.reconfigure(settings, messages, createMap(), createSignLink(), createWeb());
         runtime.setFareSummary(fareService::summary);
         importer.configure(settings.importer().settings(), settings.importer().chunksPerTick());
+        // A reload from the editor itself (saving config.yml) must not cut off its own answer: the
+        // server is only restarted when its settings changed, and then a moment later.
+        if (editor == null || !settings.editor().equals(editorSettings)) {
+            getServer().getScheduler().runTaskLater(this, () -> {
+                stopEditor();
+                startEditor();
+            }, 10L);
+        }
         return problems;
+    }
+
+    @Override
+    public java.util.Optional<String> editorLink() {
+        EditorServer running = editor;
+        if (running == null || !running.running()) {
+            return java.util.Optional.empty();
+        }
+        String host = settings.editor().host().isBlank() ? running.bind() : settings.editor().host();
+        if (host.equals("0.0.0.0") || host.equals("::")) {
+            host = getServer().getIp().isBlank() ? "localhost" : getServer().getIp();
+        }
+        return java.util.Optional.of(running.newLink(host));
+    }
+
+    @Override
+    public String editorState() {
+        if (!settings.editor().enabled()) {
+            return "The web editor is off: set integrations.editor.enabled to true in config.yml and /atcs reload";
+        }
+        return "The web editor could not start on " + settings.editor().bind() + ":" + settings.editor().port()
+                + "; see the console (is the port free?)";
+    }
+
+    /** Starts the editor's web server when enabled; its operations run on the server thread. */
+    private void startEditor() {
+        if (!settings.editor().enabled()) {
+            return;
+        }
+        EditorApi.ConfigFiles configs = new EditorApi.ConfigFiles() {
+            @Override
+            public List<String> names() {
+                return List.of("config.yml", "messages.yml");
+            }
+
+            @Override
+            public Path path(String name) throws EditorApi.ApiException {
+                if (!names().contains(name)) {
+                    throw new EditorApi.ApiException(404, "Unknown file " + name, null);
+                }
+                return dataPath().resolve(name);
+            }
+
+            @Override
+            public List<String> reload() {
+                return AtcsPlugin.this.reload();
+            }
+        };
+        EditorApi api = new EditorApi(store, fares,
+                network -> NetworkLint.check(network, runtime.lintInputs(fares.table(),
+                        (a, b) -> fareService.calculator().planner().route(a, b).isPresent())),
+                () -> runtime.liveJson(Clock.systemUTC().instant()),
+                runtime::saveLayout, configs, this::editorContext, this::carryLearnedData);
+        EditorServer.Sync sync = new EditorServer.Sync() {
+            @Override
+            public <T> T call(java.util.concurrent.Callable<T> task) throws Exception {
+                if (getServer().isPrimaryThread()) {
+                    return task.call();
+                }
+                return getServer().getScheduler().callSyncMethod(AtcsPlugin.this, task).get(30, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        };
+        EditorServer created = new EditorServer(api, sync, settings.editor().bind(), settings.editor().port(),
+                settings.editor().sessionMinutes(), getLogger());
+        try {
+            created.start();
+            editor = created;
+            editorSettings = settings.editor();
+        } catch (IOException exception) {
+            getLogger().log(Level.WARNING, "Could not start the web editor on " + settings.editor().bind() + ":"
+                    + settings.editor().port(), exception);
+        }
+    }
+
+    private void stopEditor() {
+        EditorServer running = editor;
+        editor = null;
+        editorSettings = null;
+        if (running != null) {
+            running.stop();
+        }
+    }
+
+    /** What the editor page needs beside network.yml: where stations are, their short codes, the saved diagram. */
+    private com.google.gson.JsonObject editorContext(Network network) {
+        com.google.gson.JsonObject context = new com.google.gson.JsonObject();
+        context.addProperty("title", settings.web().title());
+        com.google.gson.JsonObject positions = new com.google.gson.JsonObject();
+        com.google.gson.JsonObject codes = new com.google.gson.JsonObject();
+        com.google.gson.JsonObject observed = new com.google.gson.JsonObject();
+        dev.advancedtrains.atcs.map.StationLocator locator = runtime.locator();
+        Map<String, java.util.Set<dev.advancedtrains.atcs.network.BlockPos>> seen = runtime.observedTriggers();
+        for (Station station : network.stations().values()) {
+            locator.station(station).ifPresent(position -> {
+                com.google.gson.JsonObject entry = new com.google.gson.JsonObject();
+                entry.addProperty("world", position.world());
+                entry.addProperty("x", position.x());
+                entry.addProperty("y", position.y());
+                entry.addProperty("z", position.z());
+                positions.add(station.id(), entry);
+            });
+            codes.addProperty(station.id(), network.code(station.id()));
+            java.util.Set<dev.advancedtrains.atcs.network.BlockPos> triggers = seen.get(station.id());
+            if (triggers != null && !triggers.isEmpty()) {
+                com.google.gson.JsonArray list = new com.google.gson.JsonArray();
+                triggers.forEach(position -> list.add(position.format()));
+                observed.add(station.id(), list);
+            }
+        }
+        context.add("positions", positions);
+        context.add("codes", codes);
+        context.add("observed", observed);
+        Map<String, Object> layout = runtime.savedLayout();
+        if (layout != null) {
+            context.add("layout", com.google.gson.JsonParser.parseString(new com.google.gson.Gson().toJson(layout)));
+        }
+        com.google.gson.JsonArray worlds = new com.google.gson.JsonArray();
+        railwayWorlds().forEach(world -> worlds.add(world.getName()));
+        context.add("worlds", worlds);
+        return context;
+    }
+
+    /** Keeps learned times and recorded track for the stops that stay when the editor changes a stop list. */
+    private void carryLearnedData(Network before, Network after) {
+        for (Service updated : after.services()) {
+            before.service(updated.key()).ifPresent(previous -> {
+                if (!previous.stops().equals(updated.stops())) {
+                    runtime.times().remap(previous, updated);
+                    runtime.paths().remap(previous, updated);
+                }
+            });
+        }
     }
 
     @Override

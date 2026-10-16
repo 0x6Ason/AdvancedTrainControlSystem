@@ -103,6 +103,14 @@ button { touch-action: manipulation; }
 #map { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 #map.over-station { cursor: pointer; }
 #map.dragging { cursor: grabbing; }
+#map.editable.over-station { cursor: move; }
+#map.moving { cursor: move; }
+.station.moving circle { fill: var(--warn); stroke: var(--station); stroke-width: 3.5; r: 11; }
+.label.moving { opacity: .55; }
+.guide { stroke: var(--station); stroke-width: 1.5; stroke-dasharray: 6 6; opacity: .55; }
+.guide-cell { fill: none; stroke: var(--station); stroke-width: 2.5; }
+.guide-cell.taken { stroke: var(--bad); stroke-width: 3.5; }
+.guide-label { font: 700 13px var(--font); fill: var(--label); paint-order: stroke; stroke: var(--halo); stroke-width: 5px; stroke-linejoin: round; }
 
 .map-tools { position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column; border: 2px solid var(--rule); background: var(--paper); }
 .map-tools button {

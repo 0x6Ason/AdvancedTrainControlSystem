@@ -129,8 +129,9 @@
 
   // ---- Trains on the map -----------------------------------------------------------------------
 
+  /* Trains on the map are opt-in: the diagram stays static unless the visitor switches them on. */
   function trainsWanted() {
-    try { return localStorage.getItem('atcs-trains') !== 'off'; } catch (ignored) { return true; }
+    try { return localStorage.getItem('atcs-trains') === 'on'; } catch (ignored) { return false; }
   }
 
   function setTrainsWanted(wanted) {

@@ -17,6 +17,7 @@ AdvancedTrainControlSystem
 |---|---|---|
 | `/atcs status` | `atcs.manage` | Show plugin, network and integration status |
 | `/atcs reload` | `atcs.manage` | Reload config.yml, messages.yml and network.yml |
+| `/atcs editor` | `atcs.manage` | A one-time link to the web editor (stations, lines, boards, fares, the diagram, config) |
 | `/atcs lint` | `atcs.manage` | Check the network for what will not work or not show, with what to do about it |
 | `/atcs undo` | `atcs.manage` | Restore network.yml as it was before the last command edit |
 | `/atcs history` | `atcs.manage` | List the earlier versions of network.yml that /atcs undo can restore |
