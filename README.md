@@ -13,9 +13,12 @@ trains run — follows every train through it, and tells passengers where they a
 - **Set-up from what you already have**: stations are drafted from your TrainCarts station signs and
   `Arrived: ...` announcements, and lines and services are suggested from the trips your trains make.
 
-ATCS never changes how trains drive, and never edits your world: it observes TrainCarts and adds
-information on top. Your existing signs keep working exactly as before.
+ATCS observes TrainCarts and adds information on top; your existing signs keep working exactly as
+before. Where you want it to, it also runs the stations: `atcs station` signs stop the trains that
+call and let the others run through (an express on a local track), hold trains apart, and
+`atcs switch` signs set junctions by service.
 
+<!-- --8<-- [start:install] -->
 ## Requirements
 
 | | |
@@ -31,6 +34,8 @@ information on top. Your existing signs keep working exactly as before.
 2. Restart the server (do not hot-load it with PlugMan).
 3. Follow one of the set-up guides below.
 
+<!-- --8<-- [end:install] -->
+<!-- --8<-- [start:setup] -->
 ## Set-up for an existing TrainCarts network
 
 This is the fastest way: ATCS drafts everything from your world, you review it, then apply it.
@@ -150,6 +155,8 @@ stations without triggers and trains that were unloaded for part of the trip are
 stop times are learned per service and stop (smoothed, so a train held at a signal does not ruin the
 estimate) and drive the boss-bar and board arrival times.
 
+<!-- --8<-- [end:setup] -->
+<!-- --8<-- [start:signs] -->
 ## Signs
 
 ATCS adds six TrainCarts sign types. Building them needs `atcs.sign.build`.
@@ -263,6 +270,8 @@ The levers switch the moment ATCS sees the train arrive, leave or come within ap
 are checked every second. Signs work in loaded chunks; when a chunk unloads its levers keep their
 last state until it loads again.
 
+<!-- --8<-- [end:signs] -->
+<!-- --8<-- [start:boards] -->
 ## Departure boards
 
 Any ordinary sign can be a board. Each sign shows one departure; add more signs for more departures.
@@ -275,6 +284,8 @@ Any ordinary sign can be a board. Each sign shows one departure; add more signs 
 Boards show the line badge, service, destination, a countdown (or *Arriving* / *Boarding*) and the
 platform. The layout is in `messages.yml`.
 
+<!-- --8<-- [end:boards] -->
+<!-- --8<-- [start:commands] -->
 ## Commands
 
 | Command | Permission | |
@@ -312,6 +323,7 @@ other stops (travel times, stop times, platforms, recorded track) is kept; only 
 to the new stop are learned afresh. Then give the platforms their signs: an `atcs station` sign
 (or a TrainCarts station sign bound with `/atcs station bind`) per platform.
 
+<!-- --8<-- [end:commands] -->
 ## Permissions
 
 | Permission | Default | |
@@ -322,6 +334,7 @@ to the new stop are learned afresh. Then give the platforms their signs: an `atc
 | `atcs.sign.build` | op | Build ATCS signs |
 | `atcs.admin` | op | All of the above |
 
+<!-- --8<-- [start:files] -->
 ## Files
 
 All in `plugins/AdvancedTrainControlSystem/`:
@@ -371,6 +384,8 @@ boards:
     - world,-320,65,-802
 ```
 
+<!-- --8<-- [end:files] -->
+<!-- --8<-- [start:integrations] -->
 ## Integrations
 
 **BlueMap** — adds a *Railway* marker set with every station (and the lines calling there), each line
@@ -420,6 +435,8 @@ The website map draws the link as a dotted line (a solid connector for `inside`)
 MTR map does, and the trip planner walks it when that is quicker. Arrival announcements mention
 the lines at the other end: *Change here for Line A, Line 1 (walk to Main St.).*
 
+<!-- --8<-- [end:integrations] -->
+<!-- --8<-- [start:website] -->
 ## Website
 
 ATCS writes a small website: a schematic map of the network, the next departures of every
@@ -456,6 +473,8 @@ The map needs station positions: ATCS takes them from the platform signs trains 
 `/atcs station locate`. Live data is rewritten every `integrations.web.refresh-seconds`.
 Links to a station or a trip can be shared, for example `/atcs/#plan=liberty,main`.
 
+<!-- --8<-- [end:website] -->
+<!-- --8<-- [start:troubleshooting] -->
 ## Troubleshooting
 
 - **Nothing happens when a train arrives.** Check that the platform's trigger is the sign trains
@@ -467,11 +486,15 @@ Links to a station or a trip can be shared, for example `/atcs/#plan=liberty,mai
 - **Old announce signs.** Once ATCS announces your stations you can remove TrainCarts `announce` signs
   that say the same thing.
 
+<!-- --8<-- [end:troubleshooting] -->
+<!-- --8<-- [start:building] -->
 ## Building
 
 ```
 ./gradlew build
 ```
 
-The plugin is `build/libs/AdvancedTrainControlSystem-<version>.jar`. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is organised.
+The plugin is `build/libs/AdvancedTrainControlSystem-<version>.jar`.
+<!-- --8<-- [end:building] -->
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is organised, and
+[docs/ROADMAP.md](docs/ROADMAP.md) for what comes next.

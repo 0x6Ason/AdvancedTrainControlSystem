@@ -53,6 +53,11 @@ public final class AtcsCommand implements TabExecutor {
                 ImportCommands.build(support));
     }
 
+    /** The whole tree, for generated documentation. */
+    Node.Group root() {
+        return root;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         CommandContext context = new CommandContext(sender, "/" + label, args);

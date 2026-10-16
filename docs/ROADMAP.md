@@ -345,9 +345,10 @@ CI, releases, metrics and the API module are under *Open source* below.
 ## Open source
 
 Deliberately last: the author wants the system finished and running well before it is handed
-out. Until then the repository is public but carries no licence, which means all rights are
-reserved and nobody may legally use or fork the code, which is exactly the state wanted while
-finalising. Only the licence, the contributor material, publishing and the community items wait;
+out. Until then the repository stays private (and once public, carries no licence, which means all
+rights are reserved and nobody may legally use or fork the code), which is exactly the state wanted
+while finalising. A private repository also means the docs site cannot be published on GitHub Pages
+yet; it is built in CI and checked locally until then. Only the licence, the contributor material, publishing and the community items wait;
 CI, tests, the docs site and the changelog discipline below are quality work and start now.
 
 When the time comes, in order:

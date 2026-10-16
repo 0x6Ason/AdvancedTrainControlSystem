@@ -1,0 +1,70 @@
+site_name: ATCS
+site_description: Passenger information, departure boards, maps and station control for TrainCarts railways
+repo_url: https://github.com/0x6Ason/AdvancedTrainControlSystem
+repo_name: AdvancedTrainControlSystem
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  # Pages reuse sections of README.md and CHANGELOG.md through snippet markers
+  # (<!-- --8<-- [start:name] -->), so there is one text to keep right.
+  - pymdownx.snippets:
+      base_path: ['.']
+      check_paths: true
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Riders: riders/index.md
+  - Operators:
+      - Set-up: operators/setup.md
+      - Signs: operators/signs.md
+      - Departure boards: operators/boards.md
+      - Files: operators/files.md
+      - Website and maps: operators/website.md
+      - Integrations: operators/integrations.md
+      - Troubleshooting: operators/troubleshooting.md
+  - Reference:
+      - Commands: reference/commands.md
+      - Signs: reference/signs.md
+      - Permissions: reference/permissions.md
+      - config.yml: reference/config.md
+  - Developers:
+      - Architecture: ARCHITECTURE.md
+      - Building and testing: developers/building.md
+  - Project:
+      - Roadmap: ROADMAP.md
+      - Changelog: project/changelog.md

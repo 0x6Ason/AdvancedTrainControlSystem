@@ -100,6 +100,18 @@ tasks.check {
     dependsOn(verifyEnglishTextPolicy)
 }
 
+// Writes docs/reference/*.md from the command tree, sign parsers, plugin.yml and config.yml.
+// ReferenceDocsTest fails the build when the committed pages differ from what this writes.
+val generateDocs by tasks.registering(JavaExec::class) {
+    group = "documentation"
+    description = "Regenerates the reference pages under docs/reference from the code."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("dev.advancedtrains.atcs.command.ReferenceDocs")
+    args("docs/reference")
+    workingDir = projectDir
+}
+
 tasks.jar {
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true

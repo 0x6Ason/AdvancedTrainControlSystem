@@ -89,6 +89,11 @@ public abstract sealed class Node permits Node.Group, Node.Leaf {
             }
         }
 
+        /** The subcommands in the order they are listed, for help and generated documentation. */
+        Map<String, Node> children() {
+            return children;
+        }
+
         @Override
         void execute(CommandContext context) throws CommandError {
             if (context.size() == 0) {

@@ -1,6 +1,7 @@
 .gradle/
 build/
 out/
+site/
 .idea/
 *.iml
 run/
