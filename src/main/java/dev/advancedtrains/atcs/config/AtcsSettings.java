@@ -67,7 +67,11 @@ public record AtcsSettings(
             boolean showTrains,
             int trainRefreshTicks,
             boolean recordTrackPaths,
-            int lineWidth) {
+            int lineWidth,
+            boolean logos,
+            int stationIconSize,
+            int minorStationMaxDistance,
+            boolean trainIcons) {
     }
 
     public record SignLink(boolean enabled, int departuresPerStation) {
@@ -169,7 +173,11 @@ public record AtcsSettings(
                 reader.bool("integrations.bluemap.show-trains", true),
                 reader.integer("integrations.bluemap.train-refresh-ticks", 40, 10, 1200),
                 reader.bool("integrations.bluemap.record-track-paths", true),
-                reader.integer("integrations.bluemap.line-width", 5, 1, 20));
+                reader.integer("integrations.bluemap.line-width", 5, 1, 20),
+                reader.bool("integrations.bluemap.logos", true),
+                reader.integer("integrations.bluemap.station-icon-size", 40, 0, 128),
+                reader.integer("integrations.bluemap.minor-station-max-distance", 1500, 0, 100000),
+                reader.bool("integrations.bluemap.train-icons", true));
         SignLink signLink = new SignLink(
                 reader.bool("integrations.signlink.enabled", true),
                 reader.integer("integrations.signlink.departures-per-station", 3, 1, 10));

@@ -45,6 +45,12 @@ TrainCarts server, configured with files and in-game commands.
   `atcs station` signs, keeping their delay, direction, `route`, offset, launch distance and speed,
   and leaves every other sign (refill stops, test stations) alone. Without `confirm` it only lists
   what it would change.
+- Station logos and line badges, generated from the network (a ring in the line colours with the
+  station's short code), with `logos/<station>.png` and `logos/line-<id>.png` as overrides.
+- BlueMap: one marker set per line plus Stations, Walking transfers and Trains; stations drawn as
+  their logos and trains as line badges; small stations fade out far away; station popups list the
+  next departures and link to the website; train popups say where the train goes and when; lines
+  on a shared stretch of track run side by side; suspended lines turn grey; held trains are marked.
 - `/atcs undo` and `/atcs history`: every command edit keeps the previous network.yml (the last
   25), and undo restores it.
 - `/atcs lint`: stations without a platform or sign, platforms without triggers, stations no

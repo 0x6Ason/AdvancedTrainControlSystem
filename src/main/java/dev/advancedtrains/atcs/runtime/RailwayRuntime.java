@@ -1131,11 +1131,31 @@ public final class RailwayRuntime {
                 }
                 String next = view.nextStationId().map(network::stationName).orElse("");
                 String label = view.line().shortName() + " " + view.service().name() + " » " + view.destinationName(network);
-                String detail = view.completed() ? "Not in service" : next.isEmpty() ? "" : "Next: " + next;
+                String detail = view.completed() ? "Not in service"
+                        : view.atStop() && view.currentStationId().isPresent() ? "At " + network.stationName(view.currentStationId().get())
+                        : next.isEmpty() ? "" : "Next: " + next
+                                + (view.etaNext().isPresent() ? " in " + plainDuration(view.etaNext().getAsDouble()) : "");
                 markers.add(new MapLayer.TrainMarker(train.name(), head.getWorld().getName(),
-                        head.getX(), head.getY(), head.getZ(), label, detail, view.line().color()));
+                        head.getX(), head.getY(), head.getZ(), label, detail, view.line().color(), view.line().id(),
+                        view.held() || view.holdReason() != null));
             }
-            layer.showTrains(markers);
+            List<MapLayer.StationLive> stations = new ArrayList<>();
+            for (Station station : network.stations().values()) {
+                List<MapLayer.DepartureLine> lines = new ArrayList<>();
+                for (Departures.Departure departure : departures(station.id(), platform -> true)) {
+                    if (lines.size() >= 4) {
+                        break;
+                    }
+                    Line line = network.line(departure.service().key().lineId()).orElse(null);
+                    String time = departure.status() == Departures.Status.BOARDING ? "Boarding"
+                            : departure.etaSeconds().isPresent() ? plainDuration(departure.etaSeconds().getAsDouble()) : "Expected";
+                    lines.add(new MapLayer.DepartureLine(line == null ? "" : line.shortName(), line == null ? 0x888888 : line.color(),
+                            departure.service().destinationFrom(departure.stopIndex()).map(stop -> network.stationName(stop.stationId()))
+                                    .orElse(departure.service().name()), departure.platformId(), time));
+                }
+                stations.add(new MapLayer.StationLive(station.id(), lines));
+            }
+            layer.showLive(markers, stations);
         } catch (RuntimeException | LinkageError exception) {
             logger.log(Level.WARNING, layer.name() + " update failed; map output disabled until reload", exception);
             map = null;
@@ -1145,6 +1165,10 @@ public final class RailwayRuntime {
                 // Already failing; nothing more to do.
             }
         }
+    }
+
+    private String plainDuration(double seconds) {
+        return net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText().serialize(messages.duration(seconds));
     }
 
     private void expireJourneys() {

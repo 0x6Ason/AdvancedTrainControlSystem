@@ -57,6 +57,15 @@ integrations:
     # straight lines between stations.
     record-track-paths: true
     line-width: 5
+    # Draw stations as their logos (a ring in the colours of the lines calling there, with the
+    # station's short code) and trains as line badges. Drop your own pictures into the plugin's
+    # logos/ folder (<station>.png, line-<id>.png) to replace any of them.
+    logos: true
+    station-icon-size: 40
+    # Stations served by one line that are not a terminus disappear when the camera is further
+    # away than this many blocks, so a zoomed-out map shows the interchanges and ends. 0 keeps all.
+    minor-station-max-distance: 1500
+    train-icons: true
   signlink:
     # Publishes departures as SignLink variables short enough to type on a sign, from each
     # station's short code: %gb.1d% (next destination at Golden Beach), %gb.1t% (its time),

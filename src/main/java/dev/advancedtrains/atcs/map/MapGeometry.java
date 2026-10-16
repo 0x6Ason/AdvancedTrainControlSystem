@@ -86,7 +86,71 @@ public final class MapGeometry {
                 segments.add(entry.getValue());
             }
         }
-        return List.copyOf(segments);
+        return List.copyOf(spread(segments));
+    }
+
+    /** How far apart lines on the same stretch of track are drawn, in blocks. */
+    static final double SPREAD = 2.0;
+
+    /**
+     * Where several lines run the same stretch of track (same world, same two ends), draws them
+     * side by side instead of on top of each other.
+     */
+    static List<Segment> spread(List<Segment> segments) {
+        Map<String, List<Integer>> groups = new LinkedHashMap<>();
+        for (int index = 0; index < segments.size(); index++) {
+            groups.computeIfAbsent(stretchKey(segments.get(index)), ignored -> new ArrayList<>()).add(index);
+        }
+        List<Segment> result = new ArrayList<>(segments);
+        for (List<Integer> group : groups.values()) {
+            Set<String> lines = new HashSet<>();
+            for (int index : group) {
+                lines.add(segments.get(index).line().id());
+            }
+            if (lines.size() < 2) {
+                continue;
+            }
+            List<String> order = new ArrayList<>(lines);
+            order.sort(String::compareTo);
+            for (int index : group) {
+                Segment segment = segments.get(index);
+                int slot = order.indexOf(segment.line().id());
+                double distance = (slot - (order.size() - 1) / 2.0) * SPREAD;
+                result.set(index, new Segment(segment.id(), segment.line(), segment.world(), offset(segment.points(), distance), segment.recorded()));
+            }
+        }
+        return result;
+    }
+
+    /** The same stretch whichever way it is run: world and its two ends, rounded to a few blocks. */
+    private static String stretchKey(Segment segment) {
+        TrackPaths.Point first = segment.points().get(0);
+        TrackPaths.Point last = segment.points().get(segment.points().size() - 1);
+        String a = Math.round(first.x() / 4) + "," + Math.round(first.z() / 4);
+        String b = Math.round(last.x() / 4) + "," + Math.round(last.z() / 4);
+        return segment.world() + "|" + (a.compareTo(b) <= 0 ? a + "|" + b : b + "|" + a);
+    }
+
+    /** Moves a polyline sideways by {@code distance} blocks (to its left for positive values), in the horizontal plane. */
+    static List<TrackPaths.Point> offset(List<TrackPaths.Point> points, double distance) {
+        if (distance == 0 || points.size() < 2) {
+            return points;
+        }
+        List<TrackPaths.Point> result = new ArrayList<>(points.size());
+        for (int index = 0; index < points.size(); index++) {
+            TrackPaths.Point before = points.get(Math.max(0, index - 1));
+            TrackPaths.Point after = points.get(Math.min(points.size() - 1, index + 1));
+            double dx = after.x() - before.x();
+            double dz = after.z() - before.z();
+            double length = Math.sqrt(dx * dx + dz * dz);
+            TrackPaths.Point point = points.get(index);
+            if (length == 0) {
+                result.add(point);
+                continue;
+            }
+            result.add(new TrackPaths.Point(point.x() - dz / length * distance, point.y(), point.z() + dx / length * distance));
+        }
+        return result;
     }
 
     private static String pairId(Line line, String a, String b) {

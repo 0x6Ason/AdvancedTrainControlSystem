@@ -16,6 +16,7 @@ import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import dev.advancedtrains.atcs.api.FareApi;
+import dev.advancedtrains.atcs.display.Logos;
 import dev.advancedtrains.atcs.fare.FareStore;
 import dev.advancedtrains.atcs.runtime.FareService;
 import dev.advancedtrains.atcs.placeholder.AtcsPlaceholders;
@@ -272,7 +273,8 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             return null;
         }
         try {
-            return new BlueMapLayer(this, settings.blueMap(), getLogger());
+            String website = settings.web().enabled() && settings.web().folder().isBlank() ? "atcs/" : null;
+            return new BlueMapLayer(this, settings.blueMap(), new Logos(dataPath().resolve("logos"), getLogger()), website, getLogger());
         } catch (LinkageError error) {
             getLogger().log(Level.WARNING, "This BlueMap version is not supported; map output disabled", error);
             return null;

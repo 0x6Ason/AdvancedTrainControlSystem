@@ -396,9 +396,15 @@ boards:
 <!-- --8<-- [start:integrations] -->
 ## Integrations
 
-**BlueMap** — adds a *Railway* marker set with every station (and the lines calling there), each line
-drawn in its colour, and live train markers. Lines follow the track recorded from real trains; until
-a segment has been recorded it is drawn as a thinner straight line.
+**BlueMap** — adds a marker set per line, drawn in its colour along the track recorded from real
+trains (a thinner straight line until a segment has been recorded; lines sharing a stretch run side
+by side; a suspended line turns grey), a *Stations* set, *Walking transfers* and *Trains*, so
+BlueMap's own menu toggles each. Stations are their logos: a ring in the colours of the lines
+calling there with the station's short code, generated from the network, and stations served by
+one line fade out when the map is far out so interchanges and ends stand out. A station's popup
+lists its next departures and links to the website; a train's shows where it is going and when it
+is due, and trains are drawn as their line's badge. Your own pictures replace any logo: put
+`<station>.png` or `line-<id>.png` into the plugin's `logos/` folder.
 
 **SignLink** — publishes the next departures of every station and every platform as variables
 short enough to type on a sign line. Each station has a short code: the initials of a multi-word
