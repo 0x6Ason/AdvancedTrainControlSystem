@@ -5,10 +5,32 @@ plan to think against. Every item keeps the principles in [ARCHITECTURE.md](ARCH
 the logic is plain Java in the core and unit tested, Bukkit and TrainCarts only translate, files
 stay readable, and an operator's work is never lost.
 
+## The goal
+
+ATCS should become *the* passenger-information and operations layer for TrainCarts railways:
+a plugin any server drops in and gets, within an evening, what a real metro gives its riders
+(announcements, boards, maps, a planner, fares) and its operators (a network model, control at
+stations and junctions, a dispatcher's view, statistics), with an API other plugins build on.
+Open source, well documented, and boring to run: it never breaks a world, never loses an
+operator's work, and tells you why when something is off.
+
+What "well developed" means here, in checkable terms:
+
+- **Formats are stable.** `network.yml`, `fares.yml`, the website's JSON and the Java API are
+  versioned and migrated, never silently changed. 1.0 is the release where they are frozen.
+- **Everything that decides is tested** without a server, and the server-side glue is exercised
+  on a staging server before each release (the compatibility matrix below).
+- **Every feature is documented** before it ships: a reference page, an example, and the
+  commands' own help text pointing to it. A pull request without docs is not done.
+- **Errors teach.** Every refusal names the file, the line and the fix.
+- **Nothing hidden.** Behaviour is in config and files people can read; learned data is
+  disposable; the plugin is readable by someone who has not met the author.
+
 Where it lands in the code: new packages `fare`, `display` (logos, roadmaps, holograms),
 `editor` (the web editor's backend) and `selection` (the wand); the control features extend
-`control`. Everything persists in `network.yml` or `data/` through `NetworkStore.edit`, so the
-existing rules (atomic writes, edits refused when the file changed on disk) carry over.
+`control`, the map work extends `map` and `web`. Everything persists in `network.yml` or `data/`
+through `NetworkStore.edit`, so the existing rules (atomic writes, edits refused when the file
+changed on disk) carry over.
 
 ## 1. Fares and the Essencard override
 
@@ -103,6 +125,76 @@ Builds on `StationControl`, `HoldAction` and the switch signs, roughly by value:
 - **Dispatcher console** in the web editor: every train live, hold, release, suspend a line, set a
   switch by hand, send a train to the depot.
 
+## 6. Maps
+
+Three maps exist today: the BlueMap layer (`BlueMapLayer`, markers per world), the website's
+schematic diagram (`layout.js` lays it out, `map.js` draws it) and the recorded track behind both
+(`TrackPaths`, first complete run of each segment, simplified). Improvements, by layer:
+
+### Recorded track and the rail graph
+
+- **Re-record on divergence.** A segment is recorded once and kept until the stops change. When
+  trains are seen more than a few blocks off the stored path for a whole run, record it again
+  instead of waiting for `/atcs service resetpaths`. Track rebuilt in the world then fixes itself.
+- **A rail graph.** Merge every recorded path into one graph of the railway (nodes at junctions
+  and platforms, edges with length). It gives maps a track layer independent of services,
+  junction positions to draw, true distances for fares, and the sections the virtual block
+  signals (item 5) protect. This is the foundation most of the rest stands on.
+- **Elevation** is recorded already (y); use it: an elevation profile on the website's station
+  page and a clearer underground/overground distinction (dimmer, dashed) on both maps.
+
+### BlueMap
+
+- **Smooth trains.** Train markers jump every two seconds. Instead of more frequent markers,
+  ship a small script with the plaque that reads the website's `live` data and animates each
+  train along the recorded track between updates, heading and line colour included. The POI
+  markers stay as a fallback when the script is off.
+- **Station icons** from the generated logos (item 2), sized by zoom; far out only interchanges
+  and termini show, near in every station with its line badges. BlueMap's marker min and max
+  distances do the hiding.
+- **Live details.** A station's popup shows its next departures and links to its website page;
+  a train's shows its service, next stop and arrival estimate. Markers are rewritten with the
+  departures anyway, so this is mostly free.
+- **One marker set per line**, plus *Stations*, *Walking transfers* and *Trains*, so BlueMap's own
+  menu toggles each line.
+- **Shared track drawn once.** Where two lines run the same recorded path, offset them side by
+  side as the schematic does, rather than hiding one under the other; a thin dark outline keeps
+  colours readable over bright terrain.
+- **State on the map.** A suspended line is drawn grey and dashed; a closed station greyed; a
+  held train marked.
+- **Platforms as shapes.** With station footprints from the wand (item 3), draw each station as a
+  shape marker, not only a pin.
+
+### Website schematic
+
+- **Layout that stays put.** The layout is recomputed from scratch in every browser. Save the
+  chosen grid positions in `data/map-layout.yml` and start the next layout from them, so adding
+  one station moves one station, not the whole diagram.
+- **Manual overrides**, in `network.yml` under `map:` and from the editor's drag: pin a station to
+  a cell, force a bend, hide a station (a depot), label side, and a per-line colour for the
+  diagram when the badge colour is too light.
+- **Transit-map details**: interchanges as joined circles (MTR style), termini as bars, line names
+  at the ends of each line, a legend, platform numbers and transfers on hover, and the station
+  logos as markers when zoomed in.
+- **Live trains** on the diagram, interpolated between stations from the learned times.
+- **Geographic mode**: a toggle that morphs the diagram onto the recorded track, so riders can
+  relate the schematic to the world. Same data, second layout.
+- **Status overlay**: suspended lines hatched, closures and planned works marked, driven by the
+  disruptions in *More ideas*.
+- **Export** the diagram as SVG and PNG, for printing, for wikis and for the roadmap and network
+  displays in game. The layout runs in JavaScript; exporting from the editor is the cheap route,
+  and a Java port of the layout is the long route that lets the server render displays itself.
+- **Search and links**: a station search box, `#station=` links next to the existing `#plan=`.
+- **Accessibility**: keyboard navigation, a readable station list for screen readers, and lines
+  told apart by badge and pattern as well as colour.
+- **Performance for big networks**: lay out once on the server (or cache the result in
+  `network.json`) once the Java port exists; until then, cache per browser.
+
+### In-game maps
+
+- A hand-held **network map item** (`/atcs map`) that shows the diagram with the player's position,
+  and a **roadmap** in item frames (item 3). Both reuse the display renderer.
+
 ## More ideas
 
 Grouped, with the cheap ones marked *(quick win)*.
@@ -153,11 +245,7 @@ Grouped, with the cheap ones marked *(quick win)*.
   link, and the QR code the in-game display shows.
 - **Service status page**: every line with good service, delays or suspended, like a real
   operator's status board, driven by the disruptions above.
-- **Live trains on the schematic map**: positions interpolated between stations from the learned
-  times, not only in BlueMap.
 - **Installable** as a progressive web app with dark mode and an offline map.
-- **Documented data files**: the JSON the site reads is already a public API in effect; give it a
-  schema and a page so people can build their own apps on it.
 
 ### Integrations
 
@@ -166,25 +254,100 @@ Grouped, with the cheap ones marked *(quick win)*.
 - **Other maps**: Dynmap, Pl3xMap and squaremap behind the existing `MapLayer` abstraction.
 - **GTFS export**: stations, routes and a timetable derived from the learned times, for fans who
   want the network in real transit apps and tools.
-- **Public API jar**: `FareApi`, network read access and events (`TrainArrivedEvent`,
-  `ServiceAssignedEvent`, `FareQuoteEvent`), published so other plugins compile against it.
 
 ### Project
 
-- **CI** *(quick win)*: a GitHub Actions workflow running `./gradlew build` on every push and
-  pull request, and a release workflow that attaches the jar to a tag.
+CI, releases, metrics and the API module are under *Open source* below.
+
 - **Config migration**: `config-version` exists; add the migrator that rewrites old files and
   reports what changed, so updates never leave a half-valid config.
-- **Opt-in metrics and update notice**: bStats and a one-line console notice on a new release.
 - **Paper plugin loader** (`paper-plugin.yml`): cleaner dependency declaration for TrainCarts,
   BlueMap, SignLink, WorldEdit and PlaceholderAPI as they are added.
 
+## Open source
+
+The repository is public but not yet open source: there is no licence file, so nobody may legally
+use or fork the code. In order:
+
+1. **A licence.** MIT or Apache-2.0 (Apache adds a patent grant and is the more usual choice for
+   plugins other plugins build against). TrainCarts and BKCommonLib are compile-only
+   dependencies, so either works. `LICENSE` at the root, a header note in `build.gradle.kts`,
+   the licence named in `plugin.yml` and the README.
+2. **Contributor basics**: `CONTRIBUTING.md` (how to build, run the tests, the staging server,
+   the English text policy, the commit style), a code of conduct, issue templates (bug with the
+   `/atcs status` output and versions, feature request) and a pull request template that asks for
+   docs and a changelog line.
+3. **Releases**: semantic versions, the changelog kept per release, a tag builds the jar in CI and
+   attaches it; publish on Hangar and Modrinth with the same text; a `/atcs` console notice on a
+   new release (opt-in).
+4. **A place to talk**: GitHub Discussions for questions, Issues for bugs, and a Discord if there
+   is appetite. Link all three from the README.
+5. **Quality gates in CI**: the build, the tests, the text policy, a link check over the docs,
+   Checkstyle or ErrorProne for the obvious mistakes, and once stable a headless Paper server with
+   TrainCarts that loads the plugin and runs a smoke test over RCON (the `scripts/` folder already
+   does this by hand on Windows; make it cross-platform and automatic).
+6. **Compatibility matrix** in the README and tested in CI: Paper versions, TrainCarts versions,
+   BlueMap and SignLink versions, Java versions.
+7. **Opt-in metrics** (bStats) so the compatibility matrix follows what people actually run.
+8. **A public API module**: a separate `atcs-api` artifact with the events (`TrainArrivedEvent`,
+   `ServiceAssignedEvent`, `FareQuoteEvent`), the network read model and `FareApi`, published to
+   a Maven repository with Javadoc, so other plugins depend on it without the whole plugin.
+
+## Documentation
+
+Good documentation is a feature, planned like one. The README today is the whole manual; it is
+good and already too long for one page. The plan:
+
+- **A docs site** from the `docs/` folder, built with MkDocs Material and published to GitHub
+  Pages by CI on every push to `main`, versioned per release. The README becomes the front door:
+  what it is, a screenshot, install, the two set-up paths, links into the site.
+- **Organised by reader**, not by feature:
+  - *Riders*: what they see and what each sound and message means. One page, with pictures.
+  - *Operators*: set-up from an existing network; set-up by hand; recipes (a loop line, express
+    and local on shared track, a terminus turn-around, a depot, two worlds, a fare system);
+    references for every sign, every command, every permission, `config.yml`, `messages.yml`,
+    `network.yml`, `fares.yml`, the website and each integration; troubleshooting and FAQ.
+  - *Developers*: architecture, the API and events, the data files' JSON schemas, building,
+    testing, the staging server, contributing.
+- **References generated from the code.** A Gradle task dumps the command tree, the permissions,
+  the sign options and `config.yml` with its comments to Markdown, and CI fails when the generated
+  pages differ from the committed ones. Docs then cannot drift from the plugin.
+- **A glossary**: station, platform, trigger, line, service, stop, run-through, continuation,
+  fleet, headway, section, display. Every page links terms to it.
+- **Pictures and short clips** for anything spatial: where to stand for `station here`, how a
+  station sign reads, what a roadmap display looks like, the editor.
+- **An example network** shipped in `docs/examples/`: a small `network.yml` and `fares.yml` with
+  every feature used once, and the test fixtures already captured from a real server, so readers
+  can copy rather than compose.
+- **Help in the game.** `/atcs help <topic>` and every error message link to the matching docs
+  page; the first run prints the three links that matter.
+- **Doc quality in CI**: the English text policy, a link checker, spelling, and "every command in
+  the tree has a reference page" as a test.
+- **Changelog discipline**: every user-visible change gets a line in `CHANGELOG.md` in the same
+  pull request, written for operators, not developers.
+
 ## Suggested order
 
-1. Fares and `/atcs fare check`: fixes a live problem, pure core work.
-2. Quick wins that need little design: network undo, lint, PlaceholderAPI, CI.
-3. Logos: cheap, makes the map and website look finished.
-4. The wand, then roadmap displays and hologram boards on top of it.
-5. Editor backend and the network editor views.
-6. Control, starting with even-spacing regulation, then timetables, then the dispatcher view.
-7. The rest as they come up.
+1. Licence, `CONTRIBUTING.md`, CI with the build and tests, and the docs site skeleton. A day's
+   work that makes everything after it shareable.
+2. Fares and `/atcs fare check`: fixes a live problem, pure core work.
+3. Quick wins that need little design: network undo, lint, PlaceholderAPI, generated references.
+4. Logos, then the BlueMap improvements that use them (icons, per-line sets, live details).
+5. The wand, then roadmap displays and hologram boards on top of it.
+6. The rail graph and re-recording, then the schematic's stable layout, overrides and live trains.
+7. Editor backend and the network editor views, with map overrides and export.
+8. Control, starting with even-spacing regulation, then blocks on the rail graph, timetables,
+   then the dispatcher view.
+9. Public API module, the compatibility matrix in CI, and a 1.0 that freezes the formats.
+10. The rest as they come up.
+
+## Milestones
+
+| Version | Theme |
+|---|---|
+| 0.2 | The redesign now on `main`: network model, journeys, passenger information, boards, maps, website, station and switch signs |
+| 0.3 | Open-source basics, fares, undo and lint, PlaceholderAPI, docs site |
+| 0.4 | Logos, wand, displays, hologram boards, BlueMap improvements |
+| 0.5 | Rail graph, schematic layout work, web editor |
+| 0.6 | Control: regulation, blocks, timetables, dispatcher |
+| 1.0 | Stable formats and API, compatibility matrix in CI, complete docs, published on Hangar and Modrinth |
