@@ -29,7 +29,9 @@ class NetworkCodecTest {
         Service south = new Service(ServiceKey.parse("a/south"), "Local",
                 List.of(Stop.of("nerdy"), Stop.of("main")), true, ServiceKey.parse("b/x"), ServiceMatch.NONE);
         Service other = Service.of(ServiceKey.parse("b/x"), "Shuttle", List.of(Stop.of("main"), Stop.of("nerdy")))
-                .withSpeed(0.6).withTimetable(List.of(30, 0));
+                .withSpeed(0.6).withTimetable(List.of(30, 0))
+                .withFleet(new Fleet(3, java.time.Duration.ofSeconds(40), BlockPos.parse("world,1,64,1"), Fleet.Direction.EAST, "4m",
+                        Fleet.Hours.parse("06:00-23:00"), new Fleet.OffPeak(1, Fleet.Hours.parse("21:00-06:00"))));
         Network network = Network.builder()
                 .station(main)
                 .station(nerdy)
@@ -68,6 +70,7 @@ class NetworkCodecTest {
         assertTrue(yaml.contains("speed: 0.6"));
         assertTrue(yaml.contains("timetable:") && yaml.contains(":30"), "the timetable is written as minutes past the hour");
         assertEquals(List.of(0, 30), read.service(ServiceKey.parse("b/x")).orElseThrow().timetable());
+        assertTrue(yaml.contains("hours: 06:00-23:00") && yaml.contains("off-peak:"), "fleet hours are written");
     }
 
     @Test

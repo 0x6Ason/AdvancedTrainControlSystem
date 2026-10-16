@@ -19,12 +19,17 @@ public final class FleetManager {
 
     /** Services that are short of trains and allowed to spawn now. */
     public List<Service> due(Network network, Map<ServiceKey, Integer> trainsInService, Instant now) {
+        return due(network, trainsInService, now, java.time.LocalTime.MIDNIGHT.plusHours(12));
+    }
+
+    /** Services that are short of trains for this time of day and allowed to spawn now. */
+    public List<Service> due(Network network, Map<ServiceKey, Integer> trainsInService, Instant now, java.time.LocalTime timeOfDay) {
         List<Service> due = new ArrayList<>();
         for (Service service : network.services()) {
             if (service.fleet() == null) {
                 continue;
             }
-            if (trainsInService.getOrDefault(service.key(), 0) >= service.fleet().trains()) {
+            if (trainsInService.getOrDefault(service.key(), 0) >= service.fleet().target(timeOfDay)) {
                 continue;
             }
             Instant last = lastAttempt.get(service.key());
@@ -34,6 +39,11 @@ public final class FleetManager {
             due.add(service);
         }
         return due;
+    }
+
+    /** Whether the service has more trains running than this time of day asks for. */
+    public static boolean surplus(Service service, int running, java.time.LocalTime timeOfDay) {
+        return service.fleet() != null && running > service.fleet().target(timeOfDay);
     }
 
     /** Records a spawn, or a failed attempt, so the next one waits for the interval. */

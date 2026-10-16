@@ -401,12 +401,20 @@ public final class NetworkCodec {
             ConfigurationSection fleetNode = node.getConfigurationSection("fleet");
             if (fleetNode != null) {
                 try {
+                    Fleet.Hours hours = fleetNode.isString("hours") ? Fleet.Hours.parse(fleetNode.getString("hours", "")) : null;
+                    Fleet.OffPeak offPeak = null;
+                    ConfigurationSection offPeakNode = fleetNode.getConfigurationSection("off-peak");
+                    if (offPeakNode != null) {
+                        offPeak = new Fleet.OffPeak(offPeakNode.getInt("trains", 0), Fleet.Hours.parse(offPeakNode.getString("hours", "")));
+                    }
                     fleet = new Fleet(
                             fleetNode.getInt("trains", 1),
                             Fleet.parseEvery(fleetNode.getString("every", "01:00")),
                             BlockPos.parse(fleetNode.getString("spawn", "")),
                             Fleet.Direction.parse(fleetNode.getString("direction", "")),
-                            fleetNode.getString("train", "1m"));
+                            fleetNode.getString("train", "1m"),
+                            hours,
+                            offPeak);
                 } catch (IllegalArgumentException exception) {
                     throw new IllegalArgumentException("fleet: " + exception.getMessage(), exception);
                 }
@@ -677,6 +685,13 @@ public final class NetworkCodec {
                     fleetNode.set("spawn", fleet.spawn().format());
                     fleetNode.set("direction", fleet.direction().name().toLowerCase(java.util.Locale.ROOT));
                     fleetNode.set("train", fleet.train());
+                    if (fleet.hours() != null) {
+                        fleetNode.set("hours", fleet.hours().format());
+                    }
+                    if (fleet.offPeak() != null) {
+                        fleetNode.set("off-peak.trains", fleet.offPeak().trains());
+                        fleetNode.set("off-peak.hours", fleet.offPeak().hours().format());
+                    }
                 }
                 ServiceMatch match = service.match();
                 if (!match.isEmpty()) {

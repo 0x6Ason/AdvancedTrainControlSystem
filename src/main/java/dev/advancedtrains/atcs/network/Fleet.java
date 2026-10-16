@@ -1,6 +1,8 @@
 package dev.advancedtrains.atcs.network;
 
 import java.time.Duration;
+import org.jspecify.annotations.Nullable;
+import java.time.LocalTime;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -13,9 +15,63 @@ import java.util.Objects;
  * @param spawn     the rail block trains appear on
  * @param direction the way they set off
  * @param train     a TrainCarts spawn pattern such as {@code 4m} (four minecarts) or a saved train name
+ * @param hours     when the service runs, by the server's clock; outside them no train is kept and
+ *                  the ones running are stabled at the end of their trip; {@code null} for always
+ * @param offPeak   fewer trains during part of the day, or {@code null}
  */
-public record Fleet(int trains, Duration every, BlockPos spawn, Direction direction, String train) {
+public record Fleet(int trains, Duration every, BlockPos spawn, Direction direction, String train,
+                    @Nullable Hours hours, @Nullable OffPeak offPeak) {
     public static final int MAX_TRAINS = 64;
+
+    /** A span of the day, {@code from} inclusive to {@code to} exclusive; it may pass midnight. */
+    public record Hours(LocalTime from, LocalTime to) {
+        public Hours {
+            Objects.requireNonNull(from, "from");
+            Objects.requireNonNull(to, "to");
+            if (from.equals(to)) {
+                throw new IllegalArgumentException("hours must span some time, not " + format(from) + "-" + format(to));
+            }
+        }
+
+        /** Parses {@code 06:00-23:00}; the end may be earlier than the start for a span over midnight. */
+        public static Hours parse(String text) {
+            String[] parts = text.strip().split("\\s*-\\s*");
+            if (parts.length != 2) {
+                throw new IllegalArgumentException("'" + text + "' is not a span of hours; write it like 06:00-23:00");
+            }
+            try {
+                return new Hours(LocalTime.parse(parts[0].length() == 4 ? "0" + parts[0] : parts[0]),
+                        LocalTime.parse(parts[1].length() == 4 ? "0" + parts[1] : parts[1]));
+            } catch (java.time.format.DateTimeParseException exception) {
+                throw new IllegalArgumentException("'" + text + "' is not a span of hours; write it like 06:00-23:00");
+            }
+        }
+
+        public boolean contains(LocalTime time) {
+            if (from.isBefore(to)) {
+                return !time.isBefore(from) && time.isBefore(to);
+            }
+            return !time.isBefore(from) || time.isBefore(to);
+        }
+
+        public String format() {
+            return format(from) + "-" + format(to);
+        }
+
+        private static String format(LocalTime time) {
+            return String.format(Locale.ROOT, "%02d:%02d", time.getHour(), time.getMinute());
+        }
+    }
+
+    /** Fewer trains during these hours. */
+    public record OffPeak(int trains, Hours hours) {
+        public OffPeak {
+            if (trains < 0 || trains > MAX_TRAINS) {
+                throw new IllegalArgumentException("off-peak trains must be between 0 and " + MAX_TRAINS);
+            }
+            Objects.requireNonNull(hours, "hours");
+        }
+    }
 
     public enum Direction {
         NORTH(0, -1), EAST(1, 0), SOUTH(0, 1), WEST(-1, 0);
@@ -76,6 +132,29 @@ public record Fleet(int trains, Duration every, BlockPos spawn, Direction direct
         }
     }
 
+    public Fleet(int trains, Duration every, BlockPos spawn, Direction direction, String train) {
+        this(trains, every, spawn, direction, train, null, null);
+    }
+
+    /** How many trains the service should have running at this time of day. */
+    public int target(LocalTime now) {
+        if (hours != null && !hours.contains(now)) {
+            return 0;
+        }
+        if (offPeak != null && offPeak.hours().contains(now)) {
+            return offPeak.trains();
+        }
+        return trains;
+    }
+
+    public Fleet withHours(@Nullable Hours newHours) {
+        return new Fleet(trains, every, spawn, direction, train, newHours, offPeak);
+    }
+
+    public Fleet withOffPeak(@Nullable OffPeak newOffPeak) {
+        return new Fleet(trains, every, spawn, direction, train, hours, newOffPeak);
+    }
+
     /** Parses {@code mm:ss}, {@code hh:mm:ss}, or a number of seconds. */
     public static Duration parseEvery(String text) {
         String value = text.strip();
@@ -108,6 +187,8 @@ public record Fleet(int trains, Duration every, BlockPos spawn, Direction direct
 
     public String describe() {
         return trains + " train(s), one every " + formatEvery(every) + ", spawned at " + spawn.coordinates()
-                + " heading " + direction.name().toLowerCase(Locale.ROOT) + " as '" + train + "'";
+                + " heading " + direction.name().toLowerCase(Locale.ROOT) + " as '" + train + "'"
+                + (hours == null ? "" : ", running " + hours.format())
+                + (offPeak == null ? "" : ", " + offPeak.trains() + " train(s) " + offPeak.hours().format());
     }
 }

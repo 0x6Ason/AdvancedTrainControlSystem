@@ -79,6 +79,21 @@ final class ServiceCommands {
                         context -> spawn(support, context), services),
                 leaf("unspawn", MANAGE, "", "Stop assigning new trains from the spawn sign you look at",
                         context -> unspawn(support, context)),
+                leaf("hours", MANAGE, "<line/service> <from-to|always>",
+                        "When the service's fleet runs, for example 06:00-23:00; outside, trains are stabled at the end of their trip",
+                        context -> hours(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.serviceKeys();
+                            case 1 -> List.of("06:00-23:00", "always");
+                            default -> List.of();
+                        }),
+                leaf("offpeak", MANAGE, "<line/service> <trains> <from-to>|off",
+                        "Fewer fleet trains during part of the day, for example 2 22:00-06:00",
+                        context -> offPeak(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.serviceKeys();
+                            case 1 -> List.of("1", "2", "off");
+                            case 2 -> List.of("22:00-06:00");
+                            default -> List.of();
+                        }),
                 leaf("fleet", MANAGE, "<line/service> <trains> <every> <train>|off",
                         "Let ATCS keep trains running on a service without spawn signs; stand on the rail facing their way",
                         context -> fleet(support, context), (context, index) -> switch (index) {
@@ -389,6 +404,51 @@ final class ServiceCommands {
         signs.remove(position);
         save(support, service.withSpawnSigns(signs));
         Chat.success(context.sender(), "Trains from that spawn sign are no longer assigned to " + service.key());
+    }
+
+    private static Fleet fleetOf(Service service) throws CommandError {
+        if (service.fleet() == null) {
+            throw new CommandError(service.key() + " has no fleet; give it one first with /atcs service fleet " + service.key() + " <trains> <every> <train>");
+        }
+        return service.fleet();
+    }
+
+    private static void hours(Support support, CommandContext context) throws CommandError {
+        Service service = support.service(context.arg(0));
+        Fleet fleet = fleetOf(service);
+        String text = context.arg(1);
+        if (text.equalsIgnoreCase("always") || text.equalsIgnoreCase("off")) {
+            save(support, service.withFleet(fleet.withHours(null)));
+            Chat.success(context.sender(), service.key() + " runs all day");
+            return;
+        }
+        try {
+            save(support, service.withFleet(fleet.withHours(Fleet.Hours.parse(text))));
+        } catch (IllegalArgumentException exception) {
+            throw new CommandError(exception.getMessage());
+        }
+        Chat.success(context.sender(), service.key() + " runs " + text + "; outside those hours its trains are stabled at the end of their trip");
+    }
+
+    private static void offPeak(Support support, CommandContext context) throws CommandError {
+        Service service = support.service(context.arg(0));
+        Fleet fleet = fleetOf(service);
+        if (context.arg(1).equalsIgnoreCase("off")) {
+            save(support, service.withFleet(fleet.withOffPeak(null)));
+            Chat.success(context.sender(), service.key() + " keeps " + fleet.trains() + " train(s) all day");
+            return;
+        }
+        try {
+            int trains = Integer.parseInt(context.arg(1));
+            Fleet.OffPeak offPeak = new Fleet.OffPeak(trains, Fleet.Hours.parse(context.arg(2)));
+            save(support, service.withFleet(fleet.withOffPeak(offPeak)));
+            Chat.success(context.sender(), service.key() + " keeps " + trains + " train(s) " + offPeak.hours().format()
+                    + " and " + fleet.trains() + " otherwise");
+        } catch (NumberFormatException exception) {
+            throw new CommandError("'" + context.arg(1) + "' is not a number of trains");
+        } catch (IllegalArgumentException exception) {
+            throw new CommandError(exception.getMessage());
+        }
     }
 
     private static void fleet(Support support, CommandContext context) throws CommandError {

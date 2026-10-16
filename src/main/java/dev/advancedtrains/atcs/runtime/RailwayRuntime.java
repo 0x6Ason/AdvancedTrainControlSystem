@@ -444,7 +444,7 @@ public final class RailwayRuntime {
             ServiceResolver.resolve(info, network).ifPresent(key -> counts.merge(key, 1, Integer::sum));
         }
         Instant now = clock.instant();
-        for (Service service : fleets.due(network, counts, now)) {
+        for (Service service : fleets.due(network, counts, now, java.time.LocalTime.now(java.time.ZoneId.systemDefault()))) {
             Fleet fleet = Objects.requireNonNull(service.fleet());
             fleets.attempted(service.key(), now);
             TrainSpawner.Result result = spawner.spawn(fleet.spawn(), fleet.direction(), fleet.train());
@@ -460,6 +460,39 @@ public final class RailwayRuntime {
             logger.info("Spawned " + train.name() + " for " + service.key() + " ("
                     + (counts.getOrDefault(service.key(), 0) + 1) + " of " + fleet.trains() + ")");
         }
+    }
+
+    /**
+     * Stables a fleet train that has reached the end of its trip (or the start of its loop) while
+     * its service has more trains running than the time of day asks for: it is taken out of the
+     * world, nobody aboard. Returns whether the train is gone.
+     */
+    private boolean stable(TrainHandle train, JourneyEvent.Arrived arrived, Network network) {
+        Service service = network.service(arrived.service()).orElse(null);
+        if (service == null || service.fleet() == null || spawner == null || !train.riders().isEmpty()) {
+            return false;
+        }
+        boolean endOfTrip = service.circular() ? arrived.stopIndex() == 0 : service.isTerminus(arrived.stopIndex());
+        if (!endOfTrip) {
+            return false;
+        }
+        int running = 0;
+        for (JourneySnapshot journey : tracker.snapshots()) {
+            if (arrived.service().equals(journey.service()) && journey.phase() != JourneyPhase.COMPLETED) {
+                running++;
+            }
+        }
+        java.time.LocalTime timeOfDay = java.time.LocalTime.now(java.time.ZoneId.systemDefault());
+        if (!FleetManager.surplus(service, running, timeOfDay)) {
+            return false;
+        }
+        String name = train.name();
+        if (!spawner.destroy(train)) {
+            return false;
+        }
+        logger.info("Stabled " + name + ": " + service.key() + " keeps " + service.fleet().target(timeOfDay) + " train(s) at "
+                + timeOfDay.withSecond(0).withNano(0) + ", " + (running - 1) + " still running");
+        return true;
     }
 
     /** Holds the chunks of spawn signs and fleet spawn points, or none when switched off. */
@@ -1132,6 +1165,9 @@ public final class RailwayRuntime {
                 control.departed(departed);
             } else if (event instanceof JourneyEvent.UnassignedDeparted) {
                 control.left(train.name());
+            }
+            if (event instanceof JourneyEvent.Arrived arrived && stable(train, arrived, network)) {
+                return;
             }
             estimates = null;
             if (event instanceof JourneyEvent.ServiceChanged changed && changed.to() != null) {

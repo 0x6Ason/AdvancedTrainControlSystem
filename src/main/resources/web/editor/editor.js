@@ -870,6 +870,10 @@
         + field('One every', textInput(fb.concat('every'), fleet.every, { placeholder: '01:30' }), { hint: 'mm:ss' })
         + field('Train', textInput(fb.concat('train'), fleet.train, { placeholder: '1m' }), { hint: 'TrainCarts spawn pattern' })
         + field('Spawn at', textInput(fb.concat('spawn'), fleet.spawn, { mono: true, placeholder: 'world,x,y,z' }), { wide: true })
+        + field('Runs', textInput(fb.concat('hours'), fleet.hours, { kind: 'optional', placeholder: 'all day, or 06:00-23:00' }),
+          { hint: 'Outside these hours trains are stabled at the end of their trip.' })
+        + field('Off-peak trains', textInput(fb.concat('off-peak', 'trains'), fleet['off-peak'] ? fleet['off-peak'].trains : '', { kind: 'int', inputmode: 'numeric', placeholder: 'same' }))
+        + field('Off-peak hours', textInput(fb.concat('off-peak', 'hours'), fleet['off-peak'] ? fleet['off-peak'].hours : '', { kind: 'optional', placeholder: '22:00-06:00' }))
         + '<label class="field"><span>Facing</span><select data-path="' + path(fb.concat('direction')) + '" data-kind="text">'
         + ['north', 'east', 'south', 'west'].map(function (d) { return '<option value="' + d + '"' + (fleet.direction === d ? ' selected' : '') + '>' + d.charAt(0).toUpperCase() + d.slice(1) + '</option>'; }).join('')
         + '</select></label></div>';

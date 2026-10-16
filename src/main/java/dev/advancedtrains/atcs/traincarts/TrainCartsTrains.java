@@ -100,6 +100,14 @@ public final class TrainCartsTrains implements TrainSource, TrainSpawner {
     }
 
     @Override
+    public boolean destroy(TrainHandle train) {
+        if (!(train instanceof TrainCartsTrain handle)) {
+            return false;
+        }
+        return handle.destroy();
+    }
+
+    @Override
     public Result spawn(BlockPos at, Fleet.Direction direction, String pattern) {
         World world = Bukkit.getWorld(at.world());
         if (world == null) {

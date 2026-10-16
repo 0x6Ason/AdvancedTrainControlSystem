@@ -85,6 +85,15 @@ final class TrainCartsTrain implements TrainHandle {
         group.getProperties().setDestination(destination);
     }
 
+    /** Removes the train from the world. */
+    boolean destroy() {
+        if (group.isEmpty() || group.isUnloaded()) {
+            return false;
+        }
+        group.destroy();
+        return true;
+    }
+
     @Override
     public double speedLimit() {
         return group.getProperties().getSpeedLimit();

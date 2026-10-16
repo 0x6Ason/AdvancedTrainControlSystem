@@ -133,6 +133,10 @@ Instead give the service a fleet: stand on the rail where trains should appear, 
 they go, and run `/atcs service fleet 5/cw 3 00:35 4m`. ATCS then keeps 3 trains in service,
 spawning one (four minecarts) at most every 35 seconds while there are fewer, which also spaces
 them out. Trains are counted even in unloaded chunks. `/atcs service fleet 5/cw off` stops it.
+`/atcs service hours 5/cw 06:00-23:00` gives the service hours by the server's clock, and
+`/atcs service offpeak 5/cw 2 22:00-06:00` fewer trains for part of the day: a train that ends
+its trip (or completes a lap) while more are running than the hour asks for is stabled, that is
+taken out of the world, with nobody aboard, and the fleet comes back out when the hours do.
 
 **Train names.** With `trains.rename` on (the default), every train ATCS assigns is renamed after
 its service, `A-to-main-2` or `5-cw-1` instead of `train17`, spawn-sign trains included. Trains
@@ -368,9 +372,9 @@ The wand also gives a station a footprint and binds signs in bulk:
 | `/atcs line list\|info` | atcs.use | Lines |
 | `/atcs line create\|rename\|color\|mapcolor\|badge\|addstop\|suspend\|resume\|remove` | atcs.manage | Edit lines; `addstop` adds a stop to every service running between two stations; `mapcolor` recolours a line on the diagram only |
 | `/atcs service info` | atcs.use | A service and what has been learned about it |
-| `/atcs service create\|stops\|addstop\|removestop\|record\|spawn\|unspawn\|fleet\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services |
+| `/atcs service create\|stops\|addstop\|removestop\|record\|spawn\|unspawn\|fleet\|hours\|offpeak\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services; `hours` and `offpeak` stable fleet trains by the time of day |
 | `/atcs train info [train]` | atcs.use | The train you ride or look at |
-| `/atcs train assign\|unassign\|auto`, `/atcs trains` | atcs.manage | Assignments |
+| `/atcs train assign\|unassign\|auto\|hold\|release`, `/atcs trains` | atcs.manage | Assignments; `hold` keeps a train at its next station sign until `release` |
 | `/atcs transfer list` | atcs.use | Walking transfers |
 | `/atcs transfer add\|remove` | atcs.manage | Edit walking transfers |
 | `/atcs board create\|add\|unbind\|remove\|list` | atcs.manage | Departure boards |

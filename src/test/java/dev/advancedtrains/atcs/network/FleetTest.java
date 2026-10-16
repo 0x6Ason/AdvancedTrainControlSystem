@@ -71,4 +71,21 @@ class FleetTest {
         assertEquals(List.of(), broken.network().services().stream().toList());
         assertTrue(broken.errors().get(0).contains("fleet"), broken.errors()::toString);
     }
+
+    @Test
+    void hoursAndOffPeakSetTheTargetByTimeOfDay() {
+        Fleet base = new Fleet(4, Duration.ofSeconds(35), new BlockPos("world", 10, 64, -5), Fleet.Direction.WEST, "4m");
+        assertEquals(4, base.target(java.time.LocalTime.of(3, 0)), "no hours: all day");
+        Fleet timed = base.withHours(Fleet.Hours.parse("06:00-23:00")).withOffPeak(new Fleet.OffPeak(2, Fleet.Hours.parse("20:00-06:00")));
+        assertEquals(0, timed.target(java.time.LocalTime.of(3, 0)), "closed at night");
+        assertEquals(4, timed.target(java.time.LocalTime.of(12, 0)));
+        assertEquals(2, timed.target(java.time.LocalTime.of(21, 30)), "off-peak in the evening");
+        assertEquals(4, timed.target(java.time.LocalTime.of(6, 0)), "opening minute counts");
+        assertEquals(0, timed.target(java.time.LocalTime.of(23, 0)), "closing minute does not");
+        assertTrue(Fleet.Hours.parse("22:00-06:00").contains(java.time.LocalTime.of(1, 0)), "a span over midnight");
+        assertEquals("22:00-06:00", Fleet.Hours.parse("22:00 - 6:00").format());
+        assertThrows(IllegalArgumentException.class, () -> Fleet.Hours.parse("all day"));
+        assertThrows(IllegalArgumentException.class, () -> Fleet.Hours.parse("06:00-06:00"));
+        assertTrue(timed.describe().contains("running 06:00-23:00"));
+    }
 }

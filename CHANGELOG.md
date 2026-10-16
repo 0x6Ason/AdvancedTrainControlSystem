@@ -50,7 +50,9 @@ TrainCarts server, configured with files and in-game commands.
   `at /15` on a sign, or a service's `timetable:`, makes trains leave at fixed minutes past the
   hour; `atcs block` sign pairs let one train at a time through any stretch of track, with
   `block <id>` indicators; `atcs speed` signs and a service's `speed:` set speed limits so an
-  express runs faster than a local on shared track; a dispatcher can hold and release trains.
+  express runs faster than a local on shared track; a dispatcher can hold and release trains;
+  fleets get service hours and an off-peak size (`/atcs service hours`, `offpeak`), and trains
+  beyond the hour's number are stabled at the end of their trip.
 - The web editor (`integrations.editor`, off by default; `/atcs editor` prints a one-time link):
   stations and platforms, lines, services with their stops drawn as the line, boards, walking
   transfers, fares, diagram adjustments and the configuration files, beside the website's diagram

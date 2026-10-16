@@ -91,6 +91,8 @@ Services: the stopping patterns trains run.
 | `/atcs service record <line/service>\|stop\|cancel` | `atcs.manage` | Record stops by riding a train along the route |
 | `/atcs service spawn <line/service>` | `atcs.manage` | New trains from the TrainCarts spawn sign you look at run this service |
 | `/atcs service unspawn` | `atcs.manage` | Stop assigning new trains from the spawn sign you look at |
+| `/atcs service hours <line/service> <from-to\|always>` | `atcs.manage` | When the service's fleet runs, for example 06:00-23:00; outside, trains are stabled at the end of their trip |
+| `/atcs service offpeak <line/service> <trains> <from-to>\|off` | `atcs.manage` | Fewer fleet trains during part of the day, for example 2 22:00-06:00 |
 | `/atcs service fleet <line/service> <trains> <every> <train>\|off` | `atcs.manage` | Let ATCS keep trains running on a service without spawn signs; stand on the rail facing their way |
 | `/atcs service reverse <line/service> <new-service> [name...]` | `atcs.manage` | Create the opposite direction of a service |
 | `/atcs service rename <line/service> <name...>` | `atcs.manage` | Change the passenger-facing service name |
