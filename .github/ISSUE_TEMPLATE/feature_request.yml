@@ -1,0 +1,21 @@
+name: Feature request
+description: Something your railway needs that ATCS does not do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are trying to do
+      description: Describe the railway and the situation, not only the feature. "Two lines share a stretch and the local holds up the express" says more than "add priority".
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today instead
+      description: The workaround, if there is one, and what is wrong with it.
+  - type: textarea
+    id: idea
+    attributes:
+      label: How it could work
+      description: A sign line, a command, a config key, a board layout; whatever you picture. The roadmap (docs/ROADMAP.md) may already list it; say so if it does.

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and set-up help
+    url: https://github.com/0x6Ason/AdvancedTrainControlSystem/discussions
+    about: Ask in Discussions; the docs site's Troubleshooting page covers the usual ones.

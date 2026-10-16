@@ -69,6 +69,7 @@ nav:
   - Developers:
       - Architecture: ARCHITECTURE.md
       - Building and testing: developers/building.md
+      - Contributing: developers/contributing.md
   - Project:
       - Roadmap: ROADMAP.md
       - Changelog: project/changelog.md

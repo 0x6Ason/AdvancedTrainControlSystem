@@ -10,9 +10,22 @@ server, and the behaviour on a real one is checked on a staging copy before each
 Every push and pull request runs the *Build* workflow (`.github/workflows/build.yml`): it compiles
 the plugin on JDK 21, runs the unit tests, checks that the generated reference pages under
 `docs/reference/` match the code, and enforces the English-only text policy. The plugin jar is
-attached to the run as an artifact. The *Docs* workflow builds this site with `mkdocs build
+attached to the run as an artifact. A second job, the compatibility matrix, repeats the build and
+the tests against the newest Paper of the 1.21 line and the current Paper 26 (on JDK 25) with the
+newest TrainCarts and BKCommonLib, so the README's requirements table is tested, not promised. The
+versions are Gradle properties (`-PpaperApi`, `-PtrainCarts`, `-PbkCommonLib`, `-PsignLink`,
+`-PjavaVersion`), so the same can be run locally. The *Docs* workflow builds this site with `mkdocs build
 --strict`, so a broken link or a page missing from the navigation fails the run; it publishes to
 GitHub Pages only when the repository variable `PUBLISH_DOCS` is `true`.
+
+## A big railway in the tests
+
+`BigNetworkTest` builds a railway of 300 stations, 24 services and 150 running trains and times
+what the server does every second (the consistent estimates, departures at every station, the
+website's live file, a boss bar view per train) and the one-off jobs (reading and writing
+`network.yml`, lint, the website's network file, recording every stretch of track and building
+the rail graph). Each has a budget the test enforces; the per-second work comes to a few tens of
+milliseconds, so a railway that size runs on a tick without being noticed.
 
 ## Generated reference pages
 

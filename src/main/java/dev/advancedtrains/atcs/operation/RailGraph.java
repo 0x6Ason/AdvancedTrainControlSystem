@@ -234,6 +234,7 @@ public final class RailGraph {
         // Cells within reach of a platform trigger belong to that platform, so every run that
         // starts or ends a block or two apart still meets at one node.
         Map<BlockPos, PlatformRef> triggers = network.triggers();
+        TriggerIndex triggerIndex = new TriggerIndex(triggers);
         Map<Cell, Unit> unitOf = new HashMap<>();
         Map<String, Unit> units = new LinkedHashMap<>();
         for (Line line : network.lines().values()) {
@@ -250,7 +251,7 @@ public final class RailGraph {
                     }
                     Unit previous = null;
                     for (int cell = 0; cell < cells.size(); cell++) {
-                        Unit unit = unitFor(cells.get(cell), triggers, unitOf, units);
+                        Unit unit = unitFor(cells.get(cell), triggerIndex, unitOf, units);
                         unit.lines.add(line.id());
                         if (previous != null && previous != unit) {
                             previous.neighbours.add(unit);
@@ -261,9 +262,9 @@ public final class RailGraph {
                     // A run starts where the train has left the platform, a train length past the
                     // trigger, so the first cell is joined to the platform it left; the last cell is
                     // normally at the trigger already.
-                    attach(unitOf.get(cells.get(0)), service.stop(index), cells.get(0), triggers, unitOf, units, line.id());
+                    attach(unitOf.get(cells.get(0)), service.stop(index), cells.get(0), triggers, triggerIndex, unitOf, units, line.id());
                     attach(unitOf.get(cells.get(cells.size() - 1)), service.stop(next), cells.get(cells.size() - 1),
-                            triggers, unitOf, units, line.id());
+                            triggers, triggerIndex, unitOf, units, line.id());
                 }
             }
         }
@@ -362,7 +363,7 @@ public final class RailGraph {
     static final int PLATFORM_LINK_REACH = 48;
 
     /** Joins the unit at a run's end to the platform node of the stop, unless it is one already. */
-    private static void attach(Unit end, Stop stop, Cell cell, Map<BlockPos, PlatformRef> triggers,
+    private static void attach(Unit end, Stop stop, Cell cell, Map<BlockPos, PlatformRef> triggers, TriggerIndex index,
                                Map<Cell, Unit> unitOf, Map<String, Unit> units, String lineId) {
         if (end.platform) {
             end.stations.add(stop.stationId());
@@ -389,7 +390,7 @@ public final class RailGraph {
             end.stations.add(stop.stationId());
             return;
         }
-        Unit platform = unitFor(new Cell(nearest.world(), nearest.x(), nearest.y(), nearest.z()), triggers, unitOf, units);
+        Unit platform = unitFor(new Cell(nearest.world(), nearest.x(), nearest.y(), nearest.z()), index, unitOf, units);
         platform.lines.add(lineId);
         platform.stations.add(stop.stationId());
         if (platform != end) {
@@ -398,26 +399,65 @@ public final class RailGraph {
         }
     }
 
-    private static Unit unitFor(Cell cell, Map<BlockPos, PlatformRef> triggers, Map<Cell, Unit> unitOf, Map<String, Unit> units) {
+    /**
+     * Platform triggers in buckets of 8 by 8 blocks per world, so that finding the trigger nearest
+     * to a cell looks at a few triggers instead of every one: the graph of a big railway has
+     * hundreds of thousands of cells and hundreds of triggers.
+     */
+    private static final class TriggerIndex {
+        private static final int SHIFT = 3;
+
+        private record Bucket(String world, int x, int z) {
+        }
+
+        private final Map<Bucket, List<Map.Entry<BlockPos, PlatformRef>>> buckets = new HashMap<>();
+
+        TriggerIndex(Map<BlockPos, PlatformRef> triggers) {
+            for (Map.Entry<BlockPos, PlatformRef> trigger : triggers.entrySet()) {
+                BlockPos at = trigger.getKey();
+                buckets.computeIfAbsent(new Bucket(at.world(), at.x() >> SHIFT, at.z() >> SHIFT), bucket -> new ArrayList<>())
+                        .add(trigger);
+            }
+        }
+
+        /** The trigger nearest to the cell within {@code reach} blocks and four levels, or null. */
+        Map.@Nullable Entry<BlockPos, PlatformRef> nearest(Cell cell, int reach) {
+            Map.Entry<BlockPos, PlatformRef> nearest = null;
+            double best = (double) reach * reach + 1;
+            int span = (reach >> SHIFT) + 1;
+            int centreX = cell.x() >> SHIFT;
+            int centreZ = cell.z() >> SHIFT;
+            for (int x = centreX - span; x <= centreX + span; x++) {
+                for (int z = centreZ - span; z <= centreZ + span; z++) {
+                    List<Map.Entry<BlockPos, PlatformRef>> here = buckets.get(new Bucket(cell.world(), x, z));
+                    if (here == null) {
+                        continue;
+                    }
+                    for (Map.Entry<BlockPos, PlatformRef> trigger : here) {
+                        BlockPos at = trigger.getKey();
+                        if (Math.abs(at.y() - cell.y()) > 4) {
+                            continue;
+                        }
+                        double distance = at.distanceSquared(cell.x() + 0.5, cell.y(), cell.z() + 0.5);
+                        if (distance < best) {
+                            best = distance;
+                            nearest = trigger;
+                        }
+                    }
+                }
+            }
+            return nearest;
+        }
+    }
+
+    private static Unit unitFor(Cell cell, TriggerIndex index, Map<Cell, Unit> unitOf, Map<String, Unit> units) {
         Unit existing = unitOf.get(cell);
         if (existing != null) {
             return existing;
         }
-        BlockPos nearest = null;
-        PlatformRef platform = null;
-        double best = (double) PLATFORM_REACH * PLATFORM_REACH + 1;
-        for (Map.Entry<BlockPos, PlatformRef> trigger : triggers.entrySet()) {
-            BlockPos at = trigger.getKey();
-            if (!at.world().equals(cell.world()) || Math.abs(at.y() - cell.y()) > 4) {
-                continue;
-            }
-            double distance = at.distanceSquared(cell.x() + 0.5, cell.y(), cell.z() + 0.5);
-            if (distance < best) {
-                best = distance;
-                nearest = at;
-                platform = trigger.getValue();
-            }
-        }
+        Map.Entry<BlockPos, PlatformRef> found = index.nearest(cell, PLATFORM_REACH);
+        BlockPos nearest = found == null ? null : found.getKey();
+        PlatformRef platform = found == null ? null : found.getValue();
         String id = nearest == null ? cell.world() + ":" + cell.x() + "," + cell.y() + "," + cell.z()
                 : "platform:" + nearest.format();
         Unit unit = units.get(id);

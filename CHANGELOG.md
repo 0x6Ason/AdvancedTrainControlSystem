@@ -61,8 +61,10 @@ TrainCarts server, configured with files and in-game commands.
   (new options added with their comments, own values kept, the old file saved next to it, and
   unknown options named); a compatibility matrix in CI builds against the newest 1.21 Paper and
   the current Paper 26 with TrainCarts 2.0.2; a test keeps the per-second work of a 300-station
-  railway with 150 trains in a few milliseconds; *Arrival estimates* page in the docs with the
-  report read and a railway's real figures.
+  railway with 150 trains in a few milliseconds, and the rail graph of such a railway is built
+  three times faster; *Arrival estimates* page in the docs with the report read and a railway's
+  real figures; contributor material (CONTRIBUTING, a code of conduct, issue and pull request
+  templates).
 - The web editor (`integrations.editor`, off by default; `/atcs editor` prints a one-time link):
   stations and platforms, lines, services with their stops drawn as the line, boards, walking
   transfers, fares, diagram adjustments and the configuration files, beside the website's diagram

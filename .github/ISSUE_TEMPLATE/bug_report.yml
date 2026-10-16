@@ -1,0 +1,38 @@
+name: Bug report
+description: Something does not do what the docs say
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead. A screenshot or a board's text helps.
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: /atcs status
+      description: Paste the whole output; it carries the versions and what the plugin knows about your railway.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Server and TrainCarts versions
+      placeholder: Paper 1.21.11 build 120, TrainCarts 2.0.2, BKCommonLib 2.0.4, Java 21
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Console lines and data/events.log around the time
+      description: Anything the plugin logged, and for anything about trains the lines of data/events.log from a minute before to a minute after.
+      render: text
+  - type: textarea
+    id: network
+    attributes:
+      label: The part of network.yml involved
+      description: The station, line or service concerned, as in the file. Leave out what is not involved.
+      render: yaml

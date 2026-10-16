@@ -710,5 +710,6 @@ with the command that removes each.
 
 The plugin is `build/libs/AdvancedTrainControlSystem-<version>.jar`.
 <!-- --8<-- [end:building] -->
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is organised, and
-[docs/ROADMAP.md](docs/ROADMAP.md) for what comes next.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is organised,
+[docs/ROADMAP.md](docs/ROADMAP.md) for what comes next, and [CONTRIBUTING.md](CONTRIBUTING.md)
+before sending a change.
