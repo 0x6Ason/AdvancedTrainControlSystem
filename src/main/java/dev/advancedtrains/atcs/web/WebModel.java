@@ -125,6 +125,8 @@ public final class WebModel {
         List<Object> stops = new ArrayList<>();
         List<Object> segments = new ArrayList<>();
         List<Object> dwells = new ArrayList<>();
+        List<Object> intervals = new ArrayList<>();
+        boolean anyInterval = false;
         for (int index = 0; index < service.size(); index++) {
             Stop stop = service.stop(index);
             Map<String, Object> item = new LinkedHashMap<>();
@@ -136,10 +138,16 @@ public final class WebModel {
             segments.add(segment.isPresent() ? round(segment.getAsDouble()) : null);
             OptionalDouble dwell = times.dwellSeconds(service, index);
             dwells.add(dwell.isPresent() ? round(dwell.getAsDouble()) : null);
+            OptionalDouble interval = times.intervalSeconds(service, index);
+            intervals.add(interval.isPresent() ? round(interval.getAsDouble()) : null);
+            anyInterval |= interval.isPresent();
         }
         entry.put("stops", stops);
         entry.put("segments", segments);
         entry.put("dwells", dwells);
+        if (anyInterval) {
+            entry.put("intervals", intervals);
+        }
         return entry;
     }
 
@@ -173,6 +181,12 @@ public final class WebModel {
             entry.put("fraction", fraction(journey, running.service(), times, now));
             entry.put("eta", running.etaNext().isPresent() ? round(running.etaNext().getAsDouble()) : null);
             entry.put("held", running.held() || running.holdReason() != null);
+            if (running.approximate()) {
+                entry.put("approximate", true);
+            }
+            if (running.late()) {
+                entry.put("late", true);
+            }
             entry.put("at", journey.currentStationId());
             entry.put("platform", journey.platform() == null ? null : journey.platform().platformId());
             entry.put("since", journey.phase() == JourneyPhase.AT_STOP && journey.arrivedAt() != null
@@ -197,6 +211,12 @@ public final class WebModel {
                 entry.put("platform", departure.platformId());
                 entry.put("eta", departure.etaSeconds().isPresent() ? round(departure.etaSeconds().getAsDouble()) : null);
                 entry.put("boarding", departure.status() == Departures.Status.BOARDING);
+                if (departure.approximate()) {
+                    entry.put("approximate", true);
+                }
+                if (departure.late()) {
+                    entry.put("late", true);
+                }
                 upcoming.add(entry);
             }
             if (!upcoming.isEmpty()) {

@@ -34,6 +34,12 @@
     return typeof value === 'number' && value >= 0 ? value : fallback;
   }
 
+  /* The wait for the next train nobody can see yet: half the learned interval between departures, else the assumption. */
+  function expectedWait(service, i) {
+    var value = service.intervals && service.intervals[i];
+    return typeof value === 'number' && value > 0 ? Math.max(20, Math.min(600, value / 2)) : DEFAULT_WAIT;
+  }
+
   function nextIndex(service, i) {
     return i + 1 < service.stops.length ? i + 1 : (service.circular ? 0 : -1);
   }
@@ -254,7 +260,7 @@
         for (var i = 0; i < stops.length; i++) {
           if (stops[i].station !== station || stops[i].pass) continue;
           var known = ctx.lastDeparture[key] && ctx.lastDeparture[key][station];
-          var depart = (known === undefined ? ready : Math.max(ready, known)) + DEFAULT_WAIT;
+          var depart = (known === undefined ? ready : Math.max(ready, known)) + expectedWait(entry.service, i);
           var calls = [{ key: key, line: entry.line.id, index: i, station: station, platform: stops[i].platform, via: [], arr: depart, dep: depart }];
           extend(calls, byKey, entry, i, depart, defaultDwell, depart + HORIZON);
           if (calls[0].dep === null) continue;

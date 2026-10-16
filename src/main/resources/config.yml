@@ -58,6 +58,10 @@ timing:
   # Between 0 and 1: how quickly learned travel times follow new measurements.
   smoothing: 0.3
   save-interval-minutes: 5
+  # Blocks per second assumed on a stretch no train has been timed on yet, so boards show an
+  # estimate (marked ~) instead of Expected. Once enough track has been learned, the railway's
+  # own usual speed is used instead.
+  assumed-speed: 8
 
 integrations:
   bluemap:

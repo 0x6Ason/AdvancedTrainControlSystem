@@ -68,7 +68,11 @@ public record AtcsSettings(
     public record Boards(int refreshTicks, double defaultDwellSeconds) {
     }
 
-    public record Timing(double smoothing, int saveIntervalMinutes) {
+    /**
+     * @param assumedSpeed blocks per second assumed for a segment nobody has learned, until trains
+     *                     have run enough learned track to measure the railway's usual speed
+     */
+    public record Timing(double smoothing, int saveIntervalMinutes, double assumedSpeed) {
     }
 
     public record BlueMap(
@@ -181,7 +185,8 @@ public record AtcsSettings(
                 reader.bool("displays.hologram.see-through", false));
         Timing timing = new Timing(
                 reader.decimal("timing.smoothing", 0.3, 0.01, 1),
-                reader.integer("timing.save-interval-minutes", 5, 1, 1440));
+                reader.integer("timing.save-interval-minutes", 5, 1, 1440),
+                reader.decimal("timing.assumed-speed", 8, 0.5, 100));
         BlueMap blueMap = new BlueMap(
                 reader.bool("integrations.bluemap.enabled", true),
                 reader.string("integrations.bluemap.marker-set-label", "Railway"),

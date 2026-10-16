@@ -56,11 +56,15 @@ public final class TrackPaths {
             case JourneyEvent.Departed departed when departed.nextIndex() >= 0 ->
                     start(event.trainId(), network, departed.service(), departed.stopIndex());
             case JourneyEvent.Arrived arrived -> {
-                finish(event.trainId(), network, arrived.service(), arrived.fromIndex());
+                if (nextOf(network, arrived.service(), arrived.fromIndex()) == arrived.stopIndex()) {
+                    finish(event.trainId(), network, arrived.service(), arrived.fromIndex());
+                }
                 recordings.remove(event.trainId());
             }
             case JourneyEvent.Passed passed when passed.stopIndex() >= 0 -> {
-                finish(event.trainId(), network, passed.service(), passed.fromIndex());
+                if (nextOf(network, passed.service(), passed.fromIndex()) == passed.stopIndex()) {
+                    finish(event.trainId(), network, passed.service(), passed.fromIndex());
+                }
                 start(event.trainId(), network, passed.service(), passed.stopIndex());
             }
             case JourneyEvent.Passed ignored -> {
@@ -71,6 +75,13 @@ public final class TrackPaths {
             }
             default -> recordings.remove(event.trainId());
         }
+    }
+
+    private static int nextOf(Network network, ServiceKey key, int fromIndex) {
+        if (fromIndex < 0) {
+            return -2;
+        }
+        return network.service(key).map(service -> service.nextIndex(fromIndex)).orElse(-2);
     }
 
     /** Whether a position sample for this train would be used. */

@@ -150,6 +150,41 @@ public final class RailwayRuntime {
     };
     private @Nullable ConsistentEstimates estimates;
     private @Nullable Instant estimatesAt;
+    /** Blocks per second trains usually manage, from learned segments with recorded track; refreshed now and then. */
+    private double typicalSpeed;
+    private @Nullable Instant typicalSpeedAt;
+    /** A guess for a segment nobody has learned: its track length at the usual speed. */
+    private final EtaCalculator.Priors priors = (service, fromIndex) -> {
+        OptionalDouble blocks = measure().segmentBlocks(service, fromIndex);
+        if (blocks.isEmpty() || blocks.getAsDouble() <= 0) {
+            return OptionalDouble.empty();
+        }
+        return OptionalDouble.of(blocks.getAsDouble() / typicalSpeed());
+    };
+
+    /** Blocks per second over every learned segment with a known length, else the configured assumption. */
+    double typicalSpeed() {
+        Instant now = clock.instant();
+        if (typicalSpeedAt != null && Duration.between(typicalSpeedAt, now).toSeconds() < 60) {
+            return typicalSpeed;
+        }
+        double blocks = 0;
+        double seconds = 0;
+        RouteMeasure lengths = measure();
+        for (Service service : store.network().services()) {
+            for (int index = 0; index < service.size(); index++) {
+                OptionalDouble own = times.ownSegmentSeconds(service, index);
+                OptionalDouble length = own.isPresent() && own.getAsDouble() > 0 ? lengths.segmentBlocks(service, index) : OptionalDouble.empty();
+                if (length.isPresent() && length.getAsDouble() > 0) {
+                    blocks += length.getAsDouble();
+                    seconds += own.getAsDouble();
+                }
+            }
+        }
+        typicalSpeed = seconds > 0 && blocks > 0 ? Math.max(0.5, blocks / seconds) : settings.timing().assumedSpeed();
+        typicalSpeedAt = now;
+        return typicalSpeed;
+    }
 
     /** Seconds until a running train reaches the next station on its service, pass stops included. */
     private OptionalDouble untilNextStation(JourneySnapshot journey, Instant now) {
@@ -231,7 +266,9 @@ public final class RailwayRuntime {
         this.eventLog = new EventLog(data.resolve("events.log"), settings.logging().maxMegabytes() * 1024L * 1024L,
                 writer, logger, settings.logging().events(), settings.logging().positions());
         this.times = new TravelTimes(settings.timing().smoothing());
-        this.eta = new EtaCalculator(times, settings.boards().defaultDwellSeconds(), context);
+        this.times.setMeasure(measure());
+        this.times.setAssumedDwell(settings.boards().defaultDwellSeconds());
+        this.eta = new EtaCalculator(times, settings.boards().defaultDwellSeconds(), context, priors);
         this.display = new PassengerDisplay(settings.passenger(), messages);
         this.boards = new BoardService(logger);
         this.recorder = new ServiceRecorder(store::network);
@@ -315,7 +352,9 @@ public final class RailwayRuntime {
         debug = newSettings.debug();
         eventLog.configure(newSettings.logging().events(), newSettings.logging().positions());
         times.setSmoothing(newSettings.timing().smoothing());
-        eta = new EtaCalculator(times, newSettings.boards().defaultDwellSeconds(), context);
+        times.setAssumedDwell(newSettings.boards().defaultDwellSeconds());
+        typicalSpeedAt = null;
+        eta = new EtaCalculator(times, newSettings.boards().defaultDwellSeconds(), context, priors);
         estimates = null;
         display.configure(newSettings.passenger(), newMessages);
         boards.invalidate();
@@ -1168,7 +1207,8 @@ public final class RailwayRuntime {
                 String detail = view.completed() ? "Not in service"
                         : view.atStop() && view.currentStationId().isPresent() ? "At " + network.stationName(view.currentStationId().get())
                         : next.isEmpty() ? "" : "Next: " + next
-                                + (view.etaNext().isPresent() ? " in " + plainDuration(view.etaNext().getAsDouble()) : "");
+                                + (view.late() ? " (delayed)" : view.etaNext().isPresent()
+                                ? " in " + (view.approximate() ? "about " : "") + plainDuration(view.etaNext().getAsDouble()) : "");
                 markers.add(new MapLayer.TrainMarker(train.name(), head.getWorld().getName(),
                         head.getX(), head.getY(), head.getZ(), label, detail, view.line().color(), view.line().id(),
                         view.held() || view.holdReason() != null));
@@ -1182,7 +1222,10 @@ public final class RailwayRuntime {
                     }
                     Line line = network.line(departure.service().key().lineId()).orElse(null);
                     String time = departure.status() == Departures.Status.BOARDING ? "Boarding"
-                            : departure.etaSeconds().isPresent() ? plainDuration(departure.etaSeconds().getAsDouble()) : "Expected";
+                            : departure.late() ? "Delayed"
+                            : departure.etaSeconds().isPresent()
+                                    ? (departure.approximate() ? "~" : "") + plainDuration(departure.etaSeconds().getAsDouble())
+                            : "Expected";
                     lines.add(new MapLayer.DepartureLine(line == null ? "" : line.shortName(), line == null ? 0x888888 : line.color(),
                             departure.service().destinationFrom(departure.stopIndex()).map(stop -> network.stationName(stop.stationId()))
                                     .orElse(departure.service().name()), departure.platformId(), time));

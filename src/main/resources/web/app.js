@@ -336,7 +336,8 @@
     return '<ul class="departures">' + list.map(function (d) {
       var line = lineIndex[d.line];
       var eta = d.boarding ? '<span class="now">Boarding</span>'
-        : typeof d.eta === 'number' ? countdown(d.eta, 'Due') : 'Expected';
+        : d.late ? '<span class="late">Delayed</span>'
+        : typeof d.eta === 'number' ? (d.approximate ? '~' : '') + countdown(d.eta, 'Due') : 'Expected';
       return '<li>' + bullet(line) + '<div><div class="dest">' + escapeHtml(d.destination)
         + (d.platform ? '<span class="platform">' + escapeHtml(d.platform) + '</span>' : '') + '</div><div class="svc">'
         + escapeHtml((line ? line.name + ' ' : '') + d.service + ' · ' + d.train) + '</div></div>'
@@ -420,7 +421,8 @@
     if (train.at) return 'At ' + escapeHtml(stationName(train.at));
     if (entry && train.next >= 0 && train.next < entry.service.stops.length) {
       var next = escapeHtml(stationName(entry.service.stops[train.next].station));
-      return typeof train.eta === 'number' ? 'Next ' + next + ' ' + countdown(train.eta, 'now') : 'Next ' + next;
+      if (train.late) return 'Next ' + next + ' <span class="late">delayed</span>';
+      return typeof train.eta === 'number' ? 'Next ' + next + ' ' + (train.approximate ? '~' : '') + countdown(train.eta, 'now') : 'Next ' + next;
     }
     return '';
   }

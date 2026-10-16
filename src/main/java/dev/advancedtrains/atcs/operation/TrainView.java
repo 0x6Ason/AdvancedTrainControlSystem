@@ -16,8 +16,10 @@ import java.util.OptionalDouble;
  * @param nextIndex  the next calling stop (-1 when none)
  * @param etaNext    seconds until the next calling stop, when known
  * @param progress   share of the trip completed, 0 to 1
- * @param held       the train stands still between stations
- * @param holdReason why ATCS keeps the train at its platform, or null
+ * @param held        the train stands still between stations
+ * @param holdReason  why ATCS keeps the train at its platform, or null
+ * @param approximate the estimate is partly a guess from track distance
+ * @param late        the train is overdue at its next stop
  */
 public record TrainView(
         Line line,
@@ -27,7 +29,9 @@ public record TrainView(
         OptionalDouble etaNext,
         float progress,
         boolean held,
-        @Nullable String holdReason) {
+        @Nullable String holdReason,
+        boolean approximate,
+        boolean late) {
 
     public static Optional<TrainView> of(JourneySnapshot journey, Network network, TravelTimes times, Estimator eta, Instant now) {
         return of(journey, network, times, eta, EtaContext.NONE, now);
@@ -49,13 +53,16 @@ public record TrainView(
             return Optional.empty();
         }
         int next = journey.nextCallingIndex(service);
-        OptionalDouble etaNext = next >= 0 && journey.phase() != JourneyPhase.AT_STOP
-                ? eta.secondsUntil(journey, service, next, now)
-                : OptionalDouble.empty();
+        Optional<Estimator.Estimate> estimate = next >= 0 && journey.phase() != JourneyPhase.AT_STOP
+                ? eta.estimate(journey, service, next, now)
+                : Optional.empty();
+        OptionalDouble etaNext = estimate.map(value -> OptionalDouble.of(value.seconds())).orElse(OptionalDouble.empty());
         boolean held = journey.phase() == JourneyPhase.IN_TRANSIT && context.standing(journey.trainId());
         String reason = journey.phase() == JourneyPhase.AT_STOP ? context.holdReason(journey.trainId()) : null;
         return Optional.of(new TrainView(line, service, journey, next, etaNext,
-                progress(journey, service, times, context, now), held, reason));
+                progress(journey, service, times, context, now), held, reason,
+                estimate.map(Estimator.Estimate::approximate).orElse(false),
+                estimate.map(Estimator.Estimate::late).orElse(false)));
     }
 
     private static float progress(JourneySnapshot journey, Service service, TravelTimes times, EtaContext context, Instant now) {

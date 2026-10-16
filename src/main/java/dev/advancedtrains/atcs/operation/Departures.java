@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.function.Predicate;
 
@@ -25,8 +26,10 @@ public final class Departures {
     /**
      * One upcoming departure.
      *
-     * @param platformId the platform the train stands at, is planned for, or was last seen using
-     * @param etaSeconds seconds until the train arrives, empty when not yet known
+     * @param platformId  the platform the train stands at, is planned for, or was last seen using
+     * @param etaSeconds  seconds until the train arrives, empty when not yet known
+     * @param approximate the estimate is partly a guess from track distance
+     * @param late        the train is overdue: it has been on its way longer than trains usually take
      */
     public record Departure(
             String trainId,
@@ -34,7 +37,14 @@ public final class Departures {
             int stopIndex,
             @Nullable String platformId,
             OptionalDouble etaSeconds,
-            Status status) {
+            Status status,
+            boolean approximate,
+            boolean late) {
+
+        public Departure(String trainId, Service service, int stopIndex, @Nullable String platformId,
+                         OptionalDouble etaSeconds, Status status) {
+            this(trainId, service, stopIndex, platformId, etaSeconds, status, false, false);
+        }
     }
 
     private static final Comparator<Departure> ORDER = Comparator
@@ -96,9 +106,13 @@ public final class Departures {
             if (platformId != null ? !platformFilter.test(platformId) : !platformFilter.test("")) {
                 continue;
             }
-            OptionalDouble seconds = boarding ? OptionalDouble.of(0) : eta.secondsUntil(journey, service, target, now);
-            result.add(new Departure(journey.trainId(), listed, listedIndex, platformId, seconds,
-                    boarding ? Status.BOARDING : Status.EN_ROUTE));
+            Optional<Estimator.Estimate> estimate = boarding ? Optional.of(new Estimator.Estimate(0, false, false))
+                    : eta.estimate(journey, service, target, now);
+            result.add(new Departure(journey.trainId(), listed, listedIndex, platformId,
+                    estimate.map(value -> OptionalDouble.of(value.seconds())).orElse(OptionalDouble.empty()),
+                    boarding ? Status.BOARDING : Status.EN_ROUTE,
+                    estimate.map(Estimator.Estimate::approximate).orElse(false),
+                    estimate.map(Estimator.Estimate::late).orElse(false)));
         }
         result.sort(ORDER);
         return result;

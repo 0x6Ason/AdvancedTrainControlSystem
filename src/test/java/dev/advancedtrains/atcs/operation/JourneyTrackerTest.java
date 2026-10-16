@@ -140,15 +140,16 @@ class JourneyTrackerTest {
     }
 
     @Test
-    void skippedStopsDoNotProduceSegmentTimes() {
+    void skippedStopsStillKeepTheRunTime() {
+        // A stop without triggers never reports; the run from the last reported stop is still measured.
         Network network = network(3, service("a/north", "s1", "s2", "s3"));
         enter("s1", A, network);
         leave("s1", A, network);
         advance(60);
         Arrived arrived = only(enter("s3", A, network), Arrived.class);
         assertEquals(2, arrived.stopIndex());
-        assertEquals(-1, arrived.fromIndex());
-        assertNull(arrived.travelTime());
+        assertEquals(0, arrived.fromIndex());
+        assertEquals(Duration.ofSeconds(60), arrived.travelTime());
     }
 
     @Test

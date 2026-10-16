@@ -82,6 +82,14 @@ TrainCarts server, configured with files and in-game commands.
   a station sign holds a train into account, and every train of a service is projected in running
   order so a follower is never shown arriving before the train in front has left. A replay harness
   scores the estimator on logged data.
+- Estimates for stretches nobody has timed yet, from the track length at the railway's usual
+  speed (`timing.assumed-speed` until enough is learned), shown as `~1:05` instead of *Expected*;
+  travel times shared between services on the same stretch of track, so a new express has an
+  estimate from its first run; a train on its way longer than trains usually take, by more than
+  the usual spread, is shown as *Delayed* on boards, the boss bar, SignLink, placeholders, BlueMap
+  and the website instead of a countdown that reached zero; a stop without triggers no longer
+  loses the run through it (the measured time is shared out by track distance); and the planner
+  waits half the learned interval between departures instead of a fixed guess.
 - Arrival estimates are scored against real arrivals: `/atcs timing report` shows the mean and
   worst error per service and stop at two minutes, one minute and thirty seconds out, so changes
   to the estimator can be checked and the stops that lie can be found.

@@ -588,8 +588,12 @@ Links to a station or a trip can be shared, for example `/atcs/#plan=liberty,mai
   actually pass (`/atcs station info <station>`), then turn on `/atcs debug` and watch the console.
 - **A train shows no line.** `/atcs train info` shows its tags and TrainCarts destination; assign it with
   a spawn sign, an ATCS service sign, match rules or `/atcs train assign`.
-- **Arrival estimates show "Expected".** Times are learned from trains running the service; give it a
-  few trips. `/atcs service info` shows how many segments have been learned.
+- **Arrival estimates show "Expected" or "~1:05".** Times are learned from trains running the
+  service; give it a few trips (`/atcs service info` shows how many segments have been learned).
+  Until then a stretch with recorded track is estimated from its length at the railway's usual
+  speed and shown with a `~`; a stretch another service runs uses that service's times.
+- **A board says "Delayed".** The train has been on its way longer than trains usually take on
+  that stretch, by more than the usual spread. It is on its way; the countdown would mislead.
 - **Old announce signs.** Once ATCS announces your stations you can remove TrainCarts `announce` signs
   that say the same thing.
 

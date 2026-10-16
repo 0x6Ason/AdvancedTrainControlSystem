@@ -62,11 +62,17 @@ public final class BoardRenderer {
         if (departure.status() == Departures.Status.BOARDING) {
             return messages.render("board.status-boarding");
         }
+        if (departure.late()) {
+            return messages.render("board.status-delayed");
+        }
         if (departure.etaSeconds().isEmpty()) {
             return messages.render("board.status-unknown");
         }
-        if (departure.etaSeconds().getAsDouble() <= ARRIVING_SECONDS) {
+        if (departure.etaSeconds().getAsDouble() <= ARRIVING_SECONDS && !departure.approximate()) {
             return messages.render("board.status-arriving");
+        }
+        if (departure.approximate()) {
+            return messages.render("board.status-estimated", Placeholder.component("eta", eta));
         }
         return messages.render("board.status-due", Placeholder.component("eta", eta));
     }

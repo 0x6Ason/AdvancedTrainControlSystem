@@ -53,7 +53,8 @@ class RemapTest {
         Service shorter = after.withStops(StopEdits.remove(after.stops(), "s3"));
         times.remap(after, shorter);
         assertEquals(OptionalDouble.of(48), times.segmentSeconds(shorter, 0));
-        assertEquals(OptionalDouble.empty(), times.segmentSeconds(shorter, 1), "s2 to s4 was not learned while s3 was listed");
+        assertEquals(OptionalDouble.empty(), times.ownSegmentSeconds(shorter, 1), "s2 to s4 was not learned while s3 was listed");
+        assertEquals(OptionalDouble.of(60), times.segmentSeconds(shorter, 1), "but the stretch itself is remembered");
         assertEquals(Optional.of("1"), times.usualPlatform(shorter, 2));
     }
 

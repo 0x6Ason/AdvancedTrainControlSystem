@@ -85,7 +85,10 @@ public final class DepartureVariables {
                     .map(stop -> network.stationName(stop.stationId()))
                     .orElse(departure.service().name());
             String time = departure.status() == Departures.Status.BOARDING ? "Boarding"
-                    : departure.etaSeconds().isPresent() ? duration.apply(departure.etaSeconds().getAsDouble()) : "--";
+                    : departure.late() ? "Delayed"
+                    : departure.etaSeconds().isPresent()
+                            ? (departure.approximate() ? "~" : "") + duration.apply(departure.etaSeconds().getAsDouble())
+                    : "--";
             String platform = departure.platformId() == null ? "" : departure.platformId();
             values.put(name(network, stationId, platformId, rank, SUMMARY),
                     badge + " " + departure.service().name() + " " + destination + " " + time);

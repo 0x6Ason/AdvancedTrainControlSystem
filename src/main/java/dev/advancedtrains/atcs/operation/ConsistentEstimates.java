@@ -11,6 +11,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalDouble;
 
 /**
@@ -125,14 +126,17 @@ public final class ConsistentEstimates implements Estimator {
     }
 
     @Override
-    public OptionalDouble secondsUntil(JourneySnapshot journey, Service service, int target, Instant now) {
+    public Optional<Estimate> estimate(JourneySnapshot journey, Service service, int target, Instant now) {
+        Optional<Estimate> own = plain.estimate(journey, service, target, now);
         Map<Integer, Double> arrival = projected.get(journey.trainId());
         if (arrival != null && journey.service() != null && journey.service().equals(service.key())) {
             Double seconds = arrival.get(target);
             if (seconds != null) {
-                return OptionalDouble.of(seconds);
+                // The projection moves the time; whether it is a guess or overdue is the train's own.
+                return Optional.of(own.map(estimate -> estimate.withSeconds(seconds))
+                        .orElse(new Estimate(seconds, false, false)));
             }
         }
-        return plain.secondsUntil(journey, service, target, now);
+        return own;
     }
 }

@@ -55,11 +55,14 @@ public final class Placeholders {
         String next = view.nextStationId().map(network::stationName).orElse("");
         builder.resolver(Placeholder.unparsed("next", next));
         OptionalDouble eta = view.etaNext();
-        Component etaText = eta.isPresent() ? messages.duration(eta.getAsDouble()) : Component.empty();
+        Component etaText = eta.isEmpty() ? Component.empty()
+                : view.approximate() ? messages.render("passenger.eta-approximate", Placeholder.component("eta", messages.duration(eta.getAsDouble())))
+                : messages.duration(eta.getAsDouble());
         builder.resolver(Placeholder.component("eta", etaText));
-        builder.resolver(Placeholder.component("eta_suffix", eta.isPresent()
-                ? messages.render("passenger.boss-bar.eta-suffix", Placeholder.component("eta", etaText))
-                : Component.empty()));
+        Component suffix = view.late() ? messages.render("passenger.boss-bar.delayed-suffix")
+                : eta.isPresent() ? messages.render("passenger.boss-bar.eta-suffix", Placeholder.component("eta", etaText))
+                : Component.empty();
+        builder.resolver(Placeholder.component("eta_suffix", suffix));
         return builder.build();
     }
 

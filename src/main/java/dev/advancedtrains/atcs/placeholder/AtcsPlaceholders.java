@@ -135,7 +135,9 @@ public final class AtcsPlaceholders extends PlaceholderExpansion {
             case "dest", "destination" -> departure.service().destinationFrom(departure.stopIndex())
                     .map(stop -> network.stationName(stop.stationId())).orElse(departure.service().name());
             case "time", "eta" -> departure.status() == Departures.Status.BOARDING ? plain(messages.get().render("board.status-boarding"))
-                    : departure.etaSeconds().isPresent() ? plain(messages.get().duration(departure.etaSeconds().getAsDouble()))
+                    : departure.late() ? plain(messages.get().render("board.status-delayed"))
+                    : departure.etaSeconds().isPresent()
+                            ? (departure.approximate() ? "~" : "") + plain(messages.get().duration(departure.etaSeconds().getAsDouble()))
                     : plain(messages.get().render("board.status-unknown"));
             case "line" -> network.line(departure.service().key().lineId()).map(line -> line.shortName()).orElse("");
             case "linename" -> network.line(departure.service().key().lineId()).map(line -> line.name()).orElse("");

@@ -279,7 +279,9 @@ public final class JourneyTracker {
 
         int fromIndex = -1;
         Duration travelTime = null;
-        if (journey.lastIndex >= 0 && journey.segmentStart != null && service.nextIndex(journey.lastIndex) == index) {
+        if (journey.lastIndex >= 0 && journey.segmentStart != null && stepsAhead(service, journey.lastIndex, index) > 0) {
+            // The next stop, or one a few stops on when the stops between have no triggers: the
+            // time is still a measurement, shared out over the stops it spans when learned.
             fromIndex = journey.lastIndex;
             travelTime = Duration.between(journey.segmentStart, observation.at());
         }
@@ -294,6 +296,21 @@ public final class JourneyTracker {
             events.add(new JourneyEvent.Passed(journey.trainId, observation.at(), service.key(), index,
                     observation.platform(), fromIndex, travelTime));
         }
+    }
+
+    /** How many stops {@code index} is after {@code from} along the service, up to a few; 0 when it is not. */
+    static int stepsAhead(Service service, int from, int index) {
+        int cursor = from;
+        for (int step = 1; step <= TravelTimes.MAX_SPAN; step++) {
+            cursor = service.nextIndex(cursor);
+            if (cursor < 0) {
+                return 0;
+            }
+            if (cursor == index) {
+                return step;
+            }
+        }
+        return 0;
     }
 
     private void leave(

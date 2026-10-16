@@ -8,6 +8,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -17,8 +18,14 @@ import java.util.OptionalDouble;
 
 /**
  * Learns, per service, how long trains take between consecutive stops, how long they stand at
- * each stop, and which platform they use. Values are exponentially smoothed so they follow
- * timetable changes; isolated outliers (a train held at a signal) move them only slightly.
+ * each stop, which platform they use, and how often they leave. Values are exponentially smoothed
+ * so they follow timetable changes; isolated outliers (a train held at a signal) move them only
+ * slightly, and the usual spread around each value is kept so a train can be called late.
+ *
+ * <p>Every travel time is also kept by the physical stretch it was measured on, from one platform
+ * to another, so a new service on the same track (an express, a diversion) has an estimate before
+ * its own trains have run. A segment that spans stops without triggers is learned by sharing the
+ * measured time out over its parts by track distance.
  *
  * <p>All data for a service is discarded when its stop list changes.
  */
@@ -26,9 +33,19 @@ public final class TravelTimes {
     static final double MAX_SAMPLE_SECONDS = Duration.ofHours(1).toSeconds();
     private static final int OUTLIER_MIN_SAMPLES = 3;
     private static final double OUTLIER_FACTOR = 3.0;
+    /** The longest gap between two departures that still counts as an interval, in seconds. */
+    static final double MAX_INTERVAL_SECONDS = Duration.ofHours(1).toSeconds();
+    /** Stops a measured arrival may be ahead of the last reported one and still be learned. */
+    static final int MAX_SPAN = 4;
 
     private double smoothing;
     private final Map<ServiceKey, ServiceTimes> services = new HashMap<>();
+    /** Travel times by physical stretch: {@code from-station:platform>to-station:platform} and {@code from-station>to-station}. */
+    private final Map<String, Value> shared = new HashMap<>();
+    /** When each service last left each stop, for intervals; not saved. */
+    private final Map<ServiceKey, Map<Integer, java.time.Instant>> lastDepartures = new HashMap<>();
+    private RouteMeasure measure = RouteMeasure.UNKNOWN;
+    private double assumedDwellSeconds = 10;
     private boolean dirty;
 
     public TravelTimes(double smoothing) {
@@ -43,34 +60,166 @@ public final class TravelTimes {
         this.smoothing = smoothing;
     }
 
+    /** Track lengths, for sharing a measured time out over the stops it spans. */
+    public void setMeasure(RouteMeasure newMeasure) {
+        measure = newMeasure;
+    }
+
+    /** The stand time assumed at a stop nobody has reported, when sharing a measured time out. */
+    public void setAssumedDwell(double seconds) {
+        assumedDwellSeconds = Math.max(0, seconds);
+    }
+
     public void record(JourneyEvent event, Network network) {
         switch (event) {
             case JourneyEvent.Arrived arrived -> {
-                recordSegment(network, arrived.service(), arrived.fromIndex(), arrived.travelTime());
+                recordSegment(network, arrived.service(), arrived.fromIndex(), arrived.stopIndex(), arrived.platform().platformId(),
+                        arrived.travelTime());
                 recordPlatform(network, arrived.service(), arrived.stopIndex(), arrived.platform().platformId());
             }
             case JourneyEvent.Passed passed when passed.stopIndex() >= 0 ->
-                    recordSegment(network, passed.service(), passed.fromIndex(), passed.travelTime());
-            case JourneyEvent.Departed departed when departed.dwell() != null ->
+                    recordSegment(network, passed.service(), passed.fromIndex(), passed.stopIndex(), passed.platform().platformId(),
+                            passed.travelTime());
+            case JourneyEvent.Departed departed -> {
+                if (departed.dwell() != null) {
                     times(network, departed.service()).ifPresent(times -> {
                         if (times.dwell.update(departed.stopIndex(), departed.dwell().toMillis() / 1000.0)) {
                             dirty = true;
                         }
                     });
+                }
+                recordInterval(network, departed.service(), departed.stopIndex(), departed.at());
+            }
             default -> {
             }
         }
     }
 
-    private void recordSegment(Network network, ServiceKey key, int fromIndex, @Nullable Duration travelTime) {
+    private void recordSegment(Network network, ServiceKey key, int fromIndex, int toIndex, String toPlatform,
+                               @Nullable Duration travelTime) {
         if (fromIndex < 0 || travelTime == null) {
             return;
         }
+        Service service = network.service(key).orElse(null);
+        ServiceTimes times = service == null ? null : times(network, key).orElse(null);
+        if (times == null) {
+            return;
+        }
+        double seconds = travelTime.toMillis() / 1000.0;
+        if (service.nextIndex(fromIndex) == toIndex) {
+            if (times.segment.update(fromIndex, seconds)) {
+                dirty = true;
+            }
+            recordShared(service, times, fromIndex, toIndex, toPlatform, seconds);
+            return;
+        }
+        // The arrival skipped stops without triggers: share the time out by track length, less
+        // the usual stand at each stop in between.
+        List<Integer> chain = new ArrayList<>();
+        int cursor = fromIndex;
+        for (int step = 0; step < MAX_SPAN && cursor >= 0 && cursor != toIndex; step++) {
+            chain.add(cursor);
+            cursor = service.nextIndex(cursor);
+        }
+        if (cursor != toIndex || chain.size() < 2) {
+            return;
+        }
+        double moving = seconds;
+        for (int index = 1; index < chain.size(); index++) {
+            int stop = chain.get(index);
+            if (service.stop(stop).stops()) {
+                moving -= times.dwell.get(stop).orElse(assumedDwellSeconds);
+            }
+        }
+        if (moving <= 0) {
+            return;
+        }
+        double[] lengths = new double[chain.size()];
+        double total = 0;
+        boolean measured = true;
+        for (int index = 0; index < chain.size(); index++) {
+            OptionalDouble length = measure.segmentBlocks(service, chain.get(index));
+            if (length.isEmpty() || length.getAsDouble() <= 0) {
+                measured = false;
+                break;
+            }
+            lengths[index] = length.getAsDouble();
+            total += lengths[index];
+        }
+        for (int index = 0; index < chain.size(); index++) {
+            double share = measured ? moving * lengths[index] / total : moving / chain.size();
+            if (times.segment.update(chain.get(index), share)) {
+                dirty = true;
+            }
+        }
+    }
+
+    /** Keys a stretch of track by its stations and platforms, so services on the same stretch share samples. */
+    private void recordShared(Service service, ServiceTimes times, int fromIndex, int toIndex, @Nullable String toPlatform, double seconds) {
+        String fromStation = service.stop(fromIndex).stationId();
+        String toStation = service.stop(toIndex).stationId();
+        String fromPlatform = service.stop(fromIndex).platformId() != null ? service.stop(fromIndex).platformId()
+                : fromIndex < times.platforms.length ? times.platforms[fromIndex] : null;
+        if (fromPlatform != null && toPlatform != null) {
+            shared.computeIfAbsent(fromStation + ":" + fromPlatform + ">" + toStation + ":" + toPlatform, ignored -> new Value()).update(seconds);
+        }
+        shared.computeIfAbsent(fromStation + ">" + toStation, ignored -> new Value()).update(seconds);
+        dirty = true;
+    }
+
+    private void recordInterval(Network network, ServiceKey key, int stopIndex, java.time.Instant at) {
+        Map<Integer, java.time.Instant> last = lastDepartures.computeIfAbsent(key, ignored -> new HashMap<>());
+        java.time.Instant previous = last.put(stopIndex, at);
+        if (previous == null) {
+            return;
+        }
+        double seconds = Duration.between(previous, at).toMillis() / 1000.0;
+        if (seconds <= 0 || seconds > MAX_INTERVAL_SECONDS) {
+            return;
+        }
         times(network, key).ifPresent(times -> {
-            if (times.segment.update(fromIndex, travelTime.toMillis() / 1000.0)) {
+            if (times.interval.update(stopIndex, seconds)) {
                 dirty = true;
             }
         });
+    }
+
+    /**
+     * Seconds from leaving stop {@code fromIndex} until reaching the next stop as learned on the
+     * same stretch of track by any service: by platforms when the service's platforms are known,
+     * else between the two stations. Empty when no train has run the stretch.
+     */
+    public OptionalDouble sharedSegmentSeconds(Service service, int fromIndex) {
+        int next = service.nextIndex(fromIndex);
+        if (fromIndex < 0 || next < 0) {
+            return OptionalDouble.empty();
+        }
+        String fromStation = service.stop(fromIndex).stationId();
+        String toStation = service.stop(next).stationId();
+        String fromPlatform = service.stop(fromIndex).platformId() != null ? service.stop(fromIndex).platformId()
+                : usualPlatform(service, fromIndex).orElse(null);
+        String toPlatform = service.stop(next).platformId() != null ? service.stop(next).platformId()
+                : usualPlatform(service, next).orElse(null);
+        if (fromPlatform != null && toPlatform != null) {
+            Value exact = shared.get(fromStation + ":" + fromPlatform + ">" + toStation + ":" + toPlatform);
+            if (exact != null && exact.samples > 0) {
+                return OptionalDouble.of(exact.mean);
+            }
+        }
+        Value any = shared.get(fromStation + ">" + toStation);
+        return any == null || any.samples == 0 ? OptionalDouble.empty() : OptionalDouble.of(any.mean);
+    }
+
+    /** Seconds between departures of the service at stop {@code index}, as learned. */
+    public OptionalDouble intervalSeconds(Service service, int index) {
+        ServiceTimes times = current(service);
+        return times == null ? OptionalDouble.empty() : times.interval.get(index);
+    }
+
+    /** The usual spread (mean absolute deviation) of the segment's travel time, when learned from a few runs. */
+    public OptionalDouble segmentSpread(Service service, int fromIndex) {
+        ServiceTimes times = current(service);
+        return times == null ? OptionalDouble.empty() : times.segment.spread(fromIndex);
     }
 
     private void recordPlatform(Network network, ServiceKey key, int index, String platformId) {
@@ -82,8 +231,18 @@ public final class TravelTimes {
         });
     }
 
-    /** Seconds from leaving stop {@code fromIndex} until reaching the next stop. */
+    /**
+     * Seconds from leaving stop {@code fromIndex} until reaching the next stop: learned from this
+     * service's own trains, else from any service on the same stretch of track.
+     */
     public OptionalDouble segmentSeconds(Service service, int fromIndex) {
+        ServiceTimes times = current(service);
+        OptionalDouble own = times == null ? OptionalDouble.empty() : times.segment.get(fromIndex);
+        return own.isPresent() ? own : sharedSegmentSeconds(service, fromIndex);
+    }
+
+    /** Seconds from leaving stop {@code fromIndex} until the next stop, from this service's own trains only. */
+    public OptionalDouble ownSegmentSeconds(Service service, int fromIndex) {
         ServiceTimes times = current(service);
         return times == null ? OptionalDouble.empty() : times.segment.get(fromIndex);
     }
@@ -113,6 +272,7 @@ public final class TravelTimes {
         if (services.remove(key) != null) {
             dirty = true;
         }
+        lastDepartures.remove(key);
     }
 
     /**
@@ -133,6 +293,7 @@ public final class TravelTimes {
                 continue;
             }
             fresh.dwell.copyFrom(old.dwell, source, index);
+            fresh.interval.copyFrom(old.interval, source, index);
             fresh.platforms[index] = old.platforms[source];
             int nextSource = index + 1 < mapping.length ? mapping[index + 1]
                     : after.circular() && mapping.length > 0 ? mapping[0] : -1;
@@ -176,16 +337,40 @@ public final class TravelTimes {
             node.set("stops", times.size);
             node.set("segments", times.segment.serialize());
             node.set("dwell", times.dwell.serialize());
+            if (times.interval.knownCount() > 0) {
+                node.set("intervals", times.interval.serialize());
+            }
             node.set("platforms", Arrays.stream(times.platforms).map(value -> value == null ? "" : value).toList());
+        }
+        if (!shared.isEmpty()) {
+            ConfigurationSection node = root.createSection("shared");
+            for (Map.Entry<String, Value> entry : shared.entrySet()) {
+                node.set(entry.getKey().replace('.', '_'), entry.getValue().serialize());
+            }
         }
         dirty = false;
     }
 
     public void load(ConfigurationSection root) {
         services.clear();
+        shared.clear();
         for (String key : root.getKeys(false)) {
             ConfigurationSection node = root.getConfigurationSection(key);
             if (node == null) {
+                continue;
+            }
+            if (key.equals("shared")) {
+                for (String stretch : node.getKeys(false)) {
+                    try {
+                        Value value = new Value();
+                        value.deserialize(node.getString(stretch, ""));
+                        if (value.samples > 0) {
+                            shared.put(stretch, value);
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                        // Relearned.
+                    }
+                }
                 continue;
             }
             try {
@@ -193,6 +378,7 @@ public final class TravelTimes {
                 ServiceTimes times = new ServiceTimes(node.getString("fingerprint", ""), size);
                 times.segment.deserialize(node.getStringList("segments"));
                 times.dwell.deserialize(node.getStringList("dwell"));
+                times.interval.deserialize(node.getStringList("intervals"));
                 List<String> platforms = node.getStringList("platforms");
                 for (int index = 0; index < Math.min(size, platforms.size()); index++) {
                     String value = platforms.get(index);
@@ -211,6 +397,7 @@ public final class TravelTimes {
         private final int size;
         private final Series segment;
         private final Series dwell;
+        private final Series interval;
         private final String[] platforms;
 
         private ServiceTimes(String fingerprint, int size) {
@@ -218,17 +405,54 @@ public final class TravelTimes {
             this.size = size;
             this.segment = new Series(size);
             this.dwell = new Series(size);
+            this.interval = new Series(size);
             this.platforms = new String[size];
+        }
+    }
+
+    /** One smoothed value with its sample count and spread. */
+    private final class Value {
+        private double mean;
+        private int samples;
+        private double spread;
+
+        private void update(double seconds) {
+            if (samples == 0) {
+                mean = seconds;
+                spread = 0;
+            } else {
+                boolean outlier = samples >= OUTLIER_MIN_SAMPLES
+                        && (seconds > mean * OUTLIER_FACTOR || seconds < mean / OUTLIER_FACTOR);
+                double weight = outlier ? smoothing / 5 : smoothing;
+                double deviation = Math.abs(seconds - mean);
+                mean += weight * (seconds - mean);
+                spread += weight * (deviation - spread);
+            }
+            samples = Math.min(samples + 1, 1_000_000);
+        }
+
+        private String serialize() {
+            return String.format(java.util.Locale.ROOT, "%.2f/%d/%.2f", mean, samples, spread);
+        }
+
+        private void deserialize(String entry) {
+            String[] parts = entry.split("/");
+            mean = Double.parseDouble(parts[0]);
+            samples = parts.length > 1 ? Integer.parseInt(parts[1]) : 1;
+            spread = parts.length > 2 ? Double.parseDouble(parts[2]) : 0;
         }
     }
 
     private final class Series {
         private final double[] values;
         private final int[] samples;
+        /** Smoothed absolute deviation from the value, the usual spread. */
+        private final double[] spreads;
 
         private Series(int size) {
             values = new double[size];
             samples = new int[size];
+            spreads = new double[size];
         }
 
         private boolean update(int index, double seconds) {
@@ -237,12 +461,15 @@ public final class TravelTimes {
             }
             if (samples[index] == 0) {
                 values[index] = seconds;
+                spreads[index] = 0;
             } else {
                 double average = values[index];
                 boolean outlier = samples[index] >= OUTLIER_MIN_SAMPLES
                         && (seconds > average * OUTLIER_FACTOR || seconds < average / OUTLIER_FACTOR);
                 double weight = outlier ? smoothing / 5 : smoothing;
+                double deviation = Math.abs(seconds - average);
                 values[index] = average + weight * (seconds - average);
+                spreads[index] += weight * (deviation - spreads[index]);
             }
             samples[index] = Math.min(samples[index] + 1, 1_000_000);
             return true;
@@ -255,9 +482,18 @@ public final class TravelTimes {
             return OptionalDouble.of(values[index]);
         }
 
+        /** The spread, once there are enough runs to know it. */
+        private OptionalDouble spread(int index) {
+            if (index < 0 || index >= values.length || samples[index] < OUTLIER_MIN_SAMPLES) {
+                return OptionalDouble.empty();
+            }
+            return OptionalDouble.of(spreads[index]);
+        }
+
         private void copyFrom(Series other, int from, int to) {
             values[to] = other.values[from];
             samples[to] = other.samples[from];
+            spreads[to] = other.spreads[from];
         }
 
         private int knownCount() {
@@ -274,7 +510,7 @@ public final class TravelTimes {
             String[] result = new String[values.length];
             for (int index = 0; index < values.length; index++) {
                 result[index] = samples[index] == 0 ? ""
-                        : String.format(java.util.Locale.ROOT, "%.2f/%d", values[index], samples[index]);
+                        : String.format(java.util.Locale.ROOT, "%.2f/%d/%.2f", values[index], samples[index], spreads[index]);
             }
             return List.of(result);
         }
@@ -288,6 +524,7 @@ public final class TravelTimes {
                 String[] parts = entry.split("/");
                 values[index] = Double.parseDouble(parts[0]);
                 samples[index] = parts.length > 1 ? Integer.parseInt(parts[1]) : 1;
+                spreads[index] = parts.length > 2 ? Double.parseDouble(parts[2]) : 0;
             }
         }
     }

@@ -294,6 +294,7 @@ button { touch-action: manipulation; }
 
 .cd { font-variant-numeric: tabular-nums; }
 .now { color: var(--good); }
+.late { color: #c62828; font-weight: 600; }
 
 .plan-result { margin-top: 18px; }
 .plan-summary { border-top: 4px solid var(--rule); padding-top: 12px; margin-bottom: 16px; }
