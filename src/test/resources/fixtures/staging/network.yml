@@ -1,0 +1,348 @@
+# AdvancedTrainControlSystem network definition.
+#
+# Edit with /atcs commands in game, or edit this file and run /atcs reload.
+# Stops are written as station, station:platform, or ~station for a station a
+# service runs through without stopping. Triggers and board signs are world,x,y,z.
+# Transfers are walks between nearby stations: between: [a, b], walk in seconds or
+# m:ss (left out: estimated from the distance), outside: false for a passage that
+# stays inside the stations.
+# Full reference: see the plugin README.
+
+version: 1
+stations:
+  1st-street:
+    name: 1st Street St.
+    platforms:
+      '1':
+        triggers:
+        - world,-276,72,-758
+      '2':
+        triggers:
+        - world,-276,72,-754
+  bay-area:
+    name: Bay Area St.
+    platforms:
+      '1':
+        triggers:
+        - world,-122,72,-393
+      '2':
+        triggers:
+        - world,-122,72,-389
+  falcon-heavy:
+    name: Falcon Heavy
+    platforms:
+      '1':
+        triggers:
+        - world,-408,70,-898
+      '2':
+        triggers:
+        - world,-404,70,-897
+  firework:
+    name: Firework St.
+    platforms:
+      '1':
+        triggers:
+        - world,-825,58,272
+      '2':
+        triggers:
+        - world,-821,58,272
+  frostpeak:
+    name: Frostpeak St.
+    platforms:
+      '1':
+        triggers:
+        - world,-830,58,-719
+      '2':
+        triggers:
+        - world,-824,58,-719
+      '3':
+        triggers:
+        - world,-818,58,-719
+  golden-beach:
+    name: Golden Beach St.
+    platforms:
+      '1':
+        triggers:
+        - world,-357,68,-1193
+      '2':
+        triggers:
+        - world,-351,68,-1193
+  golden-islands:
+    name: Golden Islands St.
+    platforms:
+      '1':
+        triggers:
+        - world,-828,58,-377
+      '2':
+        triggers:
+        - world,-824,58,-380
+      '3':
+        triggers:
+        - world,-818,58,-377
+  liberty:
+    name: Liberty St.
+    platforms:
+      '1':
+        triggers:
+        - world,-179,72,-523
+      '2':
+        triggers:
+        - world,-179,72,-520
+  main:
+    name: Main St.
+    platforms:
+      '1':
+        triggers:
+        - world,-322,63,-802
+      '2':
+        triggers:
+        - world,-322,63,-798
+      '3':
+        triggers:
+        - world,-322,63,-790
+      '4':
+        triggers:
+        - world,-321,63,-786
+      '5':
+        triggers:
+        - world,-321,63,-778
+      '6':
+        triggers:
+        - world,-321,63,-774
+  metal:
+    name: Metal++
+    platforms:
+      '1':
+        triggers:
+        - world,-487,68,-674
+      '2':
+        triggers:
+        - world,-488,68,-670
+  middle-of-nowhere:
+    name: Middle of Nowhere
+    platforms:
+      '1':
+        triggers:
+        - world,-517,73,-743
+      '2':
+        triggers:
+        - world,-513,73,-742
+  nerdy-estate-blk-1:
+    name: Nerdy Estate BLK. 1
+    platforms:
+      '1':
+        triggers:
+        - world,-410,70,-769
+      '2':
+        triggers:
+        - world,-406,70,-768
+  nerdy-estate-blk-2:
+    name: Nerdy Estate BLK. 2
+    platforms:
+      '1':
+        triggers:
+        - world,-408,70,-816
+      '2':
+        triggers:
+        - world,-404,70,-815
+  nerdy-island:
+    name: Nerdy Island St.
+    platforms:
+      '1':
+        triggers:
+        - world,-486,58,-781
+      '2':
+        triggers:
+        - world,-486,58,-774
+  nerdy-sky-blk-1:
+    name: Nerdy Sky BLK. 1
+    platforms:
+      '1':
+        triggers:
+        - world,-408,70,-859
+      '2':
+        triggers:
+        - world,-404,70,-858
+  nerdy:
+    name: Nerdy St.
+    platforms:
+      '1':
+        triggers:
+        - world,-408,70,-919
+      '2':
+        triggers:
+        - world,-404,70,-918
+      '3':
+        triggers:
+        - world,-357,69,-912
+      '4':
+        triggers:
+        - world,-351,69,-912
+  new-village:
+    name: New Village St.
+    platforms:
+      '1':
+        triggers:
+        - world,-393,68,-1539
+      '2':
+        triggers:
+        - world,-393,68,-1533
+      '3':
+        triggers:
+        - world,-393,68,-1529
+  old-village:
+    name: Old Village St.
+    platforms:
+      '1':
+        triggers:
+        - world,-827,58,780
+      '2':
+        triggers:
+        - world,-824,58,780
+      '3':
+        triggers:
+        - world,-819,58,780
+  overworld-terminal:
+    name: Overworld Terminal St.
+    platforms:
+      '1':
+        triggers:
+        - world,-828,58,417
+      '2':
+        triggers:
+        - world,-817,58,416
+lines:
+  s:
+    name: Line S
+    color: '#8E24AA'
+    services:
+      to-1st-street:
+        name: Local
+        stops:
+        - bay-area:1
+        - liberty:2
+        - 1st-street:1
+        spawn-signs:
+        - world,-135,72,-393
+        - world,-160,72,-520
+        fleet:
+          trains: 4
+          every: 00:30
+          spawn: world,-135,73,-392
+          direction: west
+          train: 4m
+      to-bay-area:
+        name: Local
+        stops:
+        - 1st-street:2
+        - liberty:1
+        - bay-area:2
+        spawn-signs:
+        - world,-241,58,-793
+  nerdy:
+    name: Nerdy Line
+    short-name: N
+    color: '#00ACC1'
+    services:
+      to-nerdy-estate-blk-1:
+        name: Local
+        stops:
+        - metal:2
+        - middle-of-nowhere:1
+        - nerdy:2
+        - falcon-heavy:2
+        - nerdy-sky-blk-1:2
+        - nerdy-estate-blk-2:2
+        - nerdy-estate-blk-1:2
+        spawn-signs:
+        - world,-406,70,-747
+      to-metal:
+        name: Local
+        stops:
+        - nerdy-estate-blk-1:1
+        - nerdy-estate-blk-2:1
+        - nerdy-sky-blk-1:1
+        - falcon-heavy:1
+        - nerdy:1
+        - middle-of-nowhere:2
+        - metal:1
+        spawn-signs:
+        - world,-410,70,-749
+  a:
+    name: Line A Upperground
+    color: '#E53935'
+    services:
+      to-new-village:
+        name: Express
+        stops:
+        - main:2
+        - new-village:2
+        spawn-signs:
+        - world,-210,63,-787
+      to-main:
+        name: Local
+        stops:
+        - new-village:1
+        - golden-beach:2
+        - nerdy:4
+        - main:1
+        spawn-signs:
+        - world,-403,68,-1536
+      to-new-village-2:
+        name: Local
+        stops:
+        - main:3
+        - nerdy:3
+        - golden-beach:1
+        - new-village:3
+        spawn-signs:
+        - world,-210,63,-784
+  '1':
+    name: Line 1 Underground
+    color: '#1E88E5'
+    services:
+      to-main:
+        name: Local
+        stops:
+        - old-village:3
+        - overworld-terminal:2
+        - firework:2
+        - golden-islands:3
+        - frostpeak:3
+        - nerdy-island:2
+        - main:6
+        spawn-signs:
+        - world,-821,58,815
+      to-old-village:
+        name: Local
+        stops:
+        - main:4
+        - nerdy-island:1
+        - frostpeak:1
+        - golden-islands:1
+        - firework:1
+        - overworld-terminal:1
+        - old-village:1
+        spawn-signs:
+        - world,-212,63,-781
+      to-old-village-2:
+        name: Express
+        stops:
+        - main:5
+        - frostpeak:2
+        - golden-islands:2
+        - old-village:2
+        spawn-signs:
+        - world,-211,63,-780
+boards:
+  bay-area-1:
+    station: bay-area
+    signs:
+    - world,-122,76,-396
+    - world,-121,76,-396
+transfers:
+- between:
+  - 1st-street
+  - main
+  walk: 30
+  outside: true

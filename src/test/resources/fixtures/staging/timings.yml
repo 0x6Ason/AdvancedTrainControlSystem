@@ -1,0 +1,242 @@
+# Learned automatically by ATCS. Safe to delete; it is relearned.
+
+a/to-main:
+  fingerprint: 200bc4674a0cb029
+  stops: 4
+  segments:
+  - 18.64/600
+  - 13.45/586
+  - 6.95/581
+  - ''
+  dwell:
+  - 6.09/608
+  - 6.24/595
+  - 6.07/582
+  - 9.08/576
+  platforms:
+  - '1'
+  - '2'
+  - '4'
+  - '1'
+s/to-1st-street:
+  fingerprint: 67be514e7f4b232e
+  stops: 3
+  segments:
+  - 16.40/34
+  - 22.21/34
+  - ''
+  dwell:
+  - 9.72/750
+  - 9.83/36
+  - ''
+  platforms:
+  - '1'
+  - '2'
+  - '1'
+t/east:
+  fingerprint: 55ab81c76800302b
+  stops: 2
+  segments:
+  - ''
+  - ''
+  dwell:
+  - ''
+  - 5.15/2
+  platforms:
+  - ''
+  - '1'
+nerdy/to-metal:
+  fingerprint: 338605e34e690cd4
+  stops: 7
+  segments:
+  - 2.10/868
+  - 1.90/862
+  - 1.70/856
+  - 0.80/848
+  - 27.03/824
+  - 4.60/816
+  - ''
+  dwell:
+  - 5.47/868
+  - 5.63/863
+  - 5.43/856
+  - 5.47/850
+  - 5.47/844
+  - 5.52/818
+  - 5.49/811
+  platforms:
+  - '1'
+  - '1'
+  - '1'
+  - '1'
+  - '1'
+  - '2'
+  - '1'
+nerdy/to-nerdy-estate-blk-1:
+  fingerprint: 06033a546af355f3
+  stops: 7
+  segments:
+  - 4.80/864
+  - 27.49/837
+  - 0.80/832
+  - 1.70/825
+  - 1.90/818
+  - 2.15/811
+  - ''
+  dwell:
+  - 5.52/864
+  - 5.51/858
+  - 5.46/833
+  - 5.47/825
+  - 5.47/818
+  - 5.58/814
+  - 5.43/808
+  platforms:
+  - '2'
+  - '1'
+  - '2'
+  - '2'
+  - '2'
+  - '2'
+  - '2'
+1/to-old-village:
+  fingerprint: eeb4f550c818eb3d
+  stops: 7
+  segments:
+  - 7.95/599
+  - 19.60/585
+  - 16.80/570
+  - 32.33/550
+  - 6.80/546
+  - 17.99/536
+  - ''
+  dwell:
+  - 9.08/603
+  - 9.08/596
+  - 7.14/579
+  - 6.02/569
+  - 3.06/548
+  - 6.07/545
+  - 7.23/531
+  platforms:
+  - '4'
+  - '1'
+  - '1'
+  - '1'
+  - '1'
+  - '1'
+  - '1'
+s/to-bay-area:
+  fingerprint: 17c40756d3ce7ed8
+  stops: 3
+  segments:
+  - 17.50/34
+  - 16.35/830
+  - ''
+  dwell:
+  - 9.31/867
+  - 9.39/843
+  - ''
+  platforms:
+  - '2'
+  - '1'
+  - '2'
+a/to-new-village:
+  fingerprint: 3674f4bf30c5c434
+  stops: 2
+  segments:
+  - 40.15/730
+  - ''
+  dwell:
+  - 9.00/757
+  - ''
+  platforms:
+  - '2'
+  - '2'
+t/south:
+  fingerprint: fb82c3a64a89ddaf
+  stops: 2
+  segments:
+  - 1.85/10
+  - ''
+  dwell:
+  - 5.18/4
+  - 5.20/1
+  platforms:
+  - '1'
+  - '1'
+1/to-main:
+  fingerprint: b44d1c4281e79de4
+  stops: 7
+  segments:
+  - 17.95/601
+  - 6.70/587
+  - 32.21/568
+  - 16.80/559
+  - 19.60/544
+  - 8.10/536
+  - ''
+  dwell:
+  - 7.08/609
+  - 6.25/594
+  - 9.18/586
+  - 6.07/567
+  - 7.04/556
+  - 9.39/540
+  - 9.07/533
+  platforms:
+  - '3'
+  - '2'
+  - '2'
+  - '3'
+  - '3'
+  - '2'
+  - '6'
+t/north:
+  fingerprint: 8324fe680213eb52
+  stops: 2
+  segments:
+  - 1.85/9
+  - ''
+  dwell:
+  - ''
+  - ''
+  platforms:
+  - ''
+  - '1'
+1/to-old-village-2:
+  fingerprint: 60533182511a43bd
+  stops: 4
+  segments:
+  - 27.70/495
+  - 16.40/482
+  - 75.54/450
+  - ''
+  dwell:
+  - 9.60/507
+  - 7.05/490
+  - 3.13/481
+  - 7.09/447
+  platforms:
+  - '5'
+  - '2'
+  - '2'
+  - '2'
+a/to-new-village-2:
+  fingerprint: b361270051cbce97
+  stops: 4
+  segments:
+  - 7.15/598
+  - 13.49/591
+  - 18.77/572
+  - ''
+  dwell:
+  - 9.01/603
+  - 6.06/597
+  - 6.08/587
+  - 6.02/571
+  platforms:
+  - '3'
+  - '3'
+  - '1'
+  - '3'

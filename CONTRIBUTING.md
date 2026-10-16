@@ -4,14 +4,19 @@ Thank you for looking at ATCS. The repository is private while the system is bei
 no licence has been chosen yet, so for now contributions are by invitation; everything below
 applies all the same, and will when the project opens up.
 
+Read first: [the roadmap](docs/ROADMAP.md) for what is planned and in what order,
+[Architecture](docs/ARCHITECTURE.md) for how the code is organised, and [Building and
+testing](docs/developers/building.md) for the build, the tests and the staging server.
+
+<!-- --8<-- [start:guide] -->
 ## Before you start
 
 - **Bugs**: open an issue with the output of `/atcs status`, the server's and TrainCarts'
   versions, what you did, what you expected and what happened. The *Bug report* template asks for
   exactly that. A `data/events.log` excerpt around the time helps for anything about trains.
 - **Features**: open an issue first and say what you are trying to do on your railway, not only
-  what you want added. [The roadmap](docs/ROADMAP.md) says what is planned and in what order;
-  something already on it is a good sign.
+  what you want added. The roadmap says what is planned and in what order; something already on
+  it is a good sign.
 - **Questions**: Discussions, once the repository is public; issues until then.
 
 ## Building and testing
@@ -26,8 +31,7 @@ python -m mkdocs build --strict
 JDK 21 and a network connection for the first build. The tests run without a server: the core
 (`network`, `operation`, `control`, `fare`, `editor`) is plain Java and is where new logic goes;
 `traincarts`, `map`, `display` and `runtime` are the adapters that touch Bukkit and TrainCarts,
-kept thin. [Architecture](docs/ARCHITECTURE.md) has the map; [Building and
-testing](docs/developers/building.md) the details.
+kept thin.
 
 Before a pull request, run something real: a Paper server with TrainCarts, a copy of a railway,
 and the feature exercised with a train. "Verified on a staging copy" in the description, with
@@ -64,3 +68,4 @@ One change per pull request, rebased on `main`, with the template filled in. CI 
 the build and tests on the baseline versions and on the compatibility matrix (the newest 1.21
 Paper and the current Paper 26 with the newest TrainCarts), the generated references, the text
 policy and the docs site. Reviews look at behaviour on a railway first and code second.
+<!-- --8<-- [end:guide] -->

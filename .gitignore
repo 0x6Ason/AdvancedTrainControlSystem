@@ -9,8 +9,8 @@ cache/
 libraries/
 versions/
 .impeccable/working/
-staging/
-server/
+/staging/
+/server/
 logs/
 *.log
 *.db
