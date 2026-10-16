@@ -18,6 +18,9 @@ public interface TrainHandle {
     /** Position of the front cart, or {@code null} when it cannot be determined. */
     @Nullable Location headLocation();
 
+    /** How fast the train moves, in blocks per tick; 0 when standing. */
+    double speed();
+
     List<Player> riders();
 
     /** Stores the service on the train as a TrainCarts tag, so it survives restarts and unloads. */

@@ -303,6 +303,7 @@ platform. The layout is in `messages.yml`.
 | `/atcs transfer add\|remove` | atcs.manage | Edit walking transfers |
 | `/atcs board create\|add\|unbind\|remove\|list` | atcs.manage | Departure boards |
 | `/atcs import scan\|stations\|services\|write\|apply\|reset` | atcs.manage | Set-up from the world |
+| `/atcs timing report\|reset` | atcs.manage | How good the arrival estimates are, measured against real arrivals |
 | `/atcs status`, `/atcs reload`, `/atcs debug` | atcs.manage | Administration |
 
 `/atcs line suspend a Signal failure at Main St.` shows the notice on the boss bar of Line A trains
@@ -345,7 +346,8 @@ All in `plugins/AdvancedTrainControlSystem/`:
 | `messages.yml` | Every passenger text and the board layout, in [MiniMessage](https://docs.advntr.dev/minimessage/format.html) |
 | `network.yml` | Stations, lines, services and boards. Edit in game or by hand, then `/atcs reload` |
 | `import-proposal.yml` | Written by `/atcs import write` for review |
-| `data/timings.yml`, `data/track-paths.yml`, `data/trips.yml` | Learned travel times, recorded track and observed trips; safe to delete |
+| `data/timings.yml`, `data/track-paths.yml`, `data/trips.yml`, `data/eta-samples.yml` | Learned travel times, recorded track, observed trips and scored estimates; safe to delete |
+| `data/events.log` | Every arrival, departure, hold and service change, one JSON line each, rotated at `logging.max-megabytes` |
 
 `network.yml` is never overwritten behind your back: if it has an error ATCS keeps using the valid
 parts but refuses edits until it is fixed, and if you edited it without `/atcs reload`, in-game edits

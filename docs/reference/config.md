@@ -148,6 +148,16 @@ control:
   # find the way there by path-finding. Leave off if you route trains with destinations yourself.
   set-destinations: false
 
+logging:
+  # Append every arrival, departure, hold and service change to data/events.log, one JSON object
+  # per line, for looking into what happened after the fact. Rotated to events.1.log at the size
+  # below, so it is bounded.
+  events: true
+  # Also log every running train's position and speed twice a second. Heavier; useful for
+  # checking arrival estimates against where trains really were.
+  positions: false
+  max-megabytes: 8
+
 # Logs every platform observation and journey event to the console.
 debug: false
 ```

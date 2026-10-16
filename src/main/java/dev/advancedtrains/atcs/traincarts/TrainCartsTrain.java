@@ -47,6 +47,11 @@ final class TrainCartsTrain implements TrainHandle {
     }
 
     @Override
+    public double speed() {
+        return group.isEmpty() ? 0 : Math.abs(group.head().getRealSpeed());
+    }
+
+    @Override
     public List<Player> riders() {
         List<Player> riders = new ArrayList<>();
         for (MinecartMember<?> member : group) {

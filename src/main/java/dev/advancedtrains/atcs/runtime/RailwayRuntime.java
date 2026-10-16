@@ -24,6 +24,7 @@ import dev.advancedtrains.atcs.network.Station;
 import dev.advancedtrains.atcs.network.Stop;
 import dev.advancedtrains.atcs.operation.Departures;
 import dev.advancedtrains.atcs.operation.EtaCalculator;
+import dev.advancedtrains.atcs.operation.EtaSamples;
 import dev.advancedtrains.atcs.operation.JourneyEvent;
 import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.operation.JourneySnapshot;
@@ -94,6 +95,10 @@ public final class RailwayRuntime {
     private final Path timingsFile;
     private final Path pathsFile;
     private final Path tripsFile;
+    private final Path samplesFile;
+    private final EtaSamples samples = new EtaSamples();
+    private final EventLog eventLog;
+    private int tick;
     private final JourneyTracker tracker = new JourneyTracker();
     private final StationControl control = new StationControl();
     /** The hold reason last logged per train, so debug output shows changes only. */
@@ -151,6 +156,9 @@ public final class RailwayRuntime {
         this.timingsFile = data.resolve("timings.yml");
         this.pathsFile = data.resolve("track-paths.yml");
         this.tripsFile = data.resolve("trips.yml");
+        this.samplesFile = data.resolve("eta-samples.yml");
+        this.eventLog = new EventLog(data.resolve("events.log"), settings.logging().maxMegabytes() * 1024L * 1024L,
+                writer, logger, settings.logging().events(), settings.logging().positions());
         this.times = new TravelTimes(settings.timing().smoothing());
         this.eta = new EtaCalculator(times, settings.boards().defaultDwellSeconds());
         this.display = new PassengerDisplay(settings.passenger(), messages);
@@ -225,6 +233,7 @@ public final class RailwayRuntime {
         settings = newSettings;
         messages = newMessages;
         debug = newSettings.debug();
+        eventLog.configure(newSettings.logging().events(), newSettings.logging().positions());
         times.setSmoothing(newSettings.timing().smoothing());
         eta = new EtaCalculator(times, newSettings.boards().defaultDwellSeconds());
         display.configure(newSettings.passenger(), newMessages);
@@ -350,6 +359,7 @@ public final class RailwayRuntime {
         }
         tracker.rename(old, newName);
         trips.rename(old, newName);
+        samples.rename(old, newName);
         display.rename(old, newName);
         recorder.rename(old, newName);
         Integer offRoute = offRouteVisits.remove(old);
@@ -413,9 +423,10 @@ public final class RailwayRuntime {
     /** Why a train standing at a station sign must keep standing, or empty when it may leave. */
     public Optional<String> holdReason(TrainHandle train, PlatformRef platform, StationControl.Plan plan) {
         Optional<String> reason = control.holdReason(train.name(), platform, tracker.snapshots(), store.network(), plan, clock.instant());
-        if (debug) {
-            String previous = holdReasons.put(train.name(), reason.orElse(""));
-            if (!reason.orElse("").equals(previous)) {
+        String previous = holdReasons.put(train.name(), reason.orElse(""));
+        if (!reason.orElse("").equals(previous)) {
+            eventLog.hold(train.name(), platform, reason.orElse(null), clock.instant());
+            if (debug) {
                 logger.info("[debug] " + train.name() + (reason.isPresent() ? " held at " + platform + ": " + reason.get()
                         : " may leave " + platform));
             }
@@ -579,6 +590,7 @@ public final class RailwayRuntime {
             logger.info("[debug] " + name + " removed");
         }
         tracker.forget(name);
+        samples.forget(name);
         paths.forget(name);
         display.remove(name);
         recorder.trainRemoved(name);
@@ -703,6 +715,11 @@ public final class RailwayRuntime {
         return paths;
     }
 
+    /** Arrival estimates scored against real arrivals. */
+    public EtaSamples timing() {
+        return samples;
+    }
+
     public TripLog trips() {
         return trips;
     }
@@ -760,6 +777,12 @@ public final class RailwayRuntime {
         for (JourneyEvent event : events) {
             times.record(event, network);
             trips.record(event);
+            eventLog.journey(event);
+            if (event instanceof JourneyEvent.Arrived arrived) {
+                samples.arrived(train.name(), arrived.service(), arrived.stopIndex(), arrived.at());
+            } else if (event instanceof JourneyEvent.ServiceChanged) {
+                samples.forget(train.name());
+            }
             switch (event) {
                 case JourneyEvent.Passed passed when passed.stopIndex() < 0 ->
                         offRouteVisits.merge(train.name(), 1, Integer::sum);
@@ -852,8 +875,44 @@ public final class RailwayRuntime {
         }
     }
 
+    /** Scores the estimates shown now against the arrivals that follow, and logs positions when asked. */
+    private void observeTrains(Network network) {
+        Instant now = clock.instant();
+        tick++;
+        for (JourneySnapshot journey : tracker.snapshots()) {
+            if (journey.service() == null || journey.phase() == JourneyPhase.COMPLETED) {
+                continue;
+            }
+            Service service = network.service(journey.service()).orElse(null);
+            if (service == null) {
+                continue;
+            }
+            int next = journey.nextCallingIndex(service);
+            if (next < 0) {
+                continue;
+            }
+            eta.secondsUntil(journey, service, next, now)
+                    .ifPresent(seconds -> samples.predicted(journey.trainId(), service.key(), next, seconds, now));
+        }
+        if (eventLog.positions() && tick % 2 == 0) {
+            for (TrainHandle train : trains.loadedTrains()) {
+                JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+                if (journey == null || journey.phase() != JourneyPhase.IN_TRANSIT) {
+                    continue;
+                }
+                Location head = train.headLocation();
+                if (head == null || head.getWorld() == null) {
+                    continue;
+                }
+                eventLog.position(train.name(), journey.service() == null ? null : journey.service().toString(),
+                        head.getWorld().getName(), head.getX(), head.getY(), head.getZ(), train.speed(), now);
+            }
+        }
+    }
+
     private void refreshPassengers() {
         Network network = store.network();
+        observeTrains(network);
         indicators.refresh(tracker.snapshots(), network);
         Set<String> loaded = new HashSet<>();
         for (TrainHandle train : trains.loadedTrains()) {
@@ -957,6 +1016,7 @@ public final class RailwayRuntime {
         times.load(readYaml(timingsFile));
         paths.load(readYaml(pathsFile));
         trips.load(readYaml(tripsFile));
+        samples.load(readYaml(samplesFile));
     }
 
     private YamlConfiguration readYaml(Path file) {
@@ -991,6 +1051,12 @@ public final class RailwayRuntime {
             yaml.options().setHeader(List.of("Train trips observed by ATCS, used by /atcs import services. Safe to delete."));
             trips.save(yaml);
             pending.put(tripsFile, yaml.saveToString());
+        }
+        if (samples.dirty()) {
+            YamlConfiguration yaml = new YamlConfiguration();
+            yaml.options().setHeader(List.of("Arrival estimates scored against real arrivals, for /atcs timing report. Safe to delete."));
+            samples.save(yaml);
+            pending.put(samplesFile, yaml.saveToString());
         }
         if (pending.isEmpty()) {
             return;

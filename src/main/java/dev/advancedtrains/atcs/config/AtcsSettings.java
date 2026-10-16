@@ -29,6 +29,7 @@ public record AtcsSettings(
         Trains trains,
         Spawning spawning,
         Control control,
+        Logging logging,
         boolean debug,
         List<String> warnings) {
 
@@ -117,6 +118,16 @@ public record AtcsSettings(
     public record Control(StationControl.Rules rules, boolean setDestinations) {
     }
 
+    /**
+     * The event log in {@code data/events.log}.
+     *
+     * @param events    write arrivals, departures, holds and service changes
+     * @param positions also write every running train's position twice a second
+     * @param maxMegabytes size at which the file is rotated
+     */
+    public record Logging(boolean events, boolean positions, int maxMegabytes) {
+    }
+
     public static AtcsSettings read(ConfigurationSection config) {
         List<String> warnings = new ArrayList<>();
         Reader reader = new Reader(config, warnings);
@@ -201,8 +212,13 @@ public record AtcsSettings(
                 reader.decimal("control.max-hold-seconds", 180, 5, 3600)),
                 reader.bool("control.set-destinations", false));
 
+        Logging logging = new Logging(
+                reader.bool("logging.events", true),
+                reader.bool("logging.positions", false),
+                reader.integer("logging.max-megabytes", 8, 1, 512));
+
         return new AtcsSettings(passenger, boards, timing, blueMap, signLink, web, importer, assignment, trains, spawning,
-                control, reader.bool("debug", false), List.copyOf(warnings));
+                control, logging, reader.bool("debug", false), List.copyOf(warnings));
     }
 
     private record Reader(ConfigurationSection config, List<String> warnings) {

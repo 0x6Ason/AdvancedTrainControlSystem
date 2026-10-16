@@ -45,6 +45,11 @@ TrainCarts server, configured with files and in-game commands.
   `atcs station` signs, keeping their delay, direction, `route`, offset, launch distance and speed,
   and leaves every other sign (refill stops, test stations) alone. Without `confirm` it only lists
   what it would change.
+- Arrival estimates are scored against real arrivals: `/atcs timing report` shows the mean and
+  worst error per service and stop at two minutes, one minute and thirty seconds out, so changes
+  to the estimator can be checked and the stops that lie can be found.
+- An event log, `data/events.log`: every arrival, departure, hold and service change as one JSON
+  line, bounded by rotation (`logging:` in config.yml), with train positions optional.
 - `/atcs line addstop <line> <stop> between <a> <b>`, `/atcs service addstop` and
   `/atcs service removestop`: add or drop one stop without retyping the list. Learned travel times,
   stop times, platforms and recorded track are carried over for the stops that stay.

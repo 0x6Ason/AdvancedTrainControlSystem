@@ -27,6 +27,7 @@ AdvancedTrainControlSystem
 | `/atcs transfer ...` | `atcs.use` | Walking transfers between nearby stations (see below) |
 | `/atcs board ...` | `atcs.manage` | Departure boards on signs (see below) |
 | `/atcs import ...` | `atcs.manage` | Set up the network from existing signs and running trains (see below) |
+| `/atcs timing ...` | `atcs.manage` | How good the arrival estimates are, measured against real arrivals (see below) |
 
 ## /atcs station
 
@@ -132,4 +133,13 @@ Set up the network from existing signs and running trains.
 | `/atcs import write [min-trips]` | `atcs.manage` | Write both proposals to import-proposal.yml for review |
 | `/atcs import apply` | `atcs.manage` | Add the reviewed import-proposal.yml to the network |
 | `/atcs import reset` | `atcs.manage` | Forget the scanned signs |
+
+## /atcs timing
+
+How good the arrival estimates are, measured against real arrivals.
+
+| Command | Permission | |
+|---|---|---|
+| `/atcs timing report [line/service]` | `atcs.manage` | Mean and worst estimate errors per service, or per stop of one service |
+| `/atcs timing reset` | `atcs.manage` | Forget the scored samples and start measuring afresh |
 
