@@ -439,8 +439,10 @@ calling there with the station's short code, generated from the network, and sta
 one line fade out when the map is far out so interchanges and ends stand out. A station's popup
 lists its next departures and links to the website; a train's shows where it is going and when it
 is due, and trains are drawn as their line's badge. A station with a footprint (`/atcs station
-footprint`) is also drawn as a translucent box. Your own pictures replace any logo: put
-`<station>.png` or `line-<id>.png` into the plugin's `logos/` folder.
+footprint`) is also drawn as a translucent box. A *Track* set, off until switched on in BlueMap's
+menu, shows the railway itself: every stretch of recorded track once, in grey, with a marker at
+each junction. Your own pictures replace any logo: put `<station>.png` or `line-<id>.png` into the
+plugin's `logos/` folder.
 
 **SignLink** — publishes the next departures of every station and every platform as variables
 short enough to type on a sign line. Each station has a short code: the initials of a multi-word

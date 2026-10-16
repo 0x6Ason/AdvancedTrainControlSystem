@@ -18,6 +18,7 @@ import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.network.Station;
 import dev.advancedtrains.atcs.network.Transfer;
+import dev.advancedtrains.atcs.operation.RailGraph;
 import dev.advancedtrains.atcs.operation.TrackPaths;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
@@ -48,6 +49,9 @@ public final class BlueMapLayer implements MapLayer {
     private static final String STATIONS_SET = "atcs-stations";
     private static final String TRANSFERS_SET = "atcs-transfers";
     private static final String TRAINS_SET = "atcs-trains";
+    private static final String TRACK_SET = "atcs-track";
+    private static final Color TRACK = new Color(60, 60, 60, 0.85f);
+    private static final Color JUNCTION = new Color(255, 196, 0, 1f);
     private static final String LINE_SET_PREFIX = "atcs-line-";
     private static final int TRAIN_ICON = 28;
     private static final Color SUSPENDED = new Color(140, 140, 140, 0.75f);
@@ -122,9 +126,37 @@ public final class BlueMapLayer implements MapLayer {
     }
 
     @Override
-    public synchronized void showNetwork(Network network, TrackPaths paths, StationLocator locator) {
+    public synchronized void showNetwork(Network network, TrackPaths paths, RailGraph graph, StationLocator locator) {
         drawnWithoutApi = api == null;
         Map<String, Map<String, MarkerSet>> sets = new LinkedHashMap<>();
+        if (settings.showLines()) {
+            // The railway itself, merged from every recorded path: one grey line per stretch and a
+            // marker per junction. Off by default; BlueMap's menu switches it on.
+            for (RailGraph.Edge edge : graph.edges()) {
+                if (edge.points().size() < 2) {
+                    continue;
+                }
+                de.bluecolored.bluemap.api.math.Line.Builder line = de.bluecolored.bluemap.api.math.Line.builder();
+                edge.points().forEach(point -> line.addPoint(new Vector3d(point.x(), point.y() + 0.3, point.z())));
+                LineMarker marker = LineMarker.builder()
+                        .label("Track: " + String.join(", ", edge.lines()) + " (" + Math.round(edge.length()) + " blocks)")
+                        .line(line.build())
+                        .lineColor(TRACK)
+                        .lineWidth(Math.max(1, settings.lineWidth() - 2))
+                        .depthTestEnabled(false)
+                        .centerPosition()
+                        .build();
+                trackSet(sets, edge.world()).put("track_" + edge.id(), marker);
+            }
+            for (RailGraph.Node junction : graph.junctions()) {
+                POIMarker marker = POIMarker.builder()
+                        .label("Junction (" + graph.edgesAt(junction).size() + " ways)")
+                        .position(junction.x() + 0.5, junction.y() + 1, junction.z() + 0.5)
+                        .build();
+                marker.setMaxDistance(1500);
+                trackSet(sets, junction.world()).put("junction_" + junction.id(), marker);
+            }
+        }
         if (settings.showLines()) {
             for (MapGeometry.Segment segment : MapGeometry.segments(network, paths, locator)) {
                 if (segment.points().size() < 2) {
@@ -337,6 +369,11 @@ public final class BlueMapLayer implements MapLayer {
 
     private static MarkerSet newSet(String label) {
         return MarkerSet.builder().label(label).toggleable(true).defaultHidden(false).build();
+    }
+
+    private static MarkerSet trackSet(Map<String, Map<String, MarkerSet>> sets, String world) {
+        return sets.computeIfAbsent(TRACK_SET, ignored -> new HashMap<>()).computeIfAbsent(world,
+                ignored -> MarkerSet.builder().label("Track").toggleable(true).defaultHidden(true).build());
     }
 
     private void attach(Map<String, MarkerSet> sets, String id) {

@@ -18,11 +18,20 @@ import java.util.OptionalDouble;
 /**
  * Records the track each service's trains follow between consecutive stops, so maps can draw lines
  * along the real railway. The first complete run of a segment is kept until the service's stops
- * change or the paths are cleared.
+ * change, the paths are cleared, or trains are seen running elsewhere: when {@link #RERECORD_RUNS}
+ * runs in a row stray more than {@link #DIVERGENCE} blocks from the stored path for a good part of
+ * the way, the stored path is replaced by the latest run, so track rebuilt in the world fixes
+ * itself.
  */
 public final class TrackPaths {
     /** Simplification tolerance in blocks. */
     static final double TOLERANCE = 0.75;
+    /** How far from the stored path a sample must be to count as off it, in blocks. */
+    static final double DIVERGENCE = 4;
+    /** The share of a run's samples that must be off the stored path for the run to count as divergent. */
+    static final double DIVERGENT_SHARE = 0.2;
+    /** Divergent runs in a row before the stored path is replaced. */
+    static final int RERECORD_RUNS = 2;
     private static final int MAX_RAW_POINTS = 20_000;
 
     public record Point(double x, double y, double z) {
@@ -202,11 +211,41 @@ public final class TrackPaths {
 
     private void start(String trainId, Network network, ServiceKey key, int fromIndex) {
         Service service = network.service(key).orElse(null);
-        if (service == null || service.nextIndex(fromIndex) < 0 || path(service, fromIndex).isPresent()) {
+        if (service == null || service.nextIndex(fromIndex) < 0) {
             recordings.remove(trainId);
             return;
         }
         recordings.put(trainId, new Recording(key, fromIndex, new ArrayList<>(), new String[1]));
+    }
+
+    /** How many runs in a row strayed from the stored path of a segment; for tests and status. */
+    int divergentRuns(Service service, int fromIndex) {
+        ServicePaths paths = services.get(service.key());
+        if (paths == null || !paths.fingerprint.equals(service.fingerprint())
+                || fromIndex < 0 || fromIndex >= paths.segments.length) {
+            return 0;
+        }
+        return paths.divergent[fromIndex];
+    }
+
+    /** The share of {@code points} further than {@link #DIVERGENCE} blocks from {@code path}, 0 to 1. */
+    static double divergence(List<Point> points, Path path) {
+        if (points.isEmpty() || path.points().size() < 2) {
+            return 0;
+        }
+        double limit = DIVERGENCE * DIVERGENCE;
+        int off = 0;
+        for (Point point : points) {
+            double nearest = Double.MAX_VALUE;
+            List<Point> stored = path.points();
+            for (int index = 0; index + 1 < stored.size() && nearest > limit; index++) {
+                nearest = Math.min(nearest, segmentDistanceSquared(point, stored.get(index), stored.get(index + 1)));
+            }
+            if (nearest > limit) {
+                off++;
+            }
+        }
+        return (double) off / points.size();
     }
 
     private void finish(String trainId, Network network, ServiceKey key, int fromIndex) {
@@ -225,8 +264,22 @@ public final class TrackPaths {
             paths = new ServicePaths(service.fingerprint(), service.size());
             services.put(key, paths);
         }
-        if (paths.segments[fromIndex] == null) {
+        Path stored = paths.segments[fromIndex];
+        if (stored == null) {
             paths.segments[fromIndex] = new Path(recording.world()[0], simplify(recording.points(), TOLERANCE));
+            dirty = true;
+            version++;
+            return;
+        }
+        boolean divergent = !stored.world().equals(recording.world()[0])
+                || divergence(recording.points(), stored) > DIVERGENT_SHARE;
+        if (!divergent) {
+            paths.divergent[fromIndex] = 0;
+            return;
+        }
+        if (++paths.divergent[fromIndex] >= RERECORD_RUNS) {
+            paths.segments[fromIndex] = new Path(recording.world()[0], simplify(recording.points(), TOLERANCE));
+            paths.divergent[fromIndex] = 0;
             dirty = true;
             version++;
         }
@@ -355,10 +408,13 @@ public final class TrackPaths {
     private static final class ServicePaths {
         private final String fingerprint;
         private final Path[] segments;
+        /** Runs in a row that strayed from the stored path, per segment; not saved. */
+        private final int[] divergent;
 
         private ServicePaths(String fingerprint, int size) {
             this.fingerprint = fingerprint;
             this.segments = new Path[Math.max(0, size)];
+            this.divergent = new int[Math.max(0, size)];
         }
     }
 }

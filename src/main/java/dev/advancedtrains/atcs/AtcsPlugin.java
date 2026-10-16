@@ -18,6 +18,7 @@ import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import dev.advancedtrains.atcs.api.FareApi;
 import dev.advancedtrains.atcs.display.DisplayService;
 import dev.advancedtrains.atcs.display.Logos;
+import dev.advancedtrains.atcs.operation.RailGraph;
 import dev.advancedtrains.atcs.selection.SelectionService;
 import dev.advancedtrains.atcs.fare.FareStore;
 import dev.advancedtrains.atcs.runtime.FareService;
@@ -208,6 +209,11 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         }
         lines.add("Learned travel times: " + learned + "/" + segments + " segments; recorded track paths: "
                 + recorded + "/" + segments);
+        RailGraph graph = runtime.railGraph();
+        if (!graph.edges().isEmpty()) {
+            lines.add("Rail graph: " + graph.edges().size() + " stretches of track, " + graph.junctions().size()
+                    + " junctions, " + Math.round(graph.totalLength()) + " blocks in all");
+        }
         long fleets = network.services().stream().filter(service -> service.fleet() != null).count();
         lines.add("Fleets on " + fleets + " service(s); spawn chunks held: " + runtime.heldChunks()
                 + "; every train keeps chunks loaded: " + onOff(settings.trains().keepChunksLoaded())

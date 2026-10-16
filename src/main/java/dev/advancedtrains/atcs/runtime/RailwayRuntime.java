@@ -37,6 +37,7 @@ import dev.advancedtrains.atcs.operation.RouteMatcher;
 import dev.advancedtrains.atcs.operation.RouteMeasure;
 import dev.advancedtrains.atcs.operation.ServiceResolver;
 import dev.advancedtrains.atcs.operation.StopObservation;
+import dev.advancedtrains.atcs.operation.RailGraph;
 import dev.advancedtrains.atcs.operation.TrackPaths;
 import dev.advancedtrains.atcs.operation.TrainInfo;
 import dev.advancedtrains.atcs.operation.TrainView;
@@ -193,6 +194,10 @@ public final class RailwayRuntime {
     private boolean webDirty = true;
     private int webWrites;
     private int drawnPathsVersion = -1;
+    /** The railway as a graph, rebuilt when the recorded paths or the network change. */
+    private RailGraph graph = RailGraph.empty();
+    private int graphPathsVersion = -1;
+    private @Nullable Network graphNetwork;
     private boolean debug;
     private Map<BlockPos, ServiceKey> knownSpawnSigns;
     /** Consecutive visits to stations a train's inferred service does not list. */
@@ -812,6 +817,17 @@ public final class RailwayRuntime {
         return paths;
     }
 
+    /** The rail graph merged from every recorded path, current for the network and paths of now. */
+    public RailGraph railGraph() {
+        Network network = store.network();
+        if (graphPathsVersion != paths.version() || graphNetwork != network) {
+            graph = RailGraph.build(network, paths);
+            graphPathsVersion = paths.version();
+            graphNetwork = network;
+        }
+        return graph;
+    }
+
     /** Arrival estimates scored against real arrivals. */
     public EtaSamples timing() {
         return samples;
@@ -1136,7 +1152,7 @@ public final class RailwayRuntime {
         Network network = store.network();
         try {
             if (mapDirty || drawnPathsVersion != paths.version() || layer.wantsNetwork()) {
-                layer.showNetwork(network, paths, new Locator(network));
+                layer.showNetwork(network, paths, railGraph(), new Locator(network));
                 mapDirty = false;
                 drawnPathsVersion = paths.version();
             }

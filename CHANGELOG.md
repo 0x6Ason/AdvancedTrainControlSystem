@@ -45,6 +45,11 @@ TrainCarts server, configured with files and in-game commands.
   `atcs station` signs, keeping their delay, direction, `route`, offset, launch distance and speed,
   and leaves every other sign (refill stops, test stations) alone. Without `confirm` it only lists
   what it would change.
+- Recorded track fixes itself: when trains run clearly off a stored path twice in a row (track
+  rebuilt in the world), the path is recorded again instead of waiting for `/atcs service resetpaths`.
+- The rail graph: every recorded path merged into one graph of the railway, with a node per
+  platform, junction and line end and the length of each stretch; shown by `/atcs status`, drawn
+  on BlueMap as a *Track* set with junction markers, and the base for track distances and sections.
 - The wand: `/atcs wand` selects two corners (WorldEdit's selection is used when there is one);
   `/atcs station footprint` records the box a station occupies, used by `/atcs station here` and
   drawn on BlueMap, and `/atcs station bindall` binds every TrainCarts station sign in it at once.

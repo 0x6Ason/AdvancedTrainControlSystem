@@ -26,7 +26,7 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
 | Package | Role |
 |---|---|
 | `network` | Immutable model (`Network`, `Station`, `Platform`, `Line`, `Service`, `Stop`, `Board`, `Display`, `Box`), YAML codec, and `NetworkStore` which owns `network.yml` |
-| `operation` | The railway logic: `JourneyTracker` (where each train is on its service), `ServiceResolver` (which service a train runs), `TravelTimes` and `EtaCalculator` (learned times and estimates), `Departures`, `TrackPaths` (recorded track for maps), `TripLog` and `RouteSuggester` (service suggestions), `AtcsSign` (sign text) |
+| `operation` | The railway logic: `JourneyTracker` (where each train is on its service), `ServiceResolver` (which service a train runs), `TravelTimes` and `EtaCalculator` (learned times and estimates), `Departures`, `TrackPaths` (recorded track for maps, recorded again when trains stray from it), `RailGraph` (the track merged into one graph: platforms, junctions, stretches with lengths), `TripLog` and `RouteSuggester` (service suggestions), `AtcsSign` (sign text) |
 | `control` | What `atcs station` and `atcs switch` signs decide: `StationControl` (stop or run through, headway and section holds), `StopOptions` and `SwitchRules` (sign text) |
 | `importer` | Drafting stations from signs (`StationImporter`), the loaded-chunk `SignScanner`, the proposal file and merging it into the network |
 | `runtime` | `RailwayRuntime` ties everything together on the server thread: platform signals in, events out to displays, boards and maps; periodic tasks; persistence of learned data. `TrainHandle`/`TrainSource` hide TrainCarts from it |

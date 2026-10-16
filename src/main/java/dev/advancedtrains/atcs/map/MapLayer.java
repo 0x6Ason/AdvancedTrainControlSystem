@@ -1,6 +1,7 @@
 package dev.advancedtrains.atcs.map;
 
 import dev.advancedtrains.atcs.network.Network;
+import dev.advancedtrains.atcs.operation.RailGraph;
 import dev.advancedtrains.atcs.operation.TrackPaths;
 import org.jspecify.annotations.Nullable;
 
@@ -14,8 +15,8 @@ public interface MapLayer {
     /** Whether the map plugin has finished loading and accepts markers. */
     boolean ready();
 
-    /** Redraws stations and lines. */
-    void showNetwork(Network network, TrackPaths paths, StationLocator locator);
+    /** Redraws stations, lines and the track itself. */
+    void showNetwork(Network network, TrackPaths paths, RailGraph graph, StationLocator locator);
 
     /** Whether the network should be drawn again although nothing changed, for example once the map plugin has come up. */
     default boolean wantsNetwork() {
