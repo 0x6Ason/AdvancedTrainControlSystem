@@ -1117,7 +1117,7 @@ public final class RailwayRuntime {
         }
         Network network = store.network();
         try {
-            if (mapDirty || drawnPathsVersion != paths.version()) {
+            if (mapDirty || drawnPathsVersion != paths.version() || layer.wantsNetwork()) {
                 layer.showNetwork(network, paths, new Locator(network));
                 mapDirty = false;
                 drawnPathsVersion = paths.version();

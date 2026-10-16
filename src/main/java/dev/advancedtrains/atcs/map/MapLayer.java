@@ -17,6 +17,11 @@ public interface MapLayer {
     /** Redraws stations and lines. */
     void showNetwork(Network network, TrackPaths paths, StationLocator locator);
 
+    /** Whether the network should be drawn again although nothing changed, for example once the map plugin has come up. */
+    default boolean wantsNetwork() {
+        return false;
+    }
+
     /** Replaces the live train markers and refreshes what station markers say about departures. */
     void showLive(List<TrainMarker> trains, List<StationLive> stations);
 

@@ -66,6 +66,8 @@ public final class BlueMapLayer implements MapLayer {
     /** Logo key to the image URL BlueMap serves it under. */
     private final Map<String, String> images = new HashMap<>();
     private final Map<String, String> lineIconByLine = new HashMap<>();
+    /** The network was drawn before the API was up, so its icons are missing until it is drawn again. */
+    private boolean drawnWithoutApi;
 
     public BlueMapLayer(Plugin plugin, AtcsSettings.BlueMap settings, Logos logos, @Nullable String websiteUrl, Logger logger) {
         this.plugin = plugin;
@@ -103,6 +105,7 @@ public final class BlueMapLayer implements MapLayer {
             lineIconByLine.clear();
             networkSets.forEach((id, sets) -> attach(sets, id));
             attach(trainSets, TRAINS_SET);
+            drawnWithoutApi = !networkSets.isEmpty();
         }
     }
 
@@ -111,7 +114,13 @@ public final class BlueMapLayer implements MapLayer {
     }
 
     @Override
+    public synchronized boolean wantsNetwork() {
+        return drawnWithoutApi && api != null;
+    }
+
+    @Override
     public synchronized void showNetwork(Network network, TrackPaths paths, StationLocator locator) {
+        drawnWithoutApi = api == null;
         Map<String, Map<String, MarkerSet>> sets = new LinkedHashMap<>();
         if (settings.showLines()) {
             for (MapGeometry.Segment segment : MapGeometry.segments(network, paths, locator)) {
