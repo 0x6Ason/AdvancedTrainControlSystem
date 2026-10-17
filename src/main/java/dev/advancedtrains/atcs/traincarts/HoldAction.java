@@ -6,6 +6,7 @@ import com.bergerkiller.bukkit.tc.controller.status.TrainStatus;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -14,6 +15,10 @@ import java.util.function.Supplier;
  * not passed, the section ahead is occupied). The reason is asked for twice a second; the train is
  * let go when there is none, or after the maximum hold time so a stale journey can never block a
  * platform for good.
+ *
+ * <p>The hold also ends the moment ATCS stops (the plugin is disabled or reloaded) and when the
+ * reason check itself fails: the action lives in TrainCarts' queue, beyond ATCS' own lifetime, and
+ * a hold that nobody can release any more would freeze the train where it stands.
  */
 final class HoldAction extends GroupAction implements WaitAction {
     private static final int CHECK_TICKS = 10;
@@ -21,26 +26,46 @@ final class HoldAction extends GroupAction implements WaitAction {
     private final Supplier<Optional<String>> reason;
     private final int maxTicks;
     private final Consumer<String> timeout;
-    private final java.util.function.BooleanSupplier mayTimeOut;
+    private final BooleanSupplier mayTimeOut;
+    private final BooleanSupplier alive;
+    private final Consumer<Throwable> failure;
     private String current = "waiting";
 
-    HoldAction(Supplier<Optional<String>> reason, int maxTicks, Consumer<String> timeout) {
-        this(reason, maxTicks, timeout, () -> true);
-    }
-
-    /** @param mayTimeOut false while the hold is a dispatcher's, which lasts until released */
-    HoldAction(Supplier<Optional<String>> reason, int maxTicks, Consumer<String> timeout, java.util.function.BooleanSupplier mayTimeOut) {
+    /**
+     * @param reason     why the train must keep standing, or empty when it may go
+     * @param maxTicks   the longest hold, after which {@code timeout} is told and the train goes
+     * @param mayTimeOut false while the hold is a dispatcher's, which lasts until released
+     * @param alive      false once ATCS has stopped, which ends the hold at once
+     * @param failure    told when the reason check throws; the train goes
+     */
+    HoldAction(Supplier<Optional<String>> reason, int maxTicks, Consumer<String> timeout, BooleanSupplier mayTimeOut,
+               BooleanSupplier alive, Consumer<Throwable> failure) {
         this.reason = reason;
         this.maxTicks = maxTicks;
         this.timeout = timeout;
         this.mayTimeOut = mayTimeOut;
+        this.alive = alive;
+        this.failure = failure;
     }
 
     @Override
     public boolean update() {
+        if (!alive.getAsBoolean()) {
+            return true;
+        }
         int ticks = elapsedTicks();
         if (ticks % CHECK_TICKS == 0) {
-            Optional<String> why = reason.get();
+            Optional<String> why;
+            try {
+                why = reason.get();
+            } catch (RuntimeException | LinkageError error) {
+                try {
+                    failure.accept(error);
+                } catch (RuntimeException | LinkageError ignored) {
+                    // The plugin that made this hold may be half unloaded; letting go is what matters.
+                }
+                return true;
+            }
             if (why.isEmpty()) {
                 return true;
             }

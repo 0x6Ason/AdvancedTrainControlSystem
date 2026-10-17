@@ -28,8 +28,11 @@ Nothing to install and nothing to learn: ATCS shows itself while you ride.
 
 The railway's website (ask your server for the address; with BlueMap it is the map's address
 followed by `/atcs/`) has a schematic network map, every train in service, departures per
-station, and a trip planner that uses the trains actually running right now and offers several
-routes: fastest, leaving first, fewest changes, least walking.
+station, and a trip planner. Choose where you start and where you are going and it lists the
+ways to get there (quickest, fewest changes, less walking), worked out from the network so the
+list keeps still while you choose; the trains actually running fill in when each route's train
+comes and when you arrive. Pick a route for its steps: where to board, how many stops, where to
+change, the following train.
 
 ## What the sounds mean
 

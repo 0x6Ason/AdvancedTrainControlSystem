@@ -71,7 +71,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var network = null, map = null, live = null, liveBase = Date.now();
   var selectedStation = null, refreshSeconds = 3;
-  var planFrom = null, planTo = null, trips = [], plan = null, chosen = null;
+  var planFrom = null, planTo = null, trips = [], timed = {}, plan = null, chosen = null;
   var stationIndex = {}, lineIndex = {}, serviceIndex = {};
   var phone = window.matchMedia ? window.matchMedia('(max-width: 820px)') : { matches: false };
 
@@ -535,7 +535,7 @@
       planFrom = from;
       planTo = to;
       chosen = null;
-      runPlan(true);
+      planRoutes(true);
     } else if (from && to && from === to) {
       $('plan-result').innerHTML = '<p class="plan-error">Those are the same station.</p>';
     }
@@ -543,6 +543,7 @@
 
   function clearPlan() {
     trips = [];
+    timed = {};
     plan = null;
     planFrom = null;
     planTo = null;
@@ -552,14 +553,20 @@
     setHash();
   }
 
-  /* Plans again from the latest live data; called on every update while a trip is shown. A trip
-   * picked by the visitor stays picked while it is still on offer. */
-  function runPlan(fresh) {
+  /*
+   * The ways to make the trip, from the network alone: which lines to ride and where to change.
+   * They are worked out once for a pair of stations and listed in a fixed order (the quickest way
+   * by the learned travel times first), so the choice never shifts under the visitor's finger as
+   * trains move. The live data only fills in the times, in place: see timeRoutes().
+   */
+  function planRoutes(fresh) {
     if (!planFrom || !planTo || !network) return;
-    trips = ATCSPlanner.options(network, planFrom, planTo, live, now(), 4);
+    trips = ATCSPlanner.options(network, planFrom, planTo, null, 0, 4);
+    timed = {};
     plan = trips.filter(function (t) { return t.signature === chosen; })[0] || trips[0] || null;
-    if (plan && !trips.some(function (t) { return t.signature === chosen; })) chosen = null;
-    renderPlan();
+    chosen = plan ? plan.signature : null;
+    renderRoutes();
+    timeRoutes();
     if (fresh && plan && map) {
       if (phone.matches) setSheet('half');
       map.showRoute(plan.legs);
@@ -567,7 +574,7 @@
     setHash();
   }
 
-  var TAGS = { 'fastest': 'Fastest', 'leaves-first': 'Leaves first', 'fewest-changes': 'Fewest changes', 'least-walking': 'Less walking' };
+  var TAGS = { 'fastest': 'Quickest', 'fewest-changes': 'Fewest changes', 'least-walking': 'Less walking' };
 
   function firstRide(trip) {
     for (var i = 0; i < trip.legs.length; i++) if (trip.legs[i].type === 'ride') return trip.legs[i];
@@ -581,6 +588,7 @@
     }).join('<span class="chev" aria-hidden="true"></span>');
   }
 
+  /* When the trip can start, from the live data: the first train, or a walk, or nothing in sight. */
   function routeWhen(trip) {
     var ride = firstRide(trip);
     var walkFirst = trip.legs[0].type === 'walk';
@@ -592,6 +600,7 @@
       + (ride.platform ? ' <span class="platform">' + escapeHtml(ride.platform) + '</span>' : '');
   }
 
+  /* What is fixed about a route: changes, walking, stops, fare. */
   function routeFacts(trip) {
     var facts = [trip.transfers ? plural(trip.transfers, 'change') : (trip.walks ? 'No changes' : 'Direct')];
     if (trip.walkSeconds) facts.push(walkTime(trip.walkSeconds));
@@ -612,83 +621,164 @@
     return (fares.currency || '') + text;
   }
 
-  function legWhen(leg, index, trip) {
-    if (leg.estimated) {
-      var ready = index === 0 ? now() : trip.legs[index - 1].arrival;
-      return '<p class="est">No train on this line can be seen yet. Assuming one in about '
-        + escapeHtml(ATCSPlanner.formatDuration(leg.departs - ready)) + '.</p>';
-    }
-    if (leg.arrives <= now() + 0.5) {
-      return '<p class="live"><b>' + escapeHtml(leg.train) + '</b> is at the platform, leaving in ' + countdown(leg.departs, 'now') + '</p>';
-    }
-    return '<p class="live"><b>' + escapeHtml(leg.train) + '</b> arrives in ' + countdown(leg.arrives, 'now') + '</p>';
+  /* The card of a route: its path and facts are written once; the times go into slots. */
+  function routeCard(trip) {
+    var tags = trip.tags.filter(function (tag) { return TAGS[tag]; }).map(function (tag) {
+      return '<span class="tag' + (tag === 'fastest' ? ' strong' : '') + '">' + TAGS[tag] + '</span>';
+    });
+    return '<li class="route" data-route="' + escapeHtml(trip.signature) + '">'
+      + '<button type="button" class="route-card" data-route="' + escapeHtml(trip.signature) + '" aria-expanded="false">'
+      + '<span class="route-top"><span class="chain">' + routeChain(trip) + '</span>'
+      + '<span class="arrive" data-slot="arrive"><b>&ndash;:&ndash;&ndash;</b><small>&nbsp;</small></span></span>'
+      + '<span class="route-when" data-slot="when">&nbsp;</span>'
+      + '<span class="route-facts">' + escapeHtml(routeFacts(trip)) + (tags.length ? ' ' + tags.join('') : '') + '</span>'
+      + '</button>'
+      + '<div class="route-detail" hidden></div>'
+      + '</li>';
   }
 
-  function renderLegs(trip, open) {
+  /* The steps of a route, written once; every time in them is a slot filled by fillLegs(). */
+  function renderLegs(trip) {
     var legs = trip.legs.map(function (leg, i) {
       if (leg.type === 'walk') {
         return '<li class="leg walk">' + WALKER + '<div><h3>Walk to ' + escapeHtml(stationName(leg.to)) + '</h3>'
           + '<p class="where">' + escapeHtml(walkTime(leg.seconds)) + (leg.outside ? ', leaving the station through the gates' : ', inside the station') + '</p>'
-          + '<p>Arrive in ' + countdown(leg.arrival, 'now') + '</p></div></li>';
+          + '<p data-slot="walk-' + i + '">&nbsp;</p></div></li>';
       }
       var toward = leg.service.destination ? ' toward ' + escapeHtml(leg.service.destination) : '';
       var walkedHere = i > 0 && trip.legs[i - 1].type === 'walk';
       var board = '<p class="where">' + (i === 0 || walkedHere ? 'Board at ' : 'Change at ') + escapeHtml(stationName(leg.from))
         + (leg.platform ? ' <span class="platform">' + escapeHtml(leg.platform) + '</span>' : '') + '</p>';
-      var ride = '<p>' + plural(leg.calls, 'stop') + ' to ' + escapeHtml(stationName(leg.to)) + ', arriving in ' + countdown(leg.arrival, 'now') + '</p>';
       var becomes = leg.becomes ? '<p class="note">At ' + escapeHtml(stationName(leg.becomes.at)) + ' the train continues as '
         + escapeHtml(leg.becomes.line.name + ' ' + leg.becomes.service.name) + '. Stay on board.</p>' : '';
-      var next = leg === firstRide(trip) && trip.following ? '<p class="note">Following train in ' + countdown(trip.following, 'now') + '</p>' : '';
-      var list = leg.stops.length > 1 ? '<details data-leg="' + i + '"' + (open[i] ? ' open' : '') + '><summary>Stops</summary><ol>'
-        + leg.stops.map(function (stop) { return '<li><span>' + escapeHtml(stationName(stop.station)) + '</span>' + countdown(stop.arr, 'now') + '</li>'; }).join('')
+      var list = leg.stops.length > 1 ? '<details data-leg="' + i + '"><summary>Stops</summary><ol>'
+        + leg.stops.map(function (stop, k) {
+          return '<li><span>' + escapeHtml(stationName(stop.station)) + '</span><span data-slot="stop-' + i + '-' + k + '"></span></li>';
+        }).join('')
         + '</ol></details>' : '';
       return '<li class="leg" style="--leg-color:' + escapeHtml(leg.line.color) + '">' + bullet(leg.line)
-        + '<div><h3>' + escapeHtml(leg.line.name + ' ' + leg.service.name) + toward + '</h3>' + board + legWhen(leg, i, trip) + next + ride + becomes + list + '</div></li>';
+        + '<div><h3>' + escapeHtml(leg.line.name + ' ' + leg.service.name) + toward + '</h3>' + board
+        + '<p class="live" data-slot="when-' + i + '">&nbsp;</p>'
+        + '<p class="note" data-slot="next-' + i + '" hidden></p>'
+        + '<p data-slot="ride-' + i + '">' + escapeHtml(plural(leg.calls, 'stop') + ' to ' + stationName(leg.to)) + '</p>'
+        + becomes + list + '</div></li>';
     }).join('');
     var finish = '<li class="leg end"><span class="end-mark" aria-hidden="true"></span><div><h3>' + escapeHtml(stationName(planTo))
-      + '</h3><p>Arrive ' + clockTime(trip.arrival) + '</p></div></li>';
+      + '</h3><p data-slot="end">&nbsp;</p></div></li>';
     return '<ol class="legs">' + legs + finish + '</ol>';
   }
 
-  function renderPlan() {
+  /* Writes the list of routes; only when the stations or the network change. */
+  function renderRoutes() {
     var result = $('plan-result');
-    var open = {};
-    result.querySelectorAll('details[data-leg]').forEach(function (details) {
-      if (details.open) open[details.getAttribute('data-leg')] = true;
-    });
     if (!plan) {
       result.innerHTML = '<p class="plan-error">No connection between ' + escapeHtml(stationName(planFrom)) + ' and ' + escapeHtml(stationName(planTo)) + '.</p>';
       if (map) map.highlight(null);
       return;
     }
-    var cards = trips.map(function (trip) {
-      var picked = trip === plan;
-      var tags = trip.tags.map(function (tag) { return '<span class="tag' + (tag === 'fastest' ? ' strong' : '') + '">' + TAGS[tag] + '</span>'; });
-      if (trip.estimated) tags.push('<span class="tag soft">Estimate</span>');
-      return '<li class="route' + (picked ? ' picked' : '') + '">'
-        + '<button type="button" class="route-card" data-route="' + escapeHtml(trip.signature) + '" aria-expanded="' + picked + '">'
-        + '<span class="route-top"><span class="chain">' + routeChain(trip) + '</span>'
-        + '<span class="arrive"><b>' + countdown(trip.arrival, '0:00') + '</b><small>arrive ' + clockTime(trip.arrival) + '</small></span></span>'
-        + '<span class="route-when">' + routeWhen(trip) + '</span>'
-        + '<span class="route-facts">' + escapeHtml(routeFacts(trip)) + (tags.length ? ' ' + tags.join('') : '') + '</span>'
-        + '</button>'
-        + (picked ? '<div class="route-detail">' + renderLegs(trip, open) + '</div>' : '')
-        + '</li>';
-    }).join('');
     result.innerHTML = '<div class="routes-head"><span>' + escapeHtml(stationName(planFrom)) + ' &rarr; ' + escapeHtml(stationName(planTo)) + '</span>'
-      + '<span>' + plural(trips.length, 'route') + (live ? ' · live' : '') + '</span></div>'
-      + '<ol class="routes">' + cards + '</ol>'
-      + (live ? '' : '<p class="note">No live data, so waiting times are assumed.</p>');
+      + '<span>' + plural(trips.length, 'route') + '</span></div>'
+      + '<ol class="routes">' + trips.map(routeCard).join('') + '</ol>';
+    showPicked();
     if (map) map.highlight(plan.legs);
+  }
+
+  function routeElement(signature) {
+    var items = $('plan-result').querySelectorAll('.route');
+    for (var i = 0; i < items.length; i++) if (items[i].getAttribute('data-route') === signature) return items[i];
+    return null;
+  }
+
+  /* Opens the picked route's steps under its card and closes the others. */
+  function showPicked() {
+    var items = $('plan-result').querySelectorAll('.route');
+    for (var i = 0; i < items.length; i++) {
+      var picked = plan && items[i].getAttribute('data-route') === plan.signature;
+      items[i].classList.toggle('picked', !!picked);
+      items[i].querySelector('.route-card').setAttribute('aria-expanded', picked ? 'true' : 'false');
+      var detail = items[i].querySelector('.route-detail');
+      if (picked) {
+        if (!detail.firstChild) detail.innerHTML = renderLegs(plan);
+        detail.hidden = false;
+      } else {
+        detail.hidden = true;
+        detail.innerHTML = '';
+      }
+    }
+  }
+
+  function fill(root, slot, html) {
+    var element = root.querySelector('[data-slot="' + slot + '"]');
+    if (element && element.innerHTML !== html) element.innerHTML = html;
+    return element;
+  }
+
+  /*
+   * Fills the times of every route from the latest live data: on every update while routes are
+   * shown. Cards keep their place and their markup; only the slots change, and only where the
+   * number differs.
+   */
+  function timeRoutes() {
+    if (!plan || !network) return;
+    var ctx = ATCSPlanner.prepare(network, live);
+    var at = now();
+    trips.forEach(function (trip) {
+      var times = ATCSPlanner.timeTrip(ctx, trip, at);
+      timed[trip.signature] = times;
+      var card = routeElement(trip.signature);
+      if (!card) return;
+      if (!times) {
+        fill(card, 'arrive', '<b>&ndash;:&ndash;&ndash;</b><small>&nbsp;</small>');
+        fill(card, 'when', 'This way is not served right now');
+      } else {
+        fill(card, 'arrive', '<b>' + countdown(times.arrival, '0:00') + '</b><small>arrive ' + clockTime(times.arrival) + '</small>');
+        fill(card, 'when', routeWhen(times) + (times.estimated ? ' <span class="tag soft">Estimate</span>' : ''));
+      }
+      if (trip === plan) fillLegs(card, times);
+    });
+  }
+
+  function fillLegs(card, times) {
+    if (!times) return;
+    var first = firstRide(times);
+    times.legs.forEach(function (leg, i) {
+      if (leg.type === 'walk') {
+        fill(card, 'walk-' + i, 'Arrive in ' + countdown(leg.arrival, 'now'));
+        return;
+      }
+      var when = fill(card, 'when-' + i, legWhen(leg, i, times));
+      if (when) when.className = leg.estimated ? 'est' : 'live';
+      var next = card.querySelector('[data-slot="next-' + i + '"]');
+      if (next) {
+        var show = leg === first && times.following;
+        if (show) fill(card, 'next-' + i, 'Following train in ' + countdown(times.following, 'now'));
+        next.hidden = !show;
+      }
+      fill(card, 'ride-' + i, escapeHtml(plural(leg.calls, 'stop') + ' to ' + stationName(leg.to)) + ', arriving in ' + countdown(leg.arrival, 'now'));
+      leg.stops.forEach(function (stop, k) { fill(card, 'stop-' + i + '-' + k, countdown(stop.arr, 'now')); });
+    });
+    fill(card, 'end', 'Arrive ' + clockTime(times.arrival));
+  }
+
+  function legWhen(leg, index, trip) {
+    if (leg.estimated) {
+      var ready = index === 0 ? now() : trip.legs[index - 1].arrival;
+      return 'No train on this line can be seen yet. Assuming one in about ' + escapeHtml(ATCSPlanner.formatDuration(leg.departs - ready)) + '.';
+    }
+    if (leg.arrives <= now() + 0.5) {
+      return '<b>' + escapeHtml(leg.train) + '</b> is at the platform, leaving in ' + countdown(leg.departs, 'now');
+    }
+    return '<b>' + escapeHtml(leg.train) + '</b> arrives in ' + countdown(leg.arrives, 'now');
   }
 
   function pickRoute(signature) {
     var trip = trips.filter(function (t) { return t.signature === signature; })[0];
-    if (!trip) return;
-    if (trip === plan && chosen === signature) return;
+    if (!trip || (trip === plan && chosen === signature)) return;
     chosen = signature;
     plan = trip;
-    renderPlan();
+    showPicked();
+    var card = routeElement(signature);
+    if (card) fillLegs(card, timed[signature]);
     if (map) map.showRoute(plan.legs);
   }
 
@@ -724,7 +814,7 @@
         updateClearButtons();
         planFrom = ids[0];
         planTo = ids[1];
-        runPlan(true);
+        planRoutes(true);
       }
     }
     if (params.station && stationIndex[params.station]) showStation(params.station, !!params.plan);
@@ -757,7 +847,7 @@
       renderTrains();
       if (map) map.setTrains(trainMarkers());
       refreshStationDetail();
-      if (planFrom && planTo) runPlan(false);
+      timeRoutes();
       updateStatus();
     }).catch(function () { updateStatus(); });
   }
@@ -785,7 +875,7 @@
     renderHeader(layout);
     renderStationList($('station-search').value);
     if (selectedStation && stationIndex[selectedStation]) showStation(selectedStation, true);
-    if (planFrom && planTo) runPlan(false);
+    if (planFrom && planTo) planRoutes(false);
   }
 
   function boot() {

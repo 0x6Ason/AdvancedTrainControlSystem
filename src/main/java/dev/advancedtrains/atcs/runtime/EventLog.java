@@ -127,9 +127,21 @@ public final class EventLog {
                 .append(detail == null ? "" : ",\"detail\":" + quote(detail)).append('}').toString());
     }
 
+    /**
+     * Hands work to the executor; dropped once the executor is shut down. A hold or a sign action
+     * from before a plugin reload may still report to this log, and must not fail for it.
+     */
+    private void run(Runnable work) {
+        try {
+            executor.execute(work);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // Shut down: the plugin is stopping or has been reloaded.
+        }
+    }
+
     /** Flushes and closes the file; queued lines written first. Call before the executor shuts down. */
     public void close() {
-        executor.execute(() -> {
+        run(() -> {
             try {
                 if (writer != null) {
                     writer.close();
@@ -200,7 +212,7 @@ public final class EventLog {
                 recent.removeFirst();
             }
         }
-        executor.execute(() -> write(line));
+        run(() -> write(line));
     }
 
     /** The last {@code count} lines logged, oldest first. */
@@ -222,7 +234,7 @@ public final class EventLog {
             }
         }
         if (enabled) {
-            executor.execute(() -> write(line));
+            run(() -> write(line));
         }
     }
 

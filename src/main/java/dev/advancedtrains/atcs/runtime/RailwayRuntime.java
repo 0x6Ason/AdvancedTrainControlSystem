@@ -157,6 +157,10 @@ public final class RailwayRuntime {
 
     private static final double STANDING_SPEED = 0.02;
     private static final Duration STANDING_AFTER = Duration.ofSeconds(2);
+    /** A train on a service standing this long at an ATCS sign with nothing to move it is sent on. */
+    private static final Duration STRANDED_AFTER = Duration.ofSeconds(30);
+    /** True between {@link #start} and {@link #stop}; holds in TrainCarts' queues end when it is false. */
+    private volatile boolean running;
     private static final Duration STATE_FRESH = Duration.ofSeconds(5);
     private final Map<String, TrainState> trainStates = new HashMap<>();
     /** What the estimator may know beyond learned times; see {@link EtaContext}. */
@@ -349,10 +353,12 @@ public final class RailwayRuntime {
         webDirty = true;
         mapDirty = true;
         refreshHeldChunks(store.network());
+        running = true;
         schedule();
     }
 
     public void stop() {
+        running = false;
         tasks.forEach(BukkitTask::cancel);
         tasks.clear();
         display.clear();
@@ -450,6 +456,9 @@ public final class RailwayRuntime {
                 }
             }
         }
+        for (String name : trains.relaunchStranded(this::hasService, train -> standingAtLeast(train, STRANDED_AFTER))) {
+            relaunched(name, "stood at its sign with nothing to move it");
+        }
         if (spawner == null) {
             return;
         }
@@ -509,19 +518,66 @@ public final class RailwayRuntime {
         return true;
     }
 
-    /** Holds the chunks of spawn signs and fleet spawn points, or none when switched off. */
+    /**
+     * Holds the chunks of spawn signs and fleet spawn points, when switched on; and, with
+     * keep-chunks-loaded on for trains, the chunks of trains on a service that are not loaded.
+     * TrainCarts loads a stored train again only while it moves when it keeps chunks loaded only
+     * when moving, so after a restart a train that stood at a station would wait for a player
+     * to come by; loading its chunks brings it back, and it is stopped afresh on its sign.
+     */
     private void refreshHeldChunks(Network network) {
-        if (!settings.spawning().keepSpawnChunksLoaded()) {
-            chunkKeeper.keep(List.of());
-            return;
+        List<BlockPos> positions = new ArrayList<>();
+        if (settings.spawning().keepSpawnChunksLoaded()) {
+            positions.addAll(network.spawnSigns().keySet());
+            for (Service service : network.services()) {
+                if (service.fleet() != null) {
+                    positions.add(service.fleet().spawn());
+                }
+            }
         }
-        List<BlockPos> positions = new ArrayList<>(network.spawnSigns().keySet());
-        for (Service service : network.services()) {
-            if (service.fleet() != null) {
-                positions.add(service.fleet().spawn());
+        if (settings.trains().keepChunksLoaded()) {
+            Set<String> loaded = new HashSet<>();
+            for (TrainHandle train : trains.loadedTrains()) {
+                loaded.add(train.name());
+            }
+            for (TrainInfo info : trains.allTrains()) {
+                if (!loaded.contains(info.name()) && ServiceResolver.resolve(info, network).isPresent()) {
+                    positions.addAll(trains.storedChunks(info.name()));
+                }
             }
         }
         chunkKeeper.keep(positions);
+    }
+
+    /** Whether the train runs a service of the network, by its tags, match rules or route. */
+    public boolean hasService(TrainHandle train) {
+        return ServiceResolver.resolve(train.info(), store.network()).isPresent();
+    }
+
+    /** Whether the train has been standing (as the position samples see it) at least this long. */
+    public boolean standingAtLeast(String trainName, Duration duration) {
+        TrainState state = trainStates.get(trainName);
+        return state != null && state.standingSince() != null
+                && Duration.between(state.standingSince(), clock.instant()).compareTo(duration) >= 0;
+    }
+
+    /** A standing train was given its sign again and stopped afresh, so it will be sent on. */
+    public void relaunched(String trainName, String why) {
+        logger.info(trainName + " " + why + "; stopped afresh at its sign to be sent on");
+    }
+
+    /** Sends every stranded train on, whatever its standing time: used when ATCS starts. */
+    public int relaunchStranded() {
+        List<String> names = trains.relaunchStranded(this::hasService, name -> true);
+        for (String name : names) {
+            relaunched(name, "stood at its sign with nothing to move it when ATCS started");
+        }
+        return names.size();
+    }
+
+    /** True between start and stop. A hold in TrainCarts' queue ends as soon as this is false. */
+    public boolean running() {
+        return running;
     }
 
     /** Positions of ATCS stop and station signs seen so far, per station. */
@@ -895,6 +951,11 @@ public final class RailwayRuntime {
         if (debug) {
             logger.info("[debug] " + train.name() + ": the switch has no junction " + heading.word());
         }
+    }
+
+    /** The check whether a train may go threw, so the train is let go rather than kept for good. */
+    public void holdFailed(TrainHandle train, String where, Throwable error) {
+        logger.log(Level.WARNING, train.name() + " is let go at " + where + ": the hold check failed", error);
     }
 
     public void heldTooLong(TrainHandle train, PlatformRef platform, String reason) {

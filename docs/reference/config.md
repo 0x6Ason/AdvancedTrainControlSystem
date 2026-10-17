@@ -131,7 +131,9 @@ trains:
   name-format: "<line>-<service>-<n>"
   # Switch TrainCarts' keep-chunks-loaded on for every train, so trains keep running with nobody
   # around. Each train then holds only the chunks around itself, which is far cheaper than
-  # force-loading the railway.
+  # force-loading the railway. ATCS also holds the chunks of trains on a service that are not
+  # loaded, so a train that stood at a station when the server stopped comes back after a
+  # restart even with TrainCarts' keepChunksLoadedOnlyWhenMoving.
   keep-chunks-loaded: false
 
 spawning:

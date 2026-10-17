@@ -145,11 +145,22 @@ TrainCarts server, configured with files and in-game commands.
   plaque on BlueMap's page linking to it. The map is laid out as a subway diagram: an even grid
   that keeps every station's real order, 45-degree lines with rounded bends, no line through a
   station it does not serve. The trip planner offers several routes (express or local, fewer
-  changes, walking or not) with live countdowns; on phones the panel is a draggable sheet over the
-  map.
+  changes, walking or not), worked out from the network once per pair of stations and listed in
+  a fixed order, as a journey planner does; the live data fills in each route's times in place,
+  so the choice never shifts or flickers as trains move. On phones the panel is a draggable sheet
+  over the map.
 - Walking transfers between nearby stations (`/atcs transfer`, `transfers:` in network.yml): a
   dotted connector on the map, walked by the trip planner, and mentioned in arrival
   announcements.
+- Trains standing at a station survive a plugin reload or a restart: an ATCS hold ends the
+  moment the plugin stops (or its check fails), so the train leaves on the launch queued behind
+  it; when ATCS starts, and every few seconds after, a train on a service that stands at an
+  `atcs station` or block sign with nothing to move it is stopped afresh and sent on; a train
+  loaded again on top of its sign is stopped afresh too. With `trains.keep-chunks-loaded` on,
+  the chunks of stored trains that are not loaded are held, so a train that stood still when
+  the server stopped comes back after a restart with TrainCarts'
+  `keepChunksLoadedOnlyWhenMoving` instead of waiting for a player. `/atcs service info` counts
+  the trains assigned to the service and names those not loaded, which a fleet counts as running.
 
 ### Changed
 

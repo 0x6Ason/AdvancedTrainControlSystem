@@ -62,7 +62,14 @@ builds a TrainCarts `Station.StationConfig` from its options and queues what Tra
 station sign queues: centre, levers up, dwell. Between dwell and launch it may queue a `HoldAction`,
 a TrainCarts wait action that asks `StationControl.holdReason` twice a second (headway since the
 last departure of the line from this platform; a train that left before and is still `IN_TRANSIT`
-from this platform) and gives up after `control.max-hold-seconds`. An `atcs switch` sign asks
+from this platform) and gives up after `control.max-hold-seconds`. The hold lives in TrainCarts'
+queue, beyond the plugin's own lifetime, so it also ends the moment the runtime stops (a reload)
+or its check throws, and the train leaves on the launch queued behind it. The other way round,
+`TrainCartsTrains.relaunchStranded` (at start, and every fleet tick for trains standing over
+thirty seconds) finds trains on a service that stand at an `atcs station` or block sign with
+an empty action queue, or with a hold left by an earlier ATCS at its head, clears the queue and
+fires the sign's enter for them again; a train TrainCarts loads again on top of the sign
+(`GROUP_RELOAD`) is treated the same. An `atcs switch` sign asks
 `SwitchRules.choose` with the train's service and the next station on it, and sets the junction
 through `SignActionEvent.findJunction`/`setRailsTo`.
 

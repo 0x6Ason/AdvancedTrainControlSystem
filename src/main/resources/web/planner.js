@@ -404,6 +404,82 @@
     return null;
   }
 
+  /* The index of the first call at the station on the service, or -1. */
+  function stopIndex(service, stationId) {
+    for (var i = 0; i < service.stops.length; i++) {
+      if (service.stops[i].station === stationId && !service.stops[i].pass) return i;
+    }
+    return -1;
+  }
+
+  /*
+   * Times a trip along a path that is already chosen, against the live data: each ride is taken
+   * on the first train that can be seen calling at its boarding station on that service, after
+   * the traveller is ready, and reaching the leg's end; where no such train can be seen, an
+   * assumed wait is used and the leg is flagged as an estimate. The path never changes, so the
+   * options a visitor chooses between (from options() without live data) keep their place while
+   * their times move. Returns null when the path cannot be followed on the network any more.
+   */
+  function timeTrip(ctx, trip, now) {
+    var byKey = ctx.byKey, defaultDwell = ctx.defaultDwell;
+    var legs = [], at = Math.max(0, now || 0), estimated = false;
+    for (var i = 0; i < trip.legs.length; i++) {
+      var leg = trip.legs[i];
+      if (leg.type === 'walk') {
+        legs.push(assign({}, leg, { departs: at, arrival: at + leg.seconds }));
+        at += leg.seconds;
+        continue;
+      }
+      var entry = byKey[leg.key];
+      if (!entry) return null;
+      var ready = i === 0 ? at : at + TRANSFER;
+      var best = null;
+      (ctx.callsAt[leg.from] || []).forEach(function (call) {
+        if (call.dep === null || call.dep < ready || (call.boardKey || call.key) !== leg.key) return;
+        for (var k = call.position + 1; k < call.list.length; k++) {
+          if (call.list[k].station !== leg.to) continue;
+          if (!best || call.list[k].arr < best.list[best.k].arr - 0.01) best = { board: call, list: call.list, k: k };
+          break;
+        }
+      });
+      var timed;
+      if (best) {
+        timed = {
+          train: best.board.train, estimated: false, platform: best.board.platform || leg.platform || null,
+          arrives: best.board.arr, departs: best.board.dep, arrival: best.list[best.k].arr, stops: []
+        };
+        for (var p = best.board.position + 1; p <= best.k; p++) timed.stops.push({ station: best.list[p].station, arr: best.list[p].arr });
+      } else {
+        var index = stopIndex(entry.service, leg.from);
+        if (index < 0) return null;
+        var known = ctx.lastDeparture[leg.key] && ctx.lastDeparture[leg.key][leg.from];
+        var depart = (known === undefined ? ready : Math.max(ready, known)) + expectedWait(entry.service, index);
+        var calls = [{ key: leg.key, line: entry.line.id, index: index, station: leg.from, platform: entry.service.stops[index].platform, via: [], arr: depart, dep: depart }];
+        extend(calls, byKey, entry, index, depart, defaultDwell, depart + HORIZON);
+        var end = -1;
+        for (var q = 1; q < calls.length; q++) if (calls[q].station === leg.to) { end = q; break; }
+        if (end < 0) return null;
+        timed = { train: null, estimated: true, platform: leg.platform || null, arrives: depart, departs: depart, arrival: calls[end].arr, stops: [] };
+        for (var r = 1; r <= end; r++) timed.stops.push({ station: calls[r].station, arr: calls[r].arr });
+        estimated = true;
+      }
+      legs.push(assign({}, leg, timed));
+      at = timed.arrival;
+    }
+    if (!legs.length) return null;
+    var result = { legs: legs, departs: legs[0].departs, arrival: at, estimated: estimated, signature: trip.signature, transfers: trip.transfers, walks: trip.walks, walkSeconds: trip.walkSeconds, tags: trip.tags };
+    result.following = following(ctx, result);
+    return result;
+  }
+
+  function assign(target) {
+    for (var i = 1; i < arguments.length; i++) {
+      var source = arguments[i];
+      for (var key in source) if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = source[key];
+    }
+    return target;
+  }
+
   /* Whether a trip passes the same station twice, such as riding a loop the wrong way to change
    * back through the station it started from. */
   function revisits(trip) {
@@ -452,8 +528,8 @@
   }
 
   var api = {
-    plan: plan, options: options, project: project, formatDuration: formatDuration, formatClock: formatClock,
-    TRANSFER: TRANSFER, DEFAULT_WAIT: DEFAULT_WAIT
+    plan: plan, options: options, project: project, prepare: prepare, timeTrip: timeTrip,
+    formatDuration: formatDuration, formatClock: formatClock, TRANSFER: TRANSFER, DEFAULT_WAIT: DEFAULT_WAIT
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ATCSPlanner = api;

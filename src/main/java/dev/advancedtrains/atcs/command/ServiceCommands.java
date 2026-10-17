@@ -11,6 +11,8 @@ import dev.advancedtrains.atcs.network.ServiceMatch;
 import dev.advancedtrains.atcs.network.Station;
 import dev.advancedtrains.atcs.network.Stop;
 import dev.advancedtrains.atcs.network.StopEdits;
+import dev.advancedtrains.atcs.operation.ServiceResolver;
+import dev.advancedtrains.atcs.operation.TrainInfo;
 import dev.advancedtrains.atcs.runtime.ServiceRecorder;
 import dev.advancedtrains.atcs.runtime.TrainHandle;
 import net.kyori.adventure.text.Component;
@@ -26,8 +28,10 @@ import org.bukkit.entity.Player;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import static dev.advancedtrains.atcs.command.Node.group;
 import static dev.advancedtrains.atcs.command.Node.leaf;
@@ -221,7 +225,27 @@ final class ServiceCommands {
         sender.sendMessage(Chat.field("Recorded track paths", support.runtime.paths().recordedSegments(service) + "/" + segments));
         long running = support.runtime.journeys().stream()
                 .filter(journey -> service.key().equals(journey.service())).count();
-        sender.sendMessage(Chat.field("Trains on this service", Long.toString(running)));
+        // Every train TrainCarts stores for the service, loaded or not: what a fleet counts.
+        Set<String> loaded = new HashSet<>();
+        support.trains.loadedTrains().forEach(train -> loaded.add(train.name()));
+        List<String> unloaded = new ArrayList<>();
+        int assigned = 0;
+        for (TrainInfo info : support.trains.allTrains()) {
+            if (ServiceResolver.resolve(info, network).filter(service.key()::equals).isPresent()) {
+                assigned++;
+                if (!loaded.contains(info.name())) {
+                    unloaded.add(info.name());
+                }
+            }
+        }
+        String trains = Long.toString(running);
+        if (assigned != running || !unloaded.isEmpty()) {
+            trains += " running, " + assigned + " assigned";
+            if (!unloaded.isEmpty()) {
+                trains += " (" + unloaded.size() + " not loaded: " + String.join(", ", unloaded) + ")";
+            }
+        }
+        sender.sendMessage(Chat.field("Trains on this service", trains));
     }
 
     private static void create(Support support, CommandContext context) throws CommandError {

@@ -59,9 +59,17 @@ public final class AtcsSignAction extends SignAction {
 
     @Override
     public void execute(SignActionEvent info) {
+        // TrainCarts keeps a sign's action until the sign is seen again, so an action from before
+        // a plugin reload can still be given trains: it does nothing once its ATCS has stopped.
+        if (!runtime.running() || !info.hasGroup() || !TrainCartsTrains.usable(info.getGroup())) {
+            return;
+        }
+        if (info.isAction(SignActionType.GROUP_RELOAD)) {
+            reloaded(info);
+            return;
+        }
         boolean entering = info.isAction(SignActionType.GROUP_ENTER);
-        if ((!entering && !info.isAction(SignActionType.GROUP_LEAVE)) || !info.hasGroup()
-                || !TrainCartsTrains.usable(info.getGroup())) {
+        if (!entering && !info.isAction(SignActionType.GROUP_LEAVE)) {
             return;
         }
         AtcsSign sign = parse(info);
@@ -85,6 +93,32 @@ public final class AtcsSignAction extends SignAction {
             default -> {
             }
         }
+    }
+
+    /**
+     * A train loaded again on top of this sign (TrainCarts fires no enter for signs a train was
+     * already on). One that stands still at a station or block sign on a service it is running
+     * is stopped afresh, the way it was when it arrived: the ATCS hold it had was not saved with
+     * the train, so the TrainCarts actions that came back would let it go without one, and a
+     * train that lost its actions altogether would never go at all.
+     */
+    private void reloaded(SignActionEvent info) {
+        MinecartGroup group = info.getGroup();
+        if (group.isMoving() || !stopsTrains(parse(info))) {
+            return;
+        }
+        TrainCartsTrain train = new TrainCartsTrain(group);
+        if (!runtime.hasService(train)) {
+            return;
+        }
+        group.getActions().clear();
+        runtime.relaunched(train.name(), "was loaded again standing on its sign");
+        execute(info.setAction(SignActionType.GROUP_ENTER));
+    }
+
+    /** Whether the sign is one that makes trains stand: a station, or the entry to a block. */
+    static boolean stopsTrains(@Nullable AtcsSign sign) {
+        return sign instanceof AtcsSign.StationSign || (sign instanceof AtcsSign.BlockSign block && block.entry());
     }
 
     /**
@@ -159,7 +193,7 @@ public final class AtcsSignAction extends SignAction {
         }
         HoldAction hold = new HoldAction(() -> runtime.holdReason(train, platform, plan),
                 (int) Math.round(plan.holdLimitSeconds() * 20), reason -> runtime.heldTooLong(train, platform, reason),
-                () -> !runtime.heldByHand(train));
+                () -> !runtime.heldByHand(train), runtime::running, error -> runtime.holdFailed(train, platform.toString(), error));
         actions.addAction(hold).addTag(tag);
     }
 
@@ -198,7 +232,7 @@ public final class AtcsSignAction extends SignAction {
         station.waitTrainKeepLeversDown(0);
         HoldAction hold = new HoldAction(() -> runtime.blockHoldReason(train, sign.blockId()),
                 (int) Math.round(runtime.blockHoldLimitSeconds() * 20), reason -> runtime.blockHeldTooLong(train, sign.blockId(), reason),
-                () -> true);
+                () -> true, runtime::running, error -> runtime.holdFailed(train, "block " + sign.blockId(), error));
         actions.addAction(hold).addTag(station.getTag());
         station.launchTo(station.getNextDirectionFace());
     }
@@ -382,7 +416,7 @@ public final class AtcsSignAction extends SignAction {
         return parse(info) instanceof AtcsSign.StationSign station ? station.destinationName() : null;
     }
 
-    private static @Nullable AtcsSign parse(SignActionEvent info) {
+    static @Nullable AtcsSign parse(SignActionEvent info) {
         try {
             return parseOrThrow(info);
         } catch (IllegalArgumentException invalid) {

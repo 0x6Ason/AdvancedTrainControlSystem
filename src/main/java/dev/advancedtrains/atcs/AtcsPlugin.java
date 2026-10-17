@@ -112,6 +112,13 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             signAction = SignAction.register(new AtcsSignAction(store, runtime));
             // Signs in chunks loaded before this point are matched to the action only now.
             TrainCarts.plugin.getSignController().redetectSignActions();
+            trains.setSignAction(signAction);
+            // Trains standing at a sign from before a reload (their hold went with the old ATCS)
+            // or a restart are stopped afresh; TrainCarts' own sign tracking fires no enter for them.
+            int relaunched = runtime.relaunchStranded();
+            if (relaunched > 0) {
+                getLogger().info("Sent " + relaunched + " train(s) on that stood at ATCS signs with nothing to move them");
+            }
 
             PluginCommand command = Objects.requireNonNull(getCommand("atcs"), "atcs command missing from plugin.yml");
             AtcsCommand executor = new AtcsCommand(new Support(store, runtime, trains, importer, this, fareService, displays, selections),
@@ -139,15 +146,16 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
     @Override
     public void onDisable() {
         stopEditor();
+        if (runtime != null) {
+            // Holds in TrainCarts' queues end at once; the trains leave on the launch queued behind them.
+            runtime.stop();
+        }
         if (signAction != null) {
             SignAction.unregister(signAction);
             signAction = null;
         }
         if (importer != null) {
             importer.close();
-        }
-        if (runtime != null) {
-            runtime.stop();
         }
     }
 
