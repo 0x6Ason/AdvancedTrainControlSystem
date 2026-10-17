@@ -97,6 +97,7 @@ Services: the stopping patterns trains run.
 | `/atcs service fleet <line/service> <trains> <every> <train>\|off` | `atcs.manage` | Let ATCS keep trains running on a service without spawn signs; stand on the rail facing their way |
 | `/atcs service reverse <line/service> <new-service> [name...]` | `atcs.manage` | Create the opposite direction of a service |
 | `/atcs service rename <line/service> <name...>` | `atcs.manage` | Change the passenger-facing service name |
+| `/atcs service short <line/service> <text\|none>` | `atcs.manage` | Short name for sign lines the full name does not fit, for example CCW |
 | `/atcs service circular <line/service> <true\|false>` | `atcs.manage` | Whether the last stop is followed by the first |
 | `/atcs service continues <line/service> <line/service\|none>` | `atcs.manage` | What trains become after the last stop |
 | `/atcs service match <line/service> [destination\|tag\|train-name <value>\|clear]` | `atcs.manage` | Assign trains automatically by TrainCarts destination, tag or name |
@@ -135,6 +136,7 @@ Departure boards on signs.
 |---|---|---|
 | `/atcs board create <id> <station> [platform...]` | `atcs.manage` | Make the sign you look at a departure board |
 | `/atcs board add <id>` | `atcs.manage` | Add the sign you look at as the board's next line of departures |
+| `/atcs board mirror <id> [line]` | `atcs.manage` | Make the sign you look at repeat one of the board's lines (the first unless given) |
 | `/atcs board unbind` | `atcs.manage` | Remove the sign you look at from its board |
 | `/atcs board remove <id>` | `atcs.manage` | Remove a board (its signs keep their last text) |
 | `/atcs board list` | `atcs.manage` | List boards |

@@ -115,6 +115,15 @@ final class ServiceCommands {
                     save(support, service.withName(name));
                     Chat.success(context.sender(), service.key() + " is now called " + name);
                 }, services),
+                leaf("short", MANAGE, "<line/service> <text|none>", "Short name for sign lines the full name does not fit, for example CCW", context -> {
+                    Service service = support.service(context.arg(0));
+                    String text = context.rest(1).strip();
+                    boolean clear = text.isEmpty() || text.equalsIgnoreCase("none") || text.equals("-");
+                    save(support, service.withShortName(clear ? null : text));
+                    Chat.success(context.sender(), clear
+                            ? service.key() + " is shortened to " + service.withShortName(null).shortLabel() + " where its name does not fit"
+                            : service.key() + " is shown as " + text + " where " + service.name() + " does not fit");
+                }, services),
                 leaf("circular", MANAGE, "<line/service> <true|false>", "Whether the last stop is followed by the first",
                         context -> {
                             Service service = support.service(context.arg(0));
@@ -201,6 +210,9 @@ final class ServiceCommands {
                     .append(Component.text(" or ride a train and ", NamedTextColor.GRAY))
                     .append(Chat.suggest("record them", "/atcs service record " + service.key()))
                     .build());
+        }
+        if (service.shortName() != null) {
+            sender.sendMessage(Chat.field("Short name", service.shortName() + " (on sign lines the name does not fit)"));
         }
         if (service.continuesAs() != null) {
             sender.sendMessage(Chat.field("Continues as", service.continuesAs().toString()));

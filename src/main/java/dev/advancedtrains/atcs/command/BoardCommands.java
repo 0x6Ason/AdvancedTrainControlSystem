@@ -32,6 +32,8 @@ final class BoardCommands {
                         }),
                 leaf("add", MANAGE, "<id>", "Add the sign you look at as the board's next line of departures",
                         context -> add(support, context), boards),
+                leaf("mirror", MANAGE, "<id> [line]", "Make the sign you look at repeat one of the board's lines (the first unless given)",
+                        context -> mirror(support, context), (context, index) -> index == 0 ? support.boardIds() : List.of("1", "2", "3")),
                 leaf("unbind", MANAGE, "", "Remove the sign you look at from its board", context -> unbind(support, context)),
                 leaf("remove", MANAGE, "<id>", "Remove a board (its signs keep their last text)", context -> {
                     Board board = board(support, context.arg(0));
@@ -77,7 +79,28 @@ final class BoardCommands {
         support.edit(network -> network.toBuilder().board(new Board(id, station.id(), platforms, List.of(sign))).build());
         Chat.success(context.sender(), "Board " + id + " shows departures from " + station.name()
                 + (platforms.isEmpty() ? "" : " platform " + String.join(", ", platforms))
-                + ". Look at another sign and run /atcs board add " + id + " to show more departures.");
+                + ". Look at another sign and run /atcs board add " + id + " to show the departure after,"
+                + " or /atcs board mirror " + id + " to show the same one again.");
+    }
+
+    private static void mirror(Support support, CommandContext context) throws CommandError {
+        Board board = board(support, context.arg(0));
+        int line = 1;
+        if (context.size() > 1) {
+            try {
+                line = Integer.parseInt(context.arg(1));
+            } catch (NumberFormatException invalid) {
+                throw new CommandError("The line to repeat is a number: 1 for the next departure, 2 for the one after");
+            }
+            if (line < 1) {
+                throw new CommandError("The line to repeat is 1 or more");
+            }
+        }
+        BlockPos sign = boardSign(support, context);
+        int finalLine = line;
+        support.edit(network -> network.toBuilder().board(board.withMirror(sign, finalLine)).build());
+        Chat.success(context.sender(), "The sign repeats line " + line + " of board " + board.id()
+                + (line > board.signs().size() ? " (which has no sign of its own yet)" : ""));
     }
 
     private static void add(Support support, CommandContext context) throws CommandError {
@@ -90,7 +113,7 @@ final class BoardCommands {
     private static void unbind(Support support, CommandContext context) throws CommandError {
         BlockPos position = Support.position(Support.targetSign(context.player()));
         Optional<Board> owner = support.network().boards().values().stream()
-                .filter(board -> board.signs().contains(position)).findFirst();
+                .filter(board -> board.allSigns().contains(position)).findFirst();
         Board board = owner.orElseThrow(() -> new CommandError("That sign is not part of a board"));
         support.edit(network -> network.toBuilder().board(board.withoutSign(position)).build());
         Chat.success(context.sender(), "Removed the sign from board " + board.id());
@@ -108,7 +131,8 @@ final class BoardCommands {
                     .append(Component.text(board.id(), NamedTextColor.AQUA))
                     .append(Component.text(" " + network.stationName(board.stationId())
                             + (board.platforms().isEmpty() ? "" : " platform " + String.join(", ", board.platforms())), NamedTextColor.WHITE))
-                    .append(Component.text(" (" + board.signs().size() + " signs)", NamedTextColor.DARK_GRAY))
+                    .append(Component.text(" (" + board.signs().size() + " signs"
+                            + (board.mirrors().isEmpty() ? "" : ", " + board.mirrors().size() + " mirrored") + ")", NamedTextColor.DARK_GRAY))
                     .build());
         }
     }

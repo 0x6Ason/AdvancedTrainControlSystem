@@ -36,7 +36,8 @@ public record Service(
         List<BlockPos> spawnSigns,
         @Nullable Fleet fleet,
         @Nullable Double speed,
-        List<Integer> timetable) {
+        List<Integer> timetable,
+        @Nullable String shortName) {
 
     /** The fastest a service may be told to run, in blocks per tick. */
     public static final double MAX_SPEED = 20;
@@ -60,6 +61,44 @@ public record Service(
                 throw new IllegalArgumentException("Service '" + key + "': timetable minutes must be 0 to 59, not " + minute);
             }
         }
+        shortName = shortName == null || shortName.isBlank() ? null : shortName.strip();
+    }
+
+    public Service(ServiceKey key, String name, List<Stop> stops, boolean circular,
+                   @Nullable ServiceKey continuesAs, ServiceMatch match, List<BlockPos> spawnSigns, @Nullable Fleet fleet,
+                   @Nullable Double speed, List<Integer> timetable) {
+        this(key, name, stops, circular, continuesAs, match, spawnSigns, fleet, speed, timetable, null);
+    }
+
+    /**
+     * The name for a sign line that cannot take the full one: the short name set for the service,
+     * else an abbreviation. {@code Clockwise} becomes {@code CW}, {@code Counter-clockwise} (or
+     * {@code Anticlockwise}) {@code CCW}; any other name of several words becomes its initials;
+     * a one-word name stays as it is.
+     */
+    public String shortLabel() {
+        return shortName != null ? shortName : abbreviate(name);
+    }
+
+    static String abbreviate(String name) {
+        String folded = name.toLowerCase(java.util.Locale.ROOT).replace('-', ' ').replace('_', ' ').replaceAll("\\s+", " ").strip();
+        if (folded.matches("(counter|anti) ?clockwise")) {
+            return "CCW";
+        }
+        if (folded.equals("clockwise")) {
+            return "CW";
+        }
+        String[] words = folded.split(" ");
+        if (words.length < 2) {
+            return name;
+        }
+        StringBuilder initials = new StringBuilder();
+        for (String word : words) {
+            if (!word.isEmpty() && initials.length() < 4) {
+                initials.append(Character.toUpperCase(word.charAt(0)));
+            }
+        }
+        return initials.toString();
     }
 
     public Service(ServiceKey key, String name, List<Stop> stops, boolean circular,
@@ -167,38 +206,42 @@ public record Service(
     }
 
     public Service withName(String newName) {
-        return new Service(key, newName, stops, circular, continuesAs, match, spawnSigns, fleet, speed, timetable);
+        return new Service(key, newName, stops, circular, continuesAs, match, spawnSigns, fleet, speed, timetable, shortName);
     }
 
     public Service withStops(List<Stop> newStops) {
-        return new Service(key, name, newStops, circular, continuesAs, match, spawnSigns, fleet, speed, timetable);
+        return new Service(key, name, newStops, circular, continuesAs, match, spawnSigns, fleet, speed, timetable, shortName);
     }
 
     public Service withCircular(boolean newCircular) {
-        return new Service(key, name, stops, newCircular, continuesAs, match, spawnSigns, fleet, speed, timetable);
+        return new Service(key, name, stops, newCircular, continuesAs, match, spawnSigns, fleet, speed, timetable, shortName);
     }
 
     public Service withContinuesAs(@Nullable ServiceKey newContinuesAs) {
-        return new Service(key, name, stops, circular, newContinuesAs, match, spawnSigns, fleet, speed, timetable);
+        return new Service(key, name, stops, circular, newContinuesAs, match, spawnSigns, fleet, speed, timetable, shortName);
     }
 
     public Service withMatch(ServiceMatch newMatch) {
-        return new Service(key, name, stops, circular, continuesAs, newMatch, spawnSigns, fleet, speed, timetable);
+        return new Service(key, name, stops, circular, continuesAs, newMatch, spawnSigns, fleet, speed, timetable, shortName);
     }
 
     public Service withSpawnSigns(List<BlockPos> newSpawnSigns) {
-        return new Service(key, name, stops, circular, continuesAs, match, newSpawnSigns, fleet, speed, timetable);
+        return new Service(key, name, stops, circular, continuesAs, match, newSpawnSigns, fleet, speed, timetable, shortName);
     }
 
     public Service withFleet(@Nullable Fleet newFleet) {
-        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, newFleet, speed, timetable);
+        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, newFleet, speed, timetable, shortName);
     }
 
     public Service withSpeed(@Nullable Double newSpeed) {
-        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, fleet, newSpeed, timetable);
+        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, fleet, newSpeed, timetable, shortName);
     }
 
     public Service withTimetable(List<Integer> newTimetable) {
-        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, fleet, speed, newTimetable);
+        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, fleet, speed, newTimetable, shortName);
+    }
+
+    public Service withShortName(@Nullable String newShortName) {
+        return new Service(key, name, stops, circular, continuesAs, match, spawnSigns, fleet, speed, timetable, newShortName);
     }
 }

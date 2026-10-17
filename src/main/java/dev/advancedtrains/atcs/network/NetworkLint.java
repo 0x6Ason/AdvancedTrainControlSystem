@@ -113,7 +113,7 @@ public final class NetworkLint {
         }
         if (inputs.signExists() != null) {
             for (Board board : network.boards().values()) {
-                for (BlockPos sign : board.signs()) {
+                for (BlockPos sign : board.allSigns()) {
                     if (!inputs.signExists().test(sign)) {
                         findings.add(new Finding(Level.PROBLEM, "Board " + board.id() + ": the sign at " + sign.coordinates()
                                 + " is gone; /atcs board unbind it or place a sign there"));

@@ -114,7 +114,7 @@ public final class Network {
                     }
                 }
             }
-            for (BlockPos sign : board.signs()) {
+            for (BlockPos sign : board.allSigns()) {
                 if (triggerIndex.containsKey(sign)) {
                     problems.add("Board " + board.id() + " sign " + sign
                             + " is also a platform trigger and will not be written");

@@ -39,21 +39,33 @@ public final class BoardService {
      */
     public void update(Network network, Messages messages, BiFunction<Board, Integer, List<Departures.Departure>> departures) {
         for (Board board : network.boards().values()) {
-            if (board.signs().isEmpty() || network.station(board.stationId()).isEmpty()) {
+            if (board.allSigns().isEmpty() || network.station(board.stationId()).isEmpty()) {
                 continue;
             }
-            List<Departures.Departure> upcoming = departures.apply(board, board.signs().size());
+            List<Departures.Departure> upcoming = departures.apply(board, board.lines());
+            Map<Integer, List<Component>> rendered = new HashMap<>();
             for (int index = 0; index < board.signs().size(); index++) {
                 BlockPos position = board.signs().get(index);
                 if (network.platformAt(position).isPresent()) {
                     continue;
                 }
-                List<Component> lines = index < upcoming.size()
-                        ? BoardRenderer.departure(upcoming.get(index), network, messages)
-                        : BoardRenderer.empty(messages);
-                write(position, lines);
+                write(position, line(rendered, upcoming, index, network, messages));
+            }
+            for (Map.Entry<BlockPos, Integer> mirror : board.mirrors().entrySet()) {
+                if (network.platformAt(mirror.getKey()).isPresent()) {
+                    continue;
+                }
+                write(mirror.getKey(), line(rendered, upcoming, mirror.getValue() - 1, network, messages));
             }
         }
+    }
+
+    /** The four lines for the n-th departure (0-based), rendered once per update. */
+    private static List<Component> line(Map<Integer, List<Component>> rendered, List<Departures.Departure> upcoming, int index,
+                                        Network network, Messages messages) {
+        return rendered.computeIfAbsent(index, i -> i < upcoming.size()
+                ? BoardRenderer.departure(upcoming.get(i), network, messages)
+                : BoardRenderer.empty(messages));
     }
 
     /** Forgets what was written so every sign is rewritten on the next update. */

@@ -332,11 +332,15 @@ Any ordinary sign can be a board. Each sign shows one departure; add more signs 
 
 ```
 /atcs board create main-east main 1 2   (look at a sign; platforms are optional)
-/atcs board add main-east               (look at the next sign)
+/atcs board add main-east               (look at the next sign: the departure after)
+/atcs board mirror main-east            (look at a sign elsewhere: the same first departure again)
 ```
 
 Boards show the line badge, service, destination, a countdown (or *Arriving* / *Boarding*) and the
-platform. The layout is in `messages.yml`.
+platform. The layout is in `messages.yml`. A service name too wide for a sign line, such as
+*Counter-clockwise*, is replaced by its short name: set one with `/atcs service short 5/ccw CCW`,
+or let ATCS abbreviate (*Clockwise* becomes CW, *Counter-clockwise* CCW, other long names their
+initials).
 
 <!-- --8<-- [end:boards] -->
 <!-- --8<-- [start:displays] -->

@@ -39,6 +39,7 @@ public final class Placeholders {
                 .resolver(Placeholder.unparsed("line_short", line.shortName()))
                 .resolver(Placeholder.styling("line_color", TextColor.color(line.color())))
                 .resolver(Placeholder.unparsed("service", service.name()))
+                .resolver(Placeholder.unparsed("service_short", service.shortLabel()))
                 .resolver(Placeholder.unparsed("destination", service.destinationFrom(index)
                         .map(stop -> network.stationName(stop.stationId()))
                         .orElse(service.name())))

@@ -29,7 +29,7 @@ class NetworkCodecTest {
         Service south = new Service(ServiceKey.parse("a/south"), "Local",
                 List.of(Stop.of("nerdy"), Stop.of("main")), true, ServiceKey.parse("b/x"), ServiceMatch.NONE);
         Service other = Service.of(ServiceKey.parse("b/x"), "Shuttle", List.of(Stop.of("main"), Stop.of("nerdy")))
-                .withSpeed(0.6).withTimetable(List.of(30, 0))
+                .withSpeed(0.6).withTimetable(List.of(30, 0)).withShortName("SH")
                 .withFleet(new Fleet(3, java.time.Duration.ofSeconds(40), BlockPos.parse("world,1,64,1"), Fleet.Direction.EAST, "4m",
                         Fleet.Hours.parse("06:00-23:00"), new Fleet.OffPeak(1, Fleet.Hours.parse("21:00-06:00"))));
         Network network = Network.builder()
@@ -38,7 +38,8 @@ class NetworkCodecTest {
                 .line(new Line("a", "Line A Upperground", "A+", 0xE53935, Map.of(), "Track works")
                         .withService(north).withService(south))
                 .line(Line.of("b", "Line B", 0x00AA00).withService(other))
-                .board(new Board("main-1", "main", List.of("1"), List.of(BlockPos.parse("world,-320,65,-802"))))
+                .board(new Board("main-1", "main", List.of("1"), List.of(BlockPos.parse("world,-320,65,-802")),
+                        Map.of(BlockPos.parse("world,-321,65,-802"), 1)))
                 .display(new Display("main-roadmap", Display.Kind.ROADMAP, "main", List.of("1"), ServiceKey.parse("a/north"),
                         2, 1, List.of(new Display.Frame(BlockPos.parse("world,-318,66,-802"), 0, 0, 12),
                                 new Display.Frame(BlockPos.parse("world,-317,66,-802"), 1, 0, 13)), List.of(), null))
@@ -71,6 +72,10 @@ class NetworkCodecTest {
         assertTrue(yaml.contains("timetable:") && yaml.contains(":30"), "the timetable is written as minutes past the hour");
         assertEquals(List.of(0, 30), read.service(ServiceKey.parse("b/x")).orElseThrow().timetable());
         assertTrue(yaml.contains("hours: 06:00-23:00") && yaml.contains("off-peak:"), "fleet hours are written");
+        assertTrue(yaml.contains("short: SH"), "the service's short name is written");
+        assertEquals("SH", read.service(ServiceKey.parse("b/x")).orElseThrow().shortName());
+        assertTrue(yaml.contains("mirrors:") && yaml.contains("world,-321,65,-802"), "board mirrors are written: " + yaml);
+        assertEquals(1, read.board("main-1").orElseThrow().mirrors().get(BlockPos.parse("world,-321,65,-802")));
     }
 
     @Test

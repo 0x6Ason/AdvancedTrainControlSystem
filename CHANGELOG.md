@@ -152,6 +152,12 @@ TrainCarts server, configured with files and in-game commands.
 - Walking transfers between nearby stations (`/atcs transfer`, `transfers:` in network.yml): a
   dotted connector on the map, walked by the trip planner, and mentioned in arrival
   announcements.
+- Board mirrors: `/atcs board mirror <id> [line]` makes another sign repeat one of a board's
+  lines, so the same next departure can be read at both ends of a platform (`mirrors:` under
+  the board in network.yml). Services have a short name for sign lines their name does not fit
+  (`/atcs service short`, `short:` in network.yml, `<service_short>` in layouts); boards use it
+  where the full name would be cut off, and without one abbreviate *Clockwise* to CW and
+  *Counter-clockwise* to CCW.
 - Trains standing at a station survive a plugin reload or a restart: an ATCS hold ends the
   moment the plugin stops (or its check fails), so the train leaves on the launch queued behind
   it; when ATCS starts, and every few seconds after, a train on a service that stands at an

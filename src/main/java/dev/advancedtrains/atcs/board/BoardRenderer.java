@@ -8,6 +8,7 @@ import dev.advancedtrains.atcs.passenger.Placeholders;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 
@@ -23,7 +24,18 @@ public final class BoardRenderer {
         if (network.line(departure.service().key().lineId()).isEmpty()) {
             return empty(messages);
         }
-        return pad(messages.renderLines("board.departure", placeholders(departure, network, messages)));
+        List<Component> lines = pad(messages.renderLines("board.departure", placeholders(departure, network, messages)));
+        if (lines.stream().allMatch(SignText::fits) || departure.service().shortLabel().equals(departure.service().name())) {
+            return lines;
+        }
+        // A line the sign would cut off is tried again with the service's short name in place of its name.
+        List<Component> shortened = pad(messages.renderLines("board.departure",
+                placeholders(departure, network, messages, departure.service().shortLabel())));
+        Component[] result = new Component[4];
+        for (int index = 0; index < 4; index++) {
+            result[index] = SignText.fits(lines.get(index)) ? lines.get(index) : shortened.get(index);
+        }
+        return List.of(result);
     }
 
     /**
@@ -32,8 +44,17 @@ public final class BoardRenderer {
      * Boards, hologram boards and board pictures all use them. The departure's line must exist.
      */
     public static TagResolver placeholders(Departures.Departure departure, Network network, Messages messages) {
+        return placeholders(departure, network, messages, null);
+    }
+
+    /** As above, with {@code serviceName} standing in for {@code <service>} when given. */
+    private static TagResolver placeholders(Departures.Departure departure, Network network, Messages messages,
+                                            @Nullable String serviceName) {
         Line line = network.line(departure.service().key().lineId()).orElseThrow();
         TagResolver.Builder placeholders = Placeholders.service(line, departure.service(), network, departure.stopIndex());
+        if (serviceName != null) {
+            placeholders.resolver(Placeholder.unparsed("service", serviceName));
+        }
         placeholders.resolver(Placeholder.unparsed("platform", platformName(network, departure)));
         Component eta = departure.etaSeconds().isPresent()
                 ? messages.duration(departure.etaSeconds().getAsDouble())

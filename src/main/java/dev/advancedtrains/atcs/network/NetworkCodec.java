@@ -453,7 +453,8 @@ public final class NetworkCodec {
                     positions(node, "spawn-signs", path + ".spawn-signs", errors),
                     fleet,
                     speed,
-                    timetable);
+                    timetable,
+                    node.getString("short"));
         } catch (IllegalArgumentException exception) {
             errors.add(path + ": " + exception.getMessage());
             return null;
@@ -490,11 +491,25 @@ public final class NetworkCodec {
             return null;
         }
         try {
+            Map<BlockPos, Integer> mirrors = new LinkedHashMap<>();
+            ConfigurationSection mirrorNodes = node.getConfigurationSection("mirrors");
+            if (mirrorNodes != null) {
+                for (String position : mirrorNodes.getKeys(false)) {
+                    if (!mirrorNodes.isInt(position)) {
+                        errors.add(path + ".mirrors: '" + position + "' needs the line it repeats, for example 1");
+                        continue;
+                    }
+                    mirrors.put(BlockPos.parse(position), mirrorNodes.getInt(position));
+                }
+            } else if (node.isSet("mirrors")) {
+                errors.add(path + ".mirrors: expected positions with the line each repeats, for example \"world,10,64,-5\": 1");
+            }
             return new Board(
                     key,
                     node.getString("station", ""),
                     stringOrList(node, "platforms", "platform"),
-                    positions(node, "signs", path + ".signs", errors));
+                    positions(node, "signs", path + ".signs", errors),
+                    mirrors);
         } catch (IllegalArgumentException exception) {
             errors.add(path + ": " + exception.getMessage());
             return null;
@@ -558,6 +573,10 @@ public final class NetworkCodec {
                 node.set("platforms", board.platforms());
             }
             node.set("signs", board.signs().stream().map(BlockPos::format).toList());
+            if (!board.mirrors().isEmpty()) {
+                ConfigurationSection mirrorNodes = node.createSection("mirrors");
+                board.mirrors().forEach((sign, line) -> mirrorNodes.set(sign.format(), line));
+            }
         }
 
         if (!network.displays().isEmpty()) {
@@ -658,6 +677,9 @@ public final class NetworkCodec {
             for (Service service : line.services().values()) {
                 ConfigurationSection serviceNode = services.createSection(service.key().serviceId());
                 serviceNode.set("name", service.name());
+                if (service.shortName() != null) {
+                    serviceNode.set("short", service.shortName());
+                }
                 serviceNode.set("stops", service.stops().stream().map(Stop::format).toList());
                 if (service.circular()) {
                     serviceNode.set("circular", true);
