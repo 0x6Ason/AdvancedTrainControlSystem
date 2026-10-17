@@ -24,6 +24,8 @@ public interface EtaContext {
      * platform (configured dwell, headway, the train ahead); empty where only learned dwell applies.
      */
     OptionalDouble remainingStop(String trainId, Instant now);
+    // The answer may itself ask the estimator about other trains; the estimator settles a question
+    // asked while this one is open with the plain dwell, so the chain always ends.
 
     /** Why ATCS keeps the train at its platform right now, for displays; null when it is not held. */
     default @Nullable String holdReason(String trainId) {

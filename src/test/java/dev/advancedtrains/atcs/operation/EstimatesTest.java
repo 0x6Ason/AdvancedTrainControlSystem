@@ -118,6 +118,38 @@ class EstimatesTest {
         assertTrue(paths.progress(service, 1, "world", 50, 64, 1).isEmpty(), "segment not recorded");
     }
 
+    @Test
+    void theContextMayAskTheEstimatorBackWithoutALoop() {
+        // Station control with even spacing: how long a standing train is kept depends on when the
+        // other train arrives, which (if that one is standing too) asks how long it is kept ...
+        Instant now = T0.plusSeconds(1000);
+        JourneySnapshot a = atStop("A", 0, P1, now.minusSeconds(3), now);
+        JourneySnapshot b = atStop("B", 1, P2, now.minusSeconds(3), now);
+        EtaCalculator[] eta = new EtaCalculator[1];
+        EtaContext asksBack = new EtaContext() {
+            @Override
+            public OptionalDouble segmentProgress(String trainId, Service service, int fromIndex) {
+                return OptionalDouble.empty();
+            }
+
+            @Override
+            public boolean standing(String trainId) {
+                return false;
+            }
+
+            @Override
+            public OptionalDouble remainingStop(String trainId, Instant at) {
+                JourneySnapshot other = trainId.equals("A") ? b : a;
+                OptionalDouble arrival = eta[0].secondsUntil(other, service, 2, at);
+                return arrival.isPresent() ? OptionalDouble.of(arrival.getAsDouble() / 10) : OptionalDouble.empty();
+            }
+        };
+        eta[0] = new EtaCalculator(times, 10, asksBack);
+        // B's arrival at s3 is answered with B's plain dwell (7 s left) + 60 s = 67 s, so A is kept 6.7 s.
+        assertEquals(6.7 + 48 + 10 + 60, eta[0].secondsUntil(a, service, 2, now).getAsDouble(), 0.01);
+        assertEquals(6.7 + 48, eta[0].secondsUntil(a, service, 1, now).getAsDouble(), 0.01);
+    }
+
     private static EtaContext context(double progress, boolean standing, OptionalDouble remaining) {
         return new EtaContext() {
             @Override

@@ -2,11 +2,17 @@ package dev.advancedtrains.atcs.control;
 
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.PlatformRef;
+import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.network.ServiceKey;
+import dev.advancedtrains.atcs.operation.Departures;
+import dev.advancedtrains.atcs.operation.EtaCalculator;
+import dev.advancedtrains.atcs.operation.EtaContext;
 import dev.advancedtrains.atcs.operation.JourneyEvent;
+import dev.advancedtrains.atcs.operation.JourneyPhase;
 import dev.advancedtrains.atcs.operation.JourneyTracker;
 import dev.advancedtrains.atcs.operation.JourneySnapshot;
 import dev.advancedtrains.atcs.operation.StopObservation;
+import dev.advancedtrains.atcs.operation.TravelTimes;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -94,6 +100,76 @@ class RegulationTest {
         control.standing("mine", P2, plain, T0.plusSeconds(40));
         assertEquals(10, control.remainingStop("mine", tracker.snapshots(), T0.plusSeconds(40), behindIn(200)).getAsDouble(), 0.01,
                 "without even spacing only the dwell counts");
+    }
+
+    /**
+     * The first live railway with even spacing on a circular line, 2026-10-17: two trains standing,
+     * each one's hold depending on when the other arrives, and the server overflowing its stack.
+     * The control and the estimator are wired here as the runtime wires them.
+     */
+    @Test
+    void twoStandingTrainsOnALoopDoNotAskEachOtherForever() {
+        StationControl.Plan plan = StationControl.Plan.of(StopOptions.parse("10s even"), StationControl.Rules.DEFAULT);
+        PlatformRef p1 = new PlatformRef("s1", "1");
+        Service loop = network.service(LOOP).orElseThrow();
+        // The previous train of the service left both platforms 30 s before A and B arrived.
+        control.departed(new JourneyEvent.Departed("x", T0.minusSeconds(30), LOOP, 0, p1, 1, null));
+        control.departed(new JourneyEvent.Departed("x", T0.minusSeconds(30), LOOP, 1, P2, 2, null));
+        enter("A", "s1", T0);
+        control.standing("A", p1, plan, T0);
+        enter("B", "s2", T0);
+        control.standing("B", P2, plan, T0);
+        Instant now = T0.plusSeconds(5);
+
+        EtaCalculator[] eta = new EtaCalculator[1];
+        StationControl.Lookahead lookahead = new StationControl.Lookahead() {
+            @Override
+            public OptionalDouble untilNextStation(JourneySnapshot journey) {
+                return OptionalDouble.empty();
+            }
+
+            @Override
+            public OptionalDouble untilArrivalAt(JourneySnapshot journey, PlatformRef platform) {
+                int target = Departures.targetIndex(journey, loop, platform.stationId());
+                if (target < 0) {
+                    return OptionalDouble.empty();
+                }
+                if (journey.phase() == JourneyPhase.AT_STOP && journey.lastIndex() == target) {
+                    return OptionalDouble.of(0);
+                }
+                return eta[0].secondsUntil(journey, loop, target, now);
+            }
+        };
+        EtaContext context = new EtaContext() {
+            @Override
+            public OptionalDouble segmentProgress(String trainId, Service service, int fromIndex) {
+                return OptionalDouble.empty();
+            }
+
+            @Override
+            public boolean standing(String trainId) {
+                return true;
+            }
+
+            @Override
+            public OptionalDouble remainingStop(String trainId, Instant at) {
+                return control.remainingStop(trainId, tracker.snapshots(), at, lookahead);
+            }
+        };
+        // Every stretch of the loop takes 60 s (a prior; nothing is learned yet), trains stand 10 s.
+        eta[0] = new EtaCalculator(new TravelTimes(0.3), 10, context, (service, fromIndex) -> OptionalDouble.of(60));
+
+        // A asks when B arrives at s1; B's own hold asks when A arrives at s2, and that question is
+        // settled with A's plain dwell (5 s left): A at s2 in 65 s, gap ahead 35 s, so B is kept
+        // (65 - 35) / 2 = 15 s; B at s1 in 15 + 60 + 10 + 60 = 145 s, so A is kept (145 - 35) / 2 = 55 s.
+        assertEquals(55, control.remainingStop("A", tracker.snapshots(), now, lookahead).getAsDouble(), 0.01);
+        // Asked about B first, the roles swap: A's hold counts B's plain dwell, 5 + 130 = 135 s at s1,
+        // so A is kept 50 s and reaches s2 in 110 s; B is kept (110 - 35) / 2 = 37.5 s.
+        assertEquals(37.5, control.remainingStop("B", tracker.snapshots(), now, lookahead).getAsDouble(), 0.01);
+        // Asked through the estimator the chain is one level shorter: A's own hold is the one that
+        // counts B's plain dwell (135 s to s1, kept 50 s), then 60 s to s2.
+        JourneySnapshot a = tracker.snapshot("A").orElseThrow();
+        assertEquals(50 + 60, eta[0].secondsUntil(a, loop, 1, now).getAsDouble(), 0.01);
     }
 
     @Test

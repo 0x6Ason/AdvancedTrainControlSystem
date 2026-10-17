@@ -34,6 +34,8 @@ public final class EtaCalculator implements Estimator {
     private final double defaultDwellSeconds;
     private final EtaContext context;
     private final Priors priors;
+    /** Whether the context is being asked right now; see {@link #remainingAtStop}. */
+    private boolean askingContext;
 
     public EtaCalculator(TravelTimes times, double defaultDwellSeconds) {
         this(times, defaultDwellSeconds, EtaContext.NONE, Priors.NONE);
@@ -141,13 +143,26 @@ public final class EtaCalculator implements Estimator {
         return Optional.empty();
     }
 
-    /** Seconds until the train leaves the stop it stands at: what ATCS decided, else learned dwell minus the time stood. */
+    /**
+     * Seconds until the train leaves the stop it stands at: what ATCS decided, else learned dwell
+     * minus the time stood. The context may ask the estimator back while deciding: how long a
+     * train is held for even spacing depends on when the next one arrives, which on a circular
+     * line depends on how long that one is held, and so on round the loop; a junction check asks
+     * whether the train it is about is late. A question the context raises while it is answering
+     * one is therefore settled by the plain dwell instead of being put to the context again.
+     */
     double remainingAtStop(JourneySnapshot journey, Service service, int index, Instant now) {
-        OptionalDouble controlled = context.remainingStop(journey.trainId(), now);
-        if (controlled.isPresent()) {
-            return Math.max(0, controlled.getAsDouble());
+        double plain = Math.max(0, dwell(service, index) - elapsed(journey.arrivedAt(), now));
+        if (askingContext) {
+            return plain;
         }
-        return Math.max(0, dwell(service, index) - elapsed(journey.arrivedAt(), now));
+        askingContext = true;
+        try {
+            OptionalDouble controlled = context.remainingStop(journey.trainId(), now);
+            return controlled.isPresent() ? Math.max(0, controlled.getAsDouble()) : plain;
+        } finally {
+            askingContext = false;
+        }
     }
 
     /**

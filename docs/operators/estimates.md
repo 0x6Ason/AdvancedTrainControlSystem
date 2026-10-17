@@ -21,7 +21,10 @@ ATCS learns, it is not told. Nothing in `network.yml` says how long a stretch ta
   does not sit on *Arriving* while the number says otherwise.
 - **What ATCS itself will do.** A hold the station rules will impose (a headway gap, a block
   that is not clear, even spacing, a timetable slot, junction priority) is predicted from the
-  rule and added, instead of learned as if it were travel time.
+  rule and added, instead of learned as if it were travel time. When such a prediction needs
+  another train's arrival (even spacing waits for the train behind), that train's own stop counts
+  as its plain dwell rather than its hold, so on a circular line the question does not go round
+  for ever.
 - **One train per platform, in order.** All trains of a service are estimated together: a train
   cannot arrive before the one ahead has left, so the trains of a bunched line come out in the
   right order with a sensible gap between them.
