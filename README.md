@@ -255,8 +255,9 @@ stop. `/atcs train hold` and `release` keep a train at its next station sign by 
 skip` makes it run through a station once (riders are told), `/atcs train shortturn` turns a
 train back at a station as the service of its line running the other way (riders are told
 there; the train leaves backwards and boards show its new destination), `/atcs train depot`
-takes a train out of service and sends it to the depot (no service, through every station,
-routed by the TrainCarts destination `control.depot-destination`), and `/atcs switch set` sends
+takes a train out of service and sends it to the depot (no service, through every station
+except one whose sign turns trains back, routed by the TrainCarts destination
+`control.depot-destination`), and `/atcs switch set` sends
 every train at a switch sign one way for a while. With `control.junction-priority: true` a train about
 to leave a platform whose next stretch of track runs into a junction waits for a train that is
 approaching it, unless it goes first: the late train first, then the line listed earlier in

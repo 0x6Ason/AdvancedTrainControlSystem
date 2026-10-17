@@ -686,9 +686,12 @@ public final class RailwayRuntime {
     public StationControl.@Nullable Plan planStop(TrainHandle train, PlatformRef platform, List<JourneyEvent> events,
                                                   StopOptions options) {
         AtcsSettings.Control rules = settings.control();
-        StationControl.Decision decision = StationControl.decide(platform, events,
-                tracker.snapshot(train.name()).orElse(null), store.network(), rules.rules(),
-                ServiceResolver.isDepotBound(train.info().tags()));
+        // A train bound for the depot runs through every station, except that a sign which turns
+        // trains back (a dead-end terminus) turns it back too, rather than letting it run off the end.
+        boolean toDepot = ServiceResolver.isDepotBound(train.info().tags());
+        StationControl.Decision decision = toDepot && options.heading() == Heading.REVERSE
+                ? new StationControl.Decision(StationControl.Verdict.STOP, "bound for the depot; turns back here like every train")
+                : StationControl.decide(platform, events, tracker.snapshot(train.name()).orElse(null), store.network(), rules.rules(), toDepot);
         if (debug) {
             logger.info("[debug] " + train.name() + (decision.stops() ? " stops at " : " runs through ") + platform
                     + ": " + decision.reason());
