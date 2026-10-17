@@ -467,7 +467,9 @@ All in `plugins/AdvancedTrainControlSystem/`:
 parts but refuses edits until it is fixed, and if you edited it without `/atcs reload`, in-game edits
 are refused instead of replacing your changes.
 
-A small example:
+A small example (a complete one, with a loop line, a fleet, a timetable, a board with a mirror
+and a walking transfer, is in [docs/examples/network.yml](docs/examples/network.yml); ATCS
+reads it as it is, so it is a safe starting point):
 
 ```yaml
 version: 1

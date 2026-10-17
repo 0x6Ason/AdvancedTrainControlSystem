@@ -152,6 +152,7 @@ TrainCarts server, configured with files and in-game commands.
 - Walking transfers between nearby stations (`/atcs transfer`, `transfers:` in network.yml): a
   dotted connector on the map, walked by the trip planner, and mentioned in arrival
   announcements.
+- A complete example network in `docs/examples/network.yml`, read by a test so it stays valid.
 - Service recovery: `/atcs train shortturn <train> <station>` turns a train back at a station as
   the service of its line running the other way (riders are told there, the train leaves
   backwards, boards and the website follow its new destination); `/atcs train depot <train>`

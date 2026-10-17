@@ -1,0 +1,128 @@
+# A complete, small network.yml: two lines, a loop, a fleet, a board, a walking transfer.
+# ATCS reads this file as it is (a test checks it), so it is a safe starting point: copy it to
+# plugins/AdvancedTrainControlSystem/network.yml, change the names and the positions of the
+# signs to yours, and run /atcs reload, then /atcs lint.
+#
+# Positions are world,x,y,z. A platform's triggers are the TrainCarts or atcs station signs that
+# trains pass at that platform; the positions here are made up.
+version: 1
+
+stations:
+  main:
+    name: Main St.
+    # A short code for SignLink variables and logos; without one, ATCS makes one from the id.
+    code: mn
+    platforms:
+      '1':
+        name: Eastbound
+        triggers:
+        - world,100,64,0
+      '2':
+        name: Westbound
+        triggers:
+        - world,100,64,4
+  park:
+    name: Park Lane
+    platforms:
+      '1':
+        triggers:
+        - world,300,64,0
+      '2':
+        triggers:
+        - world,300,64,4
+  harbour:
+    name: Harbour
+    platforms:
+      '1':
+        triggers:
+        - world,500,64,0
+      '2':
+        triggers:
+        - world,500,64,4
+  hill:
+    name: Hill Top
+    platforms:
+      '1':
+        triggers:
+        - world,300,80,-200
+  hill-village:
+    name: Hill Village
+    platforms:
+      '1':
+        triggers:
+        - world,300,80,-400
+
+lines:
+  a:
+    name: Line A
+    short-name: A
+    color: '#E53935'
+    services:
+      east:
+        name: Eastbound
+        stops: [main:1, park:1, harbour:1]
+        # At the last stop the train becomes the westbound service without stopping being a
+        # new train: boards and riders see "to Main St." as soon as it arrives.
+        continues-as: west
+        # Trains from this TrainCarts spawn sign run the service.
+        spawn-signs:
+        - world,80,64,0
+      west:
+        name: Westbound
+        stops: [harbour:2, park:2, main:2]
+        continues-as: east
+        # Trains with this TrainCarts destination are taken to be westbound trains too.
+        match:
+          destinations: [MainSt]
+  h:
+    name: Hill Loop
+    short-name: H
+    color: '#1E88E5'
+    services:
+      cw:
+        name: Clockwise
+        # Where the full name does not fit a sign line, boards say this instead.
+        short: CW
+        stops: [park, hill, hill-village]
+        circular: true
+        # ATCS keeps two trains of this pattern running, spawning them on the rail at the
+        # position, heading north, one every 90 seconds while fewer than two exist; one train
+        # is enough at night.
+        fleet:
+          trains: 2
+          every: 01:30
+          spawn: world,300,80,-100
+          direction: north
+          train: 4m
+          hours: 06:00-23:00
+          off-peak:
+            trains: 1
+            hours: 22:00-06:00
+      ccw:
+        name: Counter-clockwise
+        short: CCW
+        stops: [hill-village, hill, park]
+        circular: true
+        # Leaves Hill Village at these minutes past the hour.
+        timetable: [':00', ':20', ':40']
+
+# Nearby stations riders can walk between; the planner and the arrival announcements use it.
+transfers:
+- between: [park, hill]
+  walk: 90
+  outside: true
+
+boards:
+  main-east:
+    station: main
+    platforms: ['1']
+    signs:
+    - world,102,66,-2
+    - world,103,66,-2
+    # Another sign that repeats the first departure, by the entrance.
+    mirrors:
+      world,98,66,-6: 1
+  park-all:
+    station: park
+    signs:
+    - world,302,66,-2
