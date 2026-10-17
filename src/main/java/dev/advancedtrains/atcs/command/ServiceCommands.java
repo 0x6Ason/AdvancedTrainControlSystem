@@ -24,6 +24,7 @@ import org.bukkit.block.data.Rail;
 import org.bukkit.block.sign.Side;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -99,7 +100,7 @@ final class ServiceCommands {
                             default -> List.of();
                         }),
                 leaf("fleet", MANAGE, "<line/service> <trains> <every> <train>|off",
-                        "Let ATCS keep trains running on a service without spawn signs; stand on the rail facing their way",
+                        "Let ATCS keep trains running on a service without spawn signs; stand on the rail facing their way (a fleet keeps its spawn point when you stand elsewhere)",
                         context -> fleet(support, context), (context, index) -> switch (index) {
                             case 0 -> support.serviceKeys();
                             case 1 -> List.of("1", "2", "3", "off");
@@ -494,7 +495,6 @@ final class ServiceCommands {
             Chat.success(context.sender(), service.key() + " no longer keeps a fleet; its trains stay as they are");
             return;
         }
-        Player player = context.player();
         int trains;
         try {
             trains = Integer.parseInt(context.arg(1));
@@ -508,27 +508,49 @@ final class ServiceCommands {
             throw new CommandError(exception.getMessage());
         }
         String pattern = context.arg(3);
-        BlockPos spawn = Support.position(railUnder(player));
-        Fleet.Direction direction = Fleet.Direction.fromYaw(player.getLocation().getYaw());
+        // The spawn point is the rail under the player; a service that has a fleet keeps its
+        // spawn point when the sender stands elsewhere (or is the console), so the number of
+        // trains, the interval or the train pattern can be changed from anywhere.
+        Fleet existing = service.fleet();
+        Block rail = context.sender() instanceof Player player ? railUnder(player) : null;
+        BlockPos spawn;
+        Fleet.Direction direction;
+        boolean samePlace;
+        if (rail != null) {
+            spawn = Support.position(rail);
+            direction = Fleet.Direction.fromYaw(((Player) context.sender()).getLocation().getYaw());
+            samePlace = existing != null && existing.spawn().equals(spawn) && existing.direction() == direction;
+        } else if (existing != null) {
+            spawn = existing.spawn();
+            direction = existing.direction();
+            samePlace = true;
+        } else {
+            throw new CommandError("Stand on the rail where trains should appear, facing the way they should go");
+        }
         Fleet fleet;
         try {
             fleet = new Fleet(trains, every, spawn, direction, pattern);
+            if (existing != null) {
+                fleet = fleet.withHours(existing.hours()).withOffPeak(existing.offPeak());
+            }
         } catch (IllegalArgumentException exception) {
             throw new CommandError(exception.getMessage());
         }
         save(support, service.withFleet(fleet));
         Chat.success(context.sender(), service.key() + " keeps " + fleet.describe() + ". A train appears every "
-                + Fleet.formatEvery(every) + " while fewer than " + trains + " are in service.");
+                + Fleet.formatEvery(every) + " while fewer than " + trains + " are in service."
+                + (rail == null ? " The spawn point stays at " + spawn.coordinates() + "." : ""));
     }
 
-    private static Block railUnder(Player player) throws CommandError {
+    /** The rail the player stands on, or null when there is none. */
+    private static @Nullable Block railUnder(Player player) {
         Block at = player.getLocation().getBlock();
         for (Block candidate : List.of(at, at.getRelative(0, -1, 0))) {
             if (candidate.getBlockData() instanceof Rail) {
                 return candidate;
             }
         }
-        throw new CommandError("Stand on the rail where trains should appear, facing the way they should go");
+        return null;
     }
 
     private static boolean isSpawnSign(Block block) {

@@ -152,6 +152,12 @@ TrainCarts server, configured with files and in-game commands.
 - Walking transfers between nearby stations (`/atcs transfer`, `transfers:` in network.yml): a
   dotted connector on the map, walked by the trip planner, and mentioned in arrival
   announcements.
+- `/atcs service fleet` changes the number of trains, the interval or the train pattern of a
+  fleet from anywhere (the console too): a service that has a fleet keeps its spawn point
+  and direction unless the sender stands on a rail. Its hours and off-peak setting are kept.
+- BlueMap marker images (station logos, train icons) are written by their own thread; the
+  markers are drawn again once an image is there. Writing them on the main thread stalled the
+  server on some file systems.
 - Board mirrors: `/atcs board mirror <id> [line]` makes another sign repeat one of a board's
   lines, so the same next departure can be read at both ends of a platform (`mirrors:` under
   the board in network.yml). Services have a short name for sign lines their name does not fit

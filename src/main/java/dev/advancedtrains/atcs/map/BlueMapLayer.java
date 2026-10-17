@@ -71,7 +71,18 @@ public final class BlueMapLayer implements MapLayer {
     private final Map<String, POIMarker> stationMarkers = new HashMap<>();
     private final Map<String, String> stationBase = new HashMap<>();
     /** Logo key to the image URL BlueMap serves it under. */
-    private final Map<String, String> images = new HashMap<>();
+    /** Asset URLs of the images written, by world and key; "" for an image that could not be written. */
+    private final Map<String, String> images = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Images being written on the painter thread. */
+    private final Set<String> pendingImages = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** Set by the painter when an image has landed, so the markers are drawn again with it. */
+    private final java.util.concurrent.atomic.AtomicBoolean imagesLanded = new java.util.concurrent.atomic.AtomicBoolean();
+    /** Writes marker images: waiting on the disk is not for the main thread (the watchdog noticed). */
+    private final java.util.concurrent.ExecutorService painter = java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "ATCS map images");
+        thread.setDaemon(true);
+        return thread;
+    });
     private final Map<String, String> lineIconByLine = new HashMap<>();
     /** The network was drawn before the API was up, so its icons are missing until it is drawn again. */
     private boolean drawnWithoutApi;
@@ -120,9 +131,10 @@ public final class BlueMapLayer implements MapLayer {
         api = null;
     }
 
+    /** Drawn before BlueMap was up, or marker images have landed since: the markers are drawn again. */
     @Override
     public synchronized boolean wantsNetwork() {
-        return drawnWithoutApi && api != null;
+        return (drawnWithoutApi && api != null) || imagesLanded.getAndSet(false);
     }
 
     @Override
@@ -329,30 +341,49 @@ public final class BlueMapLayer implements MapLayer {
             return null;
         }
         String cacheKey = world + "|" + key;
-        if (images.containsKey(cacheKey)) {
-            return images.get(cacheKey);
+        String known = images.get(cacheKey);
+        if (known != null) {
+            return known.isEmpty() ? null : known;
         }
-        String url = null;
+        if (!pendingImages.add(cacheKey)) {
+            return null;
+        }
         try {
             World bukkitWorld = Bukkit.getWorld(world);
             BlueMapWorld blueMapWorld = bukkitWorld == null ? null : api.getWorld(bukkitWorld).orElse(null);
             BlueMapMap map = blueMapWorld == null ? null : blueMapWorld.getMaps().stream().findFirst().orElse(null);
-            if (map != null) {
-                String name = "atcs/" + key.replaceAll("[^a-z0-9-]+", "-") + ".png";
-                try (java.io.OutputStream out = map.getAssetStorage().writeAsset(name)) {
-                    javax.imageio.ImageIO.write(render.get(), "png", out);
-                }
-                url = map.getAssetStorage().getAssetUrl(name);
+            if (map == null) {
+                images.put(cacheKey, "");
+                pendingImages.remove(cacheKey);
+                return null;
             }
-        } catch (IOException | RuntimeException | LinkageError exception) {
+            String name = "atcs/" + key.replaceAll("[^a-z0-9-]+", "-") + ".png";
+            // Drawing is quick and uses the logos as the displays do, so it stays on this thread;
+            // the file is written by the painter, and the markers are drawn again once it is there.
+            BufferedImage picture = render.get();
+            painter.execute(() -> {
+                String url = "";
+                try (java.io.OutputStream out = map.getAssetStorage().writeAsset(name)) {
+                    javax.imageio.ImageIO.write(picture, "png", out);
+                    url = map.getAssetStorage().getAssetUrl(name);
+                } catch (IOException | RuntimeException | LinkageError exception) {
+                    logger.log(Level.WARNING, "Could not add a logo to BlueMap; the default marker is used", exception);
+                }
+                images.put(cacheKey, url);
+                pendingImages.remove(cacheKey);
+                imagesLanded.set(true);
+            });
+        } catch (RuntimeException | LinkageError exception) {
             logger.log(Level.WARNING, "Could not add a logo to BlueMap; the default marker is used", exception);
+            images.put(cacheKey, "");
+            pendingImages.remove(cacheKey);
         }
-        images.put(cacheKey, url);
-        return url;
+        return null;
     }
 
     @Override
     public synchronized void close() {
+        painter.shutdown();
         networkSets.forEach((id, sets) -> detach(sets, id));
         detach(trainSets, TRAINS_SET);
         networkSets = Map.of();
