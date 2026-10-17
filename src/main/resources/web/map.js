@@ -436,7 +436,7 @@
 
       Object.keys(layout.stations).forEach(function (id) {
         var station = layout.stations[id];
-        var group = el('g', { 'class': 'station' + (station.interchange ? ' interchange' : ''), 'data-id': station.id }, groups.stations);
+        var group = el('g', { 'class': 'station' + (station.interchange ? ' interchange' : station.express ? ' express' : ''), 'data-id': station.id }, groups.stations);
         el('circle', { cx: station.u, cy: station.v, r: station.r }, group);
         el('title', {}, group).textContent = station.name;
         stationNodes[station.id] = group;

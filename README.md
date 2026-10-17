@@ -607,11 +607,15 @@ ATCS writes a small website: a schematic map of the network, the next departures
 station, the trains in service, and a realtime trip planner. It is plain static files, so any web
 server can serve it.
 
-The map is drawn as a subway diagram from your stations' positions and stop orders: stations sit
-on an evenly spaced grid, every line runs through its stops in their real order at 45-degree
-angles with rounded bends, no line is drawn through a station it does not serve, and labels are
-kept clear of lines (long names may wrap onto two lines). Stations keep their real north-south
-and east-west order; distances are not to scale.
+The map is drawn the way the Hong Kong MTR and New York subway maps are: the shape of the
+network follows the world (what is north of a station stays north of it, a line heading
+south-west is drawn heading south-west), but every line runs straight at 0, 45 or 90 degrees with
+rounded bends, the stations along a line are evenly spaced, a crowded centre is spread out and
+long stretches without stations are shortened, so distances are not to scale. No line is drawn
+through a station it does not serve, lines cross where they cross in the world and nowhere else,
+and every name has room beside its station (long names may wrap onto two lines). An express that
+leaves out stops runs on the same line as the local trains, as in New York; on such a line the
+stations every train calls at are drawn as open rings, *Express trains stop* in the key.
 
 The planner follows the actual trains: it projects every running train over its next stops from
 its live position and the travel and stop times learned from your trains, allowing time for each
@@ -625,7 +629,8 @@ with an assumed wait and marked as an estimate.
 
 The diagram stays put: each browser keeps the layout it drew and lays the next network out from
 it, so adding a station moves that station and its neighbours, not the whole map (open the site
-with `?fresh` to lay it out from scratch). The editor saves a layout to `data/map-layout.yml` for
+with `?fresh` to lay it out from scratch). A layout kept from an older version of the map is
+laid out afresh once. The editor saves a layout to `data/map-layout.yml` for
 every browser to start from. Hand adjustments live under `map:` in `network.yml`:
 `/atcs station map <station> pin <column> <row>` fixes a station to a cell, `hide` leaves a depot
 off the diagram, `label left|right|above|below` chooses the side its name goes, and

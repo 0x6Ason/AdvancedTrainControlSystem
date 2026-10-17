@@ -74,6 +74,13 @@ TrainCarts server, configured with files and in-game commands.
   kept for stops that stay; local undo and redo, a review of the file as it will be written, and
   `/atcs undo` from the header. The server is the JDK's own, bound to localhost unless configured.
 - The website's diagram is static again by default: live trains are a button away, not on.
+- The website map is drawn like the Hong Kong MTR and New York subway maps: the shape follows the
+  world (north stays north, a line heading south-west is drawn heading south-west) instead of an
+  even grid, lines run straight at 0, 45 or 90 degrees with evenly spaced stations, a crowded
+  centre is spread out, long empty stretches are shortened, lines cross only where they do in the
+  world, and every name has room. An express that leaves out stops is drawn on the local line,
+  with the stations every train calls at as open rings, instead of as a second line. Layouts kept
+  from the old diagram are laid out afresh once; pins are cells of the new, finer grid.
 - The website diagram stays put: a browser lays the next network out from the layout it drew,
   the server hands out `data/map-layout.yml` when the editor saved one, and `?fresh` starts over.
   Hand adjustments under `map:` in network.yml: `/atcs station map <station> pin|unpin|hide|show|label`

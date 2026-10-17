@@ -178,6 +178,9 @@ button { touch-action: manipulation; }
 .station { cursor: pointer; }
 .station circle { fill: var(--station); stroke: none; }
 .station.interchange circle { fill: var(--interchange-fill); stroke: var(--station); stroke-width: 3.5; }
+/* On a line whose faster trains leave out stops, the stations every train calls at (New York style). */
+.station.express circle { fill: var(--interchange-fill); stroke: var(--station); stroke-width: 3; }
+.legend-stop { flex: none; }
 .station:hover circle, .station.selected circle { r: 10; }
 .station.selected circle { fill: var(--warn); stroke: var(--station); stroke-width: 3.5; }
 .station.dim, .label.dim { opacity: .25; }

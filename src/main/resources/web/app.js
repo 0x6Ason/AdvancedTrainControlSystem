@@ -300,12 +300,17 @@
     });
   }
 
-  function renderHeader() {
+  function renderHeader(layout) {
     $('header-bullets').innerHTML = network.lines.map(function (line) { return bullet(line); }).join('');
+    var express = layout && Object.keys(layout.stations).some(function (id) { return layout.stations[id].express; });
     $('legend').innerHTML = network.lines.map(function (line) {
       return '<div class="legend-item' + (line.suspended ? ' suspended' : '') + '">' + bullet(line, true)
         + '<span class="legend-name">' + escapeHtml(line.name) + (line.suspended ? ' (suspended)' : '') + '</span></div>';
-    }).join('');
+    }).join('') + (express
+      ? '<div class="legend-item"><svg class="legend-stop" width="22" height="16" viewBox="0 0 22 16" aria-hidden="true">'
+        + '<circle cx="11" cy="8" r="5.5" fill="var(--interchange-fill)" stroke="var(--station)" stroke-width="3"/></svg>'
+        + '<span class="legend-name">Express trains stop</span></div>'
+      : '');
   }
 
   function stationBullets(id) {
@@ -777,7 +782,7 @@
       $('map-empty').innerHTML = 'No station has a position yet. Stand at each station and run <code>/atcs station locate &lt;id&gt;</code>, or let trains call at them.';
     }
     map.setLayout(layout);
-    renderHeader();
+    renderHeader(layout);
     renderStationList($('station-search').value);
     if (selectedStation && stationIndex[selectedStation]) showStation(selectedStation, true);
     if (planFrom && planTo) runPlan(false);
