@@ -56,6 +56,9 @@ public final class ChunkKeeper {
     }
 
     public void release() {
+        if (held.isEmpty()) {
+            return;
+        }
         for (World world : Bukkit.getWorlds()) {
             world.removePluginChunkTickets(plugin);
         }
