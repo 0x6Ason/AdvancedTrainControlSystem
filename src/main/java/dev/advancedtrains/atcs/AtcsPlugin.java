@@ -311,6 +311,16 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         }
         state.add("skips", skips);
         state.add("standing", standing);
+        com.google.gson.JsonObject turns = new com.google.gson.JsonObject();
+        runtime.shortTurns().forEach(turns::addProperty);
+        state.add("turns", turns);
+        com.google.gson.JsonArray depot = new com.google.gson.JsonArray();
+        for (TrainHandle train : runtime.trainSource().loadedTrains()) {
+            if (dev.advancedtrains.atcs.operation.ServiceResolver.isDepotBound(train.info().tags())) {
+                depot.add(train.name());
+            }
+        }
+        state.add("depot", depot);
         com.google.gson.JsonObject blocks = new com.google.gson.JsonObject();
         runtime.blocks().all().forEach((id, occupancy) -> {
             com.google.gson.JsonObject entry = new com.google.gson.JsonObject();
@@ -368,7 +378,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         com.google.gson.JsonObject result = new com.google.gson.JsonObject();
         try {
             switch (action) {
-                case "hold", "release", "skip", "unskip" -> {
+                case "hold", "release", "skip", "unskip", "shortturn", "unshortturn", "depot" -> {
                     String name = order.has("train") ? order.get("train").getAsString() : "";
                     TrainHandle train = runtime.trainSource().train(name).orElse(null);
                     if (train == null) {
@@ -377,16 +387,19 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
                     switch (action) {
                         case "hold" -> runtime.holdByHand(train, order.has("reason") && !order.get("reason").isJsonNull() ? order.get("reason").getAsString() : "");
                         case "release" -> runtime.releaseByHand(train);
-                        case "skip" -> {
+                        case "skip", "shortturn" -> {
                             String station = order.get("station").getAsString();
                             if (store.network().station(station).isEmpty()) {
                                 throw new EditorApi.ApiException(404, "Unknown station " + station, null);
                             }
-                            java.util.Optional<String> problem = runtime.skipStop(train, station);
+                            java.util.Optional<String> problem = action.equals("skip")
+                                    ? runtime.skipStop(train, station) : runtime.shortTurn(train, station);
                             if (problem.isPresent()) {
                                 throw new EditorApi.ApiException(409, problem.get(), null);
                             }
                         }
+                        case "unshortturn" -> runtime.cancelShortTurn(train);
+                        case "depot" -> runtime.toDepot(train);
                         default -> runtime.unskipStop(train, order.get("station").getAsString());
                     }
                     result.addProperty("done", action + " " + name);

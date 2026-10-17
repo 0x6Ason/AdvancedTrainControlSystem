@@ -166,7 +166,7 @@ estimate) and drive the boss-bar and board arrival times.
 <!-- --8<-- [start:signs] -->
 ## Signs
 
-ATCS adds eight TrainCarts sign types. Building them needs `atcs.sign.build`.
+ATCS adds nine TrainCarts sign types. Building them needs `atcs.sign.build`.
 
 ```
 [+train]        [+train]          [+train]      [+train]         [+train]        [+train]
@@ -174,8 +174,8 @@ atcs stop       atcs service      atcs clear    atcs indicator   atcs station   
 main            a/north                         main:2           main:2          left a/express
 2                                               approach a       10s continue    right *
 
-[+train]        [+train]
-atcs block      atcs speed
+[+train]        [+train]          [+train]
+atcs block      atcs speed        atcs depot
 tunnel-east     0.6
 enter           a/express
 ```
@@ -195,6 +195,9 @@ enter           a/express
 - `atcs speed` sets the speed limit of the trains that pass it, all of them or one line's or
   service's, so an express runs faster than a local on shared track. A service can also carry a
   `speed` in `network.yml`, set on its trains when they take it up.
+- `atcs depot` is where a train sent to the depot ends: a train a dispatcher sent there
+  (`/atcs train depot`) is taken out of the world when it arrives with nobody aboard. Any other
+  train passes it.
 
 ### Station signs
 
@@ -249,8 +252,12 @@ of the trains bunching. `control.even-spacing: true` turns it on for every stati
 makes a timetable: the train leaves at the next listed minute after its dwell, and boards count
 down to it. A service's `timetable: [':00', ':30']` in `network.yml` does the same at its first
 stop. `/atcs train hold` and `release` keep a train at its next station sign by hand, `/atcs train
-skip` makes it run through a station once (riders are told), and `/atcs switch set` sends every
-train at a switch sign one way for a while. With `control.junction-priority: true` a train about
+skip` makes it run through a station once (riders are told), `/atcs train shortturn` turns a
+train back at a station as the service of its line running the other way (riders are told
+there; the train leaves backwards and boards show its new destination), `/atcs train depot`
+takes a train out of service and sends it to the depot (no service, through every station,
+routed by the TrainCarts destination `control.depot-destination`), and `/atcs switch set` sends
+every train at a switch sign one way for a while. With `control.junction-priority: true` a train about
 to leave a platform whose next stretch of track runs into a junction waits for a train that is
 approaching it, unless it goes first: the late train first, then the line listed earlier in
 `control.priority`, then the nearer one; this needs recorded track, so that ATCS knows where the
@@ -271,7 +278,11 @@ right 1 5
 
 Trains are named by service (`1/express`), by line (`1`), by the station they reach next on their
 service (`golden-beach`), or `*` for every train; a direction on its own means every train too.
-The first rule that fits wins; a train no rule fits leaves the junction as it is. Directions are the
+`free main:2` names the trains for `main` while platform 2 is free (nothing standing there and no
+train sent there in the last few minutes), so a terminus with several platforms fills them in
+turn: `left free main:1`, `right free main:2`, then `left main` for when both are taken. `depot`
+names the trains a dispatcher sent to the depot. The first rule that fits wins; a train no rule
+fits leaves the junction as it is. Directions are the
 ones TrainCarts' own signs understand: `continue` and `reverse` follow the train, `left` and `right`
 are as seen by a train driving towards the front of the sign (so face the sign towards the trains
 it switches, as you would a TrainCarts switcher), and `north`, `east`, `south`, `west` are absolute.

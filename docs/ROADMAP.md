@@ -413,9 +413,9 @@ good and already too long for one page. The plan:
 ## Where it stands
 
 As of 2026-10-17 steps 1 to 10 of the order below are built, verified on a staging copy of a
-real railway and on `main` (see the changelog for what each brought); of the control section,
-short-turning, a free-platform picker at termini and sending a train to the depot are the items
-not built yet. Step 11 has its contributor material in place; the licence, the API module and
+real railway and on `main` (see the changelog for what each brought), the control section
+included: short-turning, a free-platform picker at termini and sending a train to the depot
+came last. Step 11 has its contributor material in place; the licence, the API module and
 publishing wait for the author's word.
 
 ## Suggested order

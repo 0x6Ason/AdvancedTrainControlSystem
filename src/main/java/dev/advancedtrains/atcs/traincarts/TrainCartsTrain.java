@@ -85,6 +85,13 @@ final class TrainCartsTrain implements TrainHandle {
         group.getProperties().setDestination(destination);
     }
 
+    @Override
+    public void markForDepot() {
+        TrainProperties properties = group.getProperties();
+        removeAtcsTags(properties);
+        properties.addTags(ServiceResolver.depotTag());
+    }
+
     /** Removes the train from the world. */
     boolean destroy() {
         if (group.isEmpty() || group.isUnloaded()) {

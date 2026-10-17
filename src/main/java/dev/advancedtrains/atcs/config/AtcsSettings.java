@@ -148,7 +148,11 @@ public record AtcsSettings(
      * @param junctionPriority whether a train waits at its platform for a train about to cross the junction ahead
      * @param priority         line ids in order of precedence at junctions; lines not listed come last
      */
-    public record Control(StationControl.Rules rules, boolean setDestinations, boolean junctionPriority, List<String> priority) {
+    public record Control(StationControl.Rules rules, boolean setDestinations, boolean junctionPriority, List<String> priority,
+                          String depotDestination) {
+        public Control(StationControl.Rules rules, boolean setDestinations, boolean junctionPriority, List<String> priority) {
+            this(rules, setDestinations, junctionPriority, priority, "depot");
+        }
     }
 
     /**
@@ -264,7 +268,8 @@ public record AtcsSettings(
                 reader.decimal("control.even-max-hold-seconds", StationControl.EVEN_MAX_HOLD_DEFAULT, 0, 3600)),
                 reader.bool("control.set-destinations", false),
                 reader.bool("control.junction-priority", false),
-                reader.strings("control.priority", List.of()).stream().map(id -> id.strip().toLowerCase(Locale.ROOT)).toList());
+                reader.strings("control.priority", List.of()).stream().map(id -> id.strip().toLowerCase(Locale.ROOT)).toList(),
+                reader.string("control.depot-destination", "depot").strip());
 
         Logging logging = new Logging(
                 reader.bool("logging.events", true),

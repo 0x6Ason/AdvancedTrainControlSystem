@@ -55,6 +55,16 @@ class StationControlTest {
     }
 
     @Test
+    void trainsBoundForTheDepotRunThroughEveryStation() {
+        List<JourneyEvent> calling = enter("local", LOCAL, "s2", T0);
+        assertTrue(decide("local", "s2", calling).stops(), "it would call here");
+        StationControl.Decision depot = StationControl.decide(new PlatformRef("s2", "1"), calling,
+                tracker.snapshot("local").orElse(null), network, StationControl.Rules.DEFAULT, true);
+        assertFalse(depot.stops());
+        assertEquals("bound for the depot", depot.reason());
+    }
+
+    @Test
     void policiesDecideTrainsWithoutARouteHere() {
         List<JourneyEvent> unknown = enter("stray", null, "s2", T0);
         assertTrue(decide("stray", "s2", unknown).stops(), "unknown trains stop by default");

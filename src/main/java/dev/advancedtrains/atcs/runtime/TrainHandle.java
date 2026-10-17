@@ -35,6 +35,9 @@ public interface TrainHandle {
     /** Sets the TrainCarts destination its path-finding routes the train to; empty clears it. */
     void setDestination(String destination);
 
+    /** Removes the stored service and marks the train as sent to the depot, which survives unloads. */
+    void markForDepot();
+
     /** Whether the train still has the name TrainCarts generated, rather than one a person chose. */
     boolean hasGeneratedName();
 

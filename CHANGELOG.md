@@ -152,6 +152,14 @@ TrainCarts server, configured with files and in-game commands.
 - Walking transfers between nearby stations (`/atcs transfer`, `transfers:` in network.yml): a
   dotted connector on the map, walked by the trip planner, and mentioned in arrival
   announcements.
+- Service recovery: `/atcs train shortturn <train> <station>` turns a train back at a station as
+  the service of its line running the other way (riders are told there, the train leaves
+  backwards, boards and the website follow its new destination); `/atcs train depot <train>`
+  takes a train out of service and sends it to the depot, routed by the TrainCarts destination
+  `control.depot-destination`, through every station, where an `atcs depot` sign takes it out of
+  the world once nobody is aboard; `atcs switch` rules `free <station:platform>` (a free-platform
+  picker for termini with several platforms, with the platform kept for the train sent there)
+  and `depot`. All three from the editor's Dispatch section too.
 - `/atcs service fleet` changes the number of trains, the interval or the train pattern of a
   fleet from anywhere (the console too): a service that has a fleet keeps its spawn point
   and direction unless the sender stands on a rail. Its hours and off-peak setting are kept.

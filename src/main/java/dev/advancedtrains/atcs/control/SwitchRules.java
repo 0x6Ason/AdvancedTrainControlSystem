@@ -3,12 +3,14 @@ package dev.advancedtrains.atcs.control;
 import dev.advancedtrains.atcs.network.Ids;
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.ServiceKey;
+import dev.advancedtrains.atcs.network.PlatformRef;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * The rules of an {@code atcs switch} sign: one per line, each a direction followed by the trains it
@@ -26,41 +28,91 @@ import java.util.Optional;
 public record SwitchRules(List<Rule> rules) {
 
     public static final String HELP = "each line is a direction (left, right, continue, north, ...) followed by"
-            + " the trains it is for: a service (1/express), a line (1), the station they reach next (main), or *";
+            + " the trains it is for: a service (1/express), a line (1), the station they reach next (main), *,"
+            + " 'free main:2' (trains for main while platform 2 is free) or 'depot' (trains sent to the depot)";
 
-    /** @param selectors services, lines, stations or {@code *}; an empty list means every train */
+    /** A selector for trains whose next station's platform is free: {@code free:<station>:<platform>}. */
+    static final String FREE = "free:";
+    /** A selector for trains a dispatcher sent to the depot. */
+    static final String DEPOT = "depot";
+
+    /** What a switch knows about the train in front of it. */
+    public record Context(@Nullable ServiceKey service, @Nullable String nextStationId, boolean toDepot,
+                          Predicate<PlatformRef> platformFree) {
+        public Context(@Nullable ServiceKey service, @Nullable String nextStationId) {
+            this(service, nextStationId, false, platform -> true);
+        }
+    }
+
+    /**
+     * @param selectors services, lines, stations, {@code *}, {@code depot} or {@code free:station:platform};
+     *                  an empty list means every train
+     */
     public record Rule(Heading heading, List<String> selectors) {
         public Rule {
             selectors = List.copyOf(selectors);
         }
 
-        boolean matches(@Nullable ServiceKey service, @Nullable String nextStationId, Network network) {
+        boolean matches(Context train, Network network) {
             if (selectors.isEmpty()) {
                 return true;
             }
             for (String selector : selectors) {
-                if (selectorMatches(selector, service, nextStationId, network)) {
+                if (selectorMatches(selector, train, network)) {
                     return true;
                 }
             }
             return false;
         }
 
-        private static boolean selectorMatches(String selector, @Nullable ServiceKey service,
-                                               @Nullable String nextStationId, Network network) {
+        private static boolean selectorMatches(String selector, Context train, Network network) {
             if (selector.equals("*")) {
                 return true;
             }
-            if (selector.contains("/")) {
-                return service != null && service.equals(ServiceKey.parse(selector));
+            if (selector.equals(DEPOT)) {
+                return train.toDepot();
             }
-            boolean line = network.line(selector).isPresent() && service != null && service.lineId().equals(selector);
-            boolean station = network.station(selector).isPresent() && selector.equals(nextStationId);
+            if (selector.startsWith(FREE)) {
+                PlatformRef platform = freePlatform(selector);
+                return platform != null && platform.stationId().equals(train.nextStationId()) && train.platformFree().test(platform);
+            }
+            if (train.toDepot()) {
+                return false;
+            }
+            if (selector.contains("/")) {
+                return train.service() != null && train.service().equals(ServiceKey.parse(selector));
+            }
+            boolean line = network.line(selector).isPresent() && train.service() != null && train.service().lineId().equals(selector);
+            boolean station = network.station(selector).isPresent() && selector.equals(train.nextStationId());
             return line || station;
         }
 
+        /** The platform a {@code free} selector names, or null. */
+        static @Nullable PlatformRef freePlatform(String selector) {
+            if (!selector.startsWith(FREE)) {
+                return null;
+            }
+            String[] parts = selector.substring(FREE.length()).split(":", 2);
+            return parts.length == 2 ? new PlatformRef(parts[0], parts[1]) : null;
+        }
+
+        /** The platform this rule sends trains to while it is free, if it is such a rule. */
+        public Optional<PlatformRef> freePlatform() {
+            for (String selector : selectors) {
+                PlatformRef platform = freePlatform(selector);
+                if (platform != null) {
+                    return Optional.of(platform);
+                }
+            }
+            return Optional.empty();
+        }
+
         public String format() {
-            return heading.word() + (selectors.isEmpty() ? "" : " " + String.join(" ", selectors));
+            List<String> words = new ArrayList<>();
+            for (String selector : selectors) {
+                words.add(selector.startsWith(FREE) ? "free " + selector.substring(FREE.length()) : selector);
+            }
+            return heading.word() + (words.isEmpty() ? "" : " " + String.join(" ", words));
         }
     }
 
@@ -92,6 +144,15 @@ public record SwitchRules(List<Rule> rules) {
                 }
                 if (word.equals("*") || word.equals("all") || word.equals("any")) {
                     selectors.add("*");
+                } else if (word.equals(DEPOT)) {
+                    selectors.add(DEPOT);
+                } else if (word.equals("free")) {
+                    String platform = index + 1 < words.length ? words[++index] : "";
+                    String[] parts = platform.split(":", 2);
+                    if (parts.length != 2 || parts[0].isEmpty() || parts[1].isEmpty()) {
+                        throw new IllegalArgumentException("'free' needs the platform to fill, for example 'free main:2'");
+                    }
+                    selectors.add(FREE + Ids.normalize("station", parts[0]) + ":" + Ids.normalize("platform", parts[1]));
                 } else if (word.contains("/")) {
                     selectors.add(ServiceKey.parse(word).toString());
                 } else {
@@ -108,9 +169,14 @@ public record SwitchRules(List<Rule> rules) {
 
     /** The direction for a train running {@code service} whose next station is {@code nextStationId}. */
     public Optional<Heading> choose(@Nullable ServiceKey service, @Nullable String nextStationId, Network network) {
+        return pick(new Context(service, nextStationId), network).map(Rule::heading);
+    }
+
+    /** The first rule that fits the train, if any. */
+    public Optional<Rule> pick(Context train, Network network) {
         for (Rule rule : rules) {
-            if (rule.matches(service, nextStationId, network)) {
-                return Optional.of(rule.heading());
+            if (rule.matches(train, network)) {
+                return Optional.of(rule);
             }
         }
         return Optional.empty();
@@ -121,14 +187,17 @@ public record SwitchRules(List<Rule> rules) {
         List<String> unknown = new ArrayList<>();
         for (Rule rule : rules) {
             for (String selector : rule.selectors()) {
-                if (selector.equals("*")) {
+                if (selector.equals("*") || selector.equals(DEPOT)) {
                     continue;
                 }
-                boolean known = selector.contains("/")
+                PlatformRef free = Rule.freePlatform(selector);
+                boolean known = free != null
+                        ? network.station(free.stationId()).flatMap(station -> station.platform(free.platformId())).isPresent()
+                        : selector.contains("/")
                         ? network.service(ServiceKey.parse(selector)).isPresent()
                         : network.line(selector).isPresent() || network.station(selector).isPresent();
                 if (!known) {
-                    unknown.add(selector);
+                    unknown.add(free != null ? "platform " + free : selector);
                 }
             }
         }

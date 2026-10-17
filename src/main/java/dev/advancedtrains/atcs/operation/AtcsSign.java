@@ -32,7 +32,12 @@ import java.util.Locale;
  */
 public sealed interface AtcsSign {
 
-    String KINDS = "'atcs stop', 'atcs station', 'atcs switch', 'atcs block', 'atcs speed', 'atcs service', 'atcs clear' or 'atcs indicator'";
+    String KINDS = "'atcs stop', 'atcs station', 'atcs switch', 'atcs block', 'atcs speed', 'atcs service', 'atcs clear',"
+            + " 'atcs indicator' or 'atcs depot'";
+
+    /** Where a train sent to the depot ends: it is taken out of the world here, nobody aboard. */
+    record DepotSign() implements AtcsSign {
+    }
 
     record StopSign(String stationId, String platformId) implements AtcsSign {
     }
@@ -125,6 +130,7 @@ public sealed interface AtcsSign {
                 yield new ServiceSign(key);
             }
             case "clear", "unassign" -> new ClearSign();
+            case "depot", "stable", "yard" -> new DepotSign();
             case "indicator", "lamp" -> new IndicatorSign(Indicator.parse(third, fourth));
             case "block", "signal" -> {
                 if (argument.isEmpty()) {

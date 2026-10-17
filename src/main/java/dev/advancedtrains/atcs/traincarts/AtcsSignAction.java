@@ -88,6 +88,7 @@ public final class AtcsSignAction extends SignAction {
             case AtcsSign.SwitchSign switcher -> switchRails(info, switcher, train, entering);
             case AtcsSign.ServiceSign service when entering && info.isPowered() -> runtime.assign(train, service.service());
             case AtcsSign.ClearSign ignored when entering && info.isPowered() -> runtime.unassign(train, true);
+            case AtcsSign.DepotSign ignored when entering && info.isPowered() -> runtime.atDepot(train);
             case AtcsSign.BlockSign block -> block(info, block, train, entering);
             case AtcsSign.SpeedSign speed when entering && info.isPowered() -> runtime.applySpeedSign(train, speed.speed(), speed.selector());
             default -> {
@@ -319,6 +320,8 @@ public final class AtcsSignAction extends SignAction {
             }
             case AtcsSign.ClearSign ignored ->
                     options.setName("ATCS clear").setDescription("remove the ATCS service assignment of trains");
+            case AtcsSign.DepotSign ignored ->
+                    options.setName("ATCS depot").setDescription("take trains sent to the depot out of the world when they arrive empty");
             case AtcsSign.BlockSign block -> options.setName("ATCS block").setDescription(block.entry()
                     ? "hold trains here while another train is inside block " + block.blockId() + " (until it passes the exit sign)"
                     : "free block " + block.blockId() + " when a train passes");

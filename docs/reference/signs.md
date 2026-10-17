@@ -36,7 +36,7 @@ Which trains stop: the service calls at the station, stop; the service runs thro
 
 ## Switch sign rules (lines 3, 4 and signs below)
 
-In the plugin's words: each line is a direction (left, right, continue, north, ...) followed by the trains it is for: a service (1/express), a line (1), the station they reach next (main), or *. The first rule that fits wins; a train no rule fits leaves the junction as it is. `*` (or `all`, `any`) means every train, and a direction on its own means the same. `continue` and `reverse` follow the train; `left` and `right` are as seen by a train driving into the front of the sign.
+In the plugin's words: each line is a direction (left, right, continue, north, ...) followed by the trains it is for: a service (1/express), a line (1), the station they reach next (main), *, 'free main:2' (trains for main while platform 2 is free) or 'depot' (trains sent to the depot). The first rule that fits wins; a train no rule fits leaves the junction as it is. `*` (or `all`, `any`) means every train, and a direction on its own means the same. `continue` and `reverse` follow the train; `left` and `right` are as seen by a train driving into the front of the sign.
 
 ## Indicator modes (line 4)
 

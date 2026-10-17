@@ -201,6 +201,10 @@ control:
   # every 'atcs station' sign registers itself), so TrainCarts switcher signs and 'route' stations
   # find the way there by path-finding. Leave off if you route trains with destinations yourself.
   set-destinations: false
+  # The TrainCarts destination a train is given when a dispatcher sends it to the depot
+  # (/atcs train depot), so TrainCarts path-finding and 'atcs switch' signs with a 'depot' rule
+  # take it there. An 'atcs depot' sign at the end takes the empty train out of the world.
+  depot-destination: depot
 
 logging:
   # Append every arrival, departure, hold and service change to data/events.log, one JSON object

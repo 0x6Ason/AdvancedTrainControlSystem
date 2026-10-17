@@ -178,6 +178,12 @@ class RuntimeStressTest {
         }
 
         @Override
+        public void markForDepot() {
+            clearAssignment(false);
+            tags.add(ServiceResolver.depotTag());
+        }
+
+        @Override
         public boolean hasGeneratedName() {
             return false;
         }
@@ -215,10 +221,24 @@ class RuntimeStressTest {
         }
     }
 
-    final class Yard implements TrainSource {
+    final class Yard implements TrainSource, TrainSpawner {
         @Override
         public Collection<TrainHandle> loadedTrains() {
             return List.copyOf(trains);
+        }
+
+        @Override
+        public Result spawn(BlockPos at, dev.advancedtrains.atcs.network.Fleet.Direction direction, String pattern) {
+            return Result.failed("no spawning here");
+        }
+
+        @Override
+        public boolean destroy(TrainHandle train) {
+            if (!trains.remove(train)) {
+                return false;
+            }
+            runtime.trainRemoved(train.name());
+            return true;
         }
 
         @Override
@@ -404,12 +424,9 @@ class RuntimeStressTest {
 
     // ---------------------------------------------------------------- the test
 
-    @Test
-    void everyControlFeatureAtOnceOnALoopWithABranchNeverHangsOrFreezes() throws Exception {
-        network = network(5,
-                service("5/cw", "s1:1", "s2:1", "s3:1", "s4:1").withCircular(true),
-                service("a/east", "s4:1", "s5:1"),
-                service("a/west", "s5:1", "s4:1"));
+    /** The runtime as the plugin wires it, with every control feature on, over this network. */
+    private void start(Network railway) throws Exception {
+        network = railway;
         YamlConfiguration config = bundled("config.yml");
         config.set("control.dwell-seconds", 10);
         config.set("control.headway-seconds", 30);
@@ -428,16 +445,28 @@ class RuntimeStressTest {
         store.load();
         store.edit(ignored -> network);
 
-        runtime = new RailwayRuntime(plugin(), store, new Yard(), null, (sign, powered) -> { }, settings, messages, clock);
+        Yard yard = new Yard();
+        runtime = new RailwayRuntime(plugin(), store, yard, yard, (sign, powered) -> { }, settings, messages, clock);
         runtime.start(null, null, null);
         assertTrue(tasks.size() >= 7, "the runtime schedules its tasks: " + tasks.size());
+    }
 
-        // The loop: s1 (100,4) east to s4 (400,4), then back round the north side to s1. The branch
-        // shares the first 50 blocks east of s4 and leaves at a junction at (450,4).
+    /** The loop: s1 (100,4) east to s4 (400,4), then back round the north side to s1. */
+    private void loopTrack() {
         route(LOOP, 0, point(100, 4), point(200, 4));
         route(LOOP, 1, point(200, 4), point(300, 4));
         route(LOOP, 2, point(300, 4), point(400, 4));
         route(LOOP, 3, point(400, 4), point(450, 4), point(450, -100), point(100, -100), point(100, 4));
+    }
+
+    @Test
+    void everyControlFeatureAtOnceOnALoopWithABranchNeverHangsOrFreezes() throws Exception {
+        start(network(5,
+                service("5/cw", "s1:1", "s2:1", "s3:1", "s4:1").withCircular(true),
+                service("a/east", "s4:1", "s5:1"),
+                service("a/west", "s5:1", "s4:1")));
+        // The branch shares the first 50 blocks east of s4 and leaves at a junction at (450,4).
+        loopTrack();
         route(BRANCH, 0, point(400, 4), point(450, 4), point(500, 4));
         route(BACK, 0, point(500, 4), point(450, 4), point(400, 4));
         assertTrue(!runtime.railGraph().junctions().isEmpty(), "the shared stretch makes a junction: " + runtime.railGraph().nodes());
@@ -536,5 +565,98 @@ class RuntimeStressTest {
             assertTrue(stand.getValue() <= 10 + 60 + 1, stand.getKey() + " stood " + stand.getValue() + " s; the hold limit is 60 s past the dwell");
         }
         assertTrue(arrivals >= 6, "the loop trains kept going round: " + arrivals + " arrivals");
+    }
+
+    /**
+     * A dispatcher's orders through the same runtime: a short turn makes the train the service
+     * running the other way and sends it off backwards at the station named; a train sent to
+     * the depot runs through stations, takes the depot rule at switches and is taken out of the
+     * world at the depot sign; a switch fills a terminus's free platform and keeps it for the
+     * train it sent there.
+     */
+    @Test
+    void shortTurnsDepotRunsAndFreePlatformsFollowTheDispatchersOrders() throws Exception {
+        start(network(5,
+                service("5/cw", "s1:1", "s2:1", "s3:1", "s4:1").withCircular(true),
+                service("5/ccw", "s4:1", "s3:1", "s2:1", "s1:1").withCircular(true),
+                service("a/east", "s4:1", "s5:1")));
+        loopTrack();
+        Service loop = network.service(LOOP).orElseThrow();
+        ServiceKey back = ServiceKey.parse("5/ccw");
+
+        // Short turn: L1 at s1 is to turn back at s3.
+        FakeTrain l1 = new FakeTrain("L1", loop, 100, 4);
+        trains.add(l1);
+        runtime.assign(l1, LOOP);
+        clock.set(T0);
+        arrive(l1, 0, "10s");
+        assertTrue(runtime.shortTurn(l1, "s3").isEmpty(), "ordered");
+        assertTrue(runtime.shortTurn(l1, "s1").isPresent(), "not where it stands");
+        assertTrue(runtime.shortTurn(l1, "s5").isPresent(), "not a station of its service");
+        assertTrue(runtime.shortTurns().get("L1").equals("s3"));
+        clock.set(T0.plusSeconds(12));
+        depart(l1);
+        clock.set(T0.plusSeconds(40));
+        arrive(l1, 1, "10s");
+        assertTrue(l1.plan != null && l1.plan.heading() != dev.advancedtrains.atcs.control.Heading.REVERSE, "s2 is an ordinary stop");
+        clock.set(T0.plusSeconds(52));
+        depart(l1);
+        clock.set(T0.plusSeconds(80));
+        arrive(l1, 2, "10s");
+        assertTrue(l1.plan != null && l1.plan.heading() == dev.advancedtrains.atcs.control.Heading.REVERSE, "at s3 the train turns back");
+        assertTrue(runtime.shortTurns().isEmpty(), "the order is spent");
+        var turned = runtime.journeys().stream().filter(journey -> journey.trainId().equals("L1")).findFirst().orElseThrow();
+        assertTrue(back.equals(turned.service()), "now the service running the other way: " + turned.service());
+        assertTrue(turned.lastIndex() == 1, "standing at s3, stop 2 of 5/ccw: " + turned.lastIndex());
+
+        // Depot: L2 at s2 is sent to the depot; it runs through s3 and takes the depot rule.
+        FakeTrain l2 = new FakeTrain("L2", loop, 200, 4);
+        trains.add(l2);
+        runtime.assign(l2, LOOP);
+        clock.set(T0.plusSeconds(90));
+        arrive(l2, 1, "10s");
+        runtime.toDepot(l2);
+        assertTrue(ServiceResolver.isDepotBound(l2.tags), "tagged for the depot");
+        assertTrue(l2.destination.equals("depot"), "routed to the depot destination: " + l2.destination);
+        assertTrue(runtime.journeys().stream().filter(journey -> journey.trainId().equals("L2")).findFirst().orElseThrow().service() == null);
+        dev.advancedtrains.atcs.control.SwitchRules rules = dev.advancedtrains.atcs.control.SwitchRules.parse(
+                List.of("left depot", "right free s4:1", "continue *"));
+        assertTrue(runtime.switchHeading(l2, rules).orElseThrow() == dev.advancedtrains.atcs.control.Heading.LEFT, "the depot rule");
+        clock.set(T0.plusSeconds(100));
+        depart(l2);
+        clock.set(T0.plusSeconds(130));
+        arrive(l2, 2, "10s");
+        assertTrue(l2.plan == null, "a depot train runs through s3");
+
+        // Free platform: L3 heading for s4 is sent to platform 1 while it is free, which is then
+        // kept for it; L4 behind gets the fallback until L3 has been and gone.
+        FakeTrain l3 = new FakeTrain("L3", loop, 300, 4);
+        FakeTrain l4 = new FakeTrain("L4", loop, 300, 4);
+        trains.add(l3);
+        trains.add(l4);
+        runtime.assign(l3, LOOP);
+        runtime.assign(l4, LOOP);
+        clock.set(T0.plusSeconds(140));
+        arrive(l3, 2, "10s");
+        clock.set(T0.plusSeconds(152));
+        depart(l3);
+        assertTrue(runtime.switchHeading(l3, rules).orElseThrow() == dev.advancedtrains.atcs.control.Heading.RIGHT, "platform 1 is free");
+        clock.set(T0.plusSeconds(155));
+        arrive(l4, 2, "10s");
+        clock.set(T0.plusSeconds(167));
+        depart(l4);
+        assertTrue(runtime.switchHeading(l4, rules).orElseThrow() == dev.advancedtrains.atcs.control.Heading.CONTINUE, "kept for L3");
+        clock.set(T0.plusSeconds(180));
+        arrive(l3, 3, "10s");
+        assertTrue(runtime.switchHeading(l4, rules).orElseThrow() == dev.advancedtrains.atcs.control.Heading.CONTINUE, "L3 stands there");
+        clock.set(T0.plusSeconds(195));
+        depart(l3);
+        assertTrue(runtime.switchHeading(l4, rules).orElseThrow() == dev.advancedtrains.atcs.control.Heading.RIGHT, "free again");
+
+        // The depot sign: L2 arrives empty and is taken out of the world; an ordinary train is not.
+        assertTrue(!runtime.atDepot(l3), "L3 is in service");
+        assertTrue(runtime.atDepot(l2), "L2 is taken out of the world");
+        assertTrue(trains.stream().noneMatch(train -> train.name.equals("L2")));
+        runtime.stop();
     }
 }

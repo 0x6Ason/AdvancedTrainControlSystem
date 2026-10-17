@@ -116,6 +116,8 @@ Trains and their services.
 | `/atcs train auto [train]` | `atcs.manage` | Let spawn signs, match rules and its route assign a train again |
 | `/atcs train hold <train> [reason...]` | `atcs.manage` | Keep a train at its current or next station sign until released |
 | `/atcs train skip <train> <station>` | `atcs.manage` | Make a train run through a station it would call at, once; riders are told |
+| `/atcs train shortturn <train> <station>\|none` | `atcs.manage` | Turn a train back at a station as the service running the other way; riders are told |
+| `/atcs train depot <train>` | `atcs.manage` | Send a train to the depot: no service, through every station, out of the world at an 'atcs depot' sign |
 | `/atcs train release <train>` | `atcs.manage` | Let a held train go |
 
 ## /atcs transfer

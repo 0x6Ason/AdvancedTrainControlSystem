@@ -68,6 +68,27 @@ final class TrainCommands {
                     }
                     Chat.success(context.sender(), "Train " + train.name() + " will run through " + station.name() + " next time");
                 }, (context, index) -> index == 0 ? support.trainNames() : index == 1 ? support.stationIds() : List.of()),
+                leaf("shortturn", MANAGE, "<train> <station>|none", "Turn a train back at a station as the service running the other way; riders are told", context -> {
+                    TrainHandle train = support.train(context, 0);
+                    if (context.arg(1).equalsIgnoreCase("none")) {
+                        boolean had = support.runtime.cancelShortTurn(train);
+                        Chat.success(context.sender(), "Train " + train.name() + (had ? " will not turn back" : " had no short turn ordered"));
+                        return;
+                    }
+                    Station station = support.station(context.arg(1));
+                    java.util.Optional<String> problem = support.runtime.shortTurn(train, station.id());
+                    if (problem.isPresent()) {
+                        throw new CommandError(problem.get());
+                    }
+                    Chat.success(context.sender(), "Train " + train.name() + " turns back at " + station.name()
+                            + " as the service running the other way; riders are told there");
+                }, (context, index) -> index == 0 ? support.trainNames() : index == 1 ? support.stationIds() : List.of()),
+                leaf("depot", MANAGE, "<train>", "Send a train to the depot: no service, through every station, out of the world at an 'atcs depot' sign", context -> {
+                    TrainHandle train = support.train(context, 0);
+                    support.runtime.toDepot(train);
+                    Chat.success(context.sender(), "Train " + train.name() + " is going to the depot (TrainCarts destination '"
+                            + support.runtime.depotDestination() + "'). /atcs train assign puts it back in service.");
+                }, trains),
                 leaf("release", MANAGE, "<train>", "Let a held train go", context -> {
                     TrainHandle train = support.train(context, 0);
                     if (support.runtime.releaseByHand(train)) {

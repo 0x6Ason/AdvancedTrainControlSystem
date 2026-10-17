@@ -151,6 +151,13 @@ public final class RailwayRuntime {
     };
     /** The hold reason last logged per train, so debug output shows changes only. */
     private final Map<String, String> holdReasons = new HashMap<>();
+    /** Short turns a dispatcher ordered: the station at which each train turns back. */
+    private final Map<String, String> shortTurns = new HashMap<>();
+    /** Platforms a switch sent a train to while free, kept for it until it arrives or the time passes. */
+    private final Map<PlatformRef, Reservation> reservations = new HashMap<>();
+    private record Reservation(String train, Instant until) {
+    }
+    private static final Duration RESERVATION = Duration.ofMinutes(3);
     /** Where each loaded train is and how fast it moves, refreshed every second. */
     private record TrainState(String world, double x, double y, double z, double speed, Instant at, @Nullable Instant standingSince) {
     }
@@ -652,6 +659,9 @@ public final class RailwayRuntime {
         Instant now = clock.instant();
         StopObservation observation = new StopObservation(train.name(), platform, trigger, entering, now);
         List<JourneyEvent> events = tracker.observe(observation, resolved, network);
+        if (entering) {
+            reservations.values().removeIf(reservation -> reservation.train().equals(train.name()));
+        }
         if (debug) {
             logger.info("[debug] " + train.name() + (entering ? " entered " : " left ") + platform
                     + " at " + trigger.coordinates() + " (service " + resolved + ") -> " + events);
@@ -677,7 +687,8 @@ public final class RailwayRuntime {
                                                   StopOptions options) {
         AtcsSettings.Control rules = settings.control();
         StationControl.Decision decision = StationControl.decide(platform, events,
-                tracker.snapshot(train.name()).orElse(null), store.network(), rules.rules());
+                tracker.snapshot(train.name()).orElse(null), store.network(), rules.rules(),
+                ServiceResolver.isDepotBound(train.info().tags()));
         if (debug) {
             logger.info("[debug] " + train.name() + (decision.stops() ? " stops at " : " runs through ") + platform
                     + ": " + decision.reason());
@@ -694,9 +705,81 @@ public final class RailwayRuntime {
                 plan = plan.withDepartureMinutes(service.timetable());
             }
         }
+        plan = shortTurnHere(train, platform, plan);
         control.standing(train.name(), platform, plan, clock.instant());
         estimates = null;
         return plan;
+    }
+
+    /**
+     * A short turn ordered for this station: the train becomes the service running the other way
+     * from here (the one whose next stop is where the train came from, else another of the line)
+     * and leaves backwards; riders are told. Without such a service the train carries on.
+     */
+    private StationControl.Plan shortTurnHere(TrainHandle train, PlatformRef platform, StationControl.Plan plan) {
+        String station = shortTurns.get(train.name());
+        if (station == null || !station.equals(platform.stationId())) {
+            return plan;
+        }
+        shortTurns.remove(train.name());
+        Network network = store.network();
+        JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+        Service current = journey == null || journey.service() == null ? null : network.service(journey.service()).orElse(null);
+        Service opposite = current == null ? null : oppositeService(current, journey.lastIndex(), station, network).orElse(null);
+        if (opposite == null) {
+            logger.warning(train.name() + " was to turn back at " + network.stationName(station)
+                    + " but no service runs the other way from there; it carries on");
+            return plan;
+        }
+        assign(train, opposite.key());
+        eventLog.note(train.name(), "short-turn", station, clock.instant());
+        String destination = opposite.circular() ? opposite.name() : network.stationName(opposite.stop(opposite.size() - 1).stationId());
+        net.kyori.adventure.text.Component notice = messages.render("passenger.short-turn",
+                net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("station", network.stationName(station)),
+                net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("destination", destination));
+        for (Player rider : train.riders()) {
+            rider.sendMessage(notice);
+        }
+        if (debug) {
+            logger.info("[debug] " + train.name() + " turns back at " + station + " as " + opposite.key());
+        }
+        return plan.withHeading(Heading.REVERSE);
+    }
+
+    /**
+     * The service of the same line that runs the other way from stop {@code here} of
+     * {@code current} at the station: the one whose next stop is the station the train came
+     * from, else any other of the line that calls there and goes on somewhere.
+     */
+    static Optional<Service> oppositeService(Service current, int here, String stationId, Network network) {
+        String cameFrom = null;
+        int previous = here - 1;
+        if (previous < 0 && current.circular() && current.size() > 1) {
+            previous = current.size() - 1;
+        }
+        if (previous >= 0 && previous < current.size()) {
+            cameFrom = current.stop(previous).stationId();
+        }
+        Service other = null;
+        for (Service candidate : network.services()) {
+            if (candidate.key().equals(current.key()) || !candidate.key().lineId().equals(current.key().lineId())) {
+                continue;
+            }
+            for (int index = 0; index < candidate.size(); index++) {
+                Stop stop = candidate.stop(index);
+                int next = candidate.nextIndex(index);
+                if (!stop.stationId().equals(stationId) || !stop.stops() || next < 0) {
+                    continue;
+                }
+                if (cameFrom != null && candidate.stop(next).stationId().equals(cameFrom)) {
+                    return Optional.of(candidate);
+                }
+                if (other == null) {
+                    other = candidate;
+                }
+            }
+        }
+        return Optional.ofNullable(other);
     }
 
     /** Whether a dispatcher holds the train, in which case its hold never times out. */
@@ -797,6 +880,96 @@ public final class RailwayRuntime {
 
     public boolean unskipStop(TrainHandle train, String stationId) {
         return tracker.unskip(train.name(), stationId);
+    }
+
+    /**
+     * The train turns back at the station, as the service of its line running the other way;
+     * riders are told when it happens. Returns why not, or empty when ordered.
+     */
+    public Optional<String> shortTurn(TrainHandle train, String stationId) {
+        Network network = store.network();
+        JourneySnapshot journey = tracker.snapshot(train.name()).orElse(null);
+        Service service = journey == null || journey.service() == null ? null : network.service(journey.service()).orElse(null);
+        if (service == null) {
+            return Optional.of("ATCS does not follow " + train.name() + " on a service yet; it has to pass a platform first");
+        }
+        if (journey.phase() == JourneyPhase.AT_STOP && stationId.equals(journey.currentStationId())) {
+            return Optional.of(train.name() + " is standing at " + network.stationName(stationId) + " already; order the turn before it arrives");
+        }
+        int index = journey.lastIndex();
+        int at = -1;
+        for (int step = 0; step < service.size(); step++) {
+            index = service.nextIndex(index);
+            if (index < 0) {
+                break;
+            }
+            if (service.stop(index).stationId().equals(stationId) && service.stop(index).stops()) {
+                at = index;
+                break;
+            }
+        }
+        if (at < 0) {
+            return Optional.of(train.name() + " does not call at " + network.stationName(stationId) + " ahead on " + service.key());
+        }
+        if (oppositeService(service, at, stationId, network).isEmpty()) {
+            return Optional.of("No service of line " + service.key().lineId() + " runs the other way from " + network.stationName(stationId));
+        }
+        shortTurns.put(train.name(), stationId);
+        eventLog.note(train.name(), "short-turn-ordered", stationId, clock.instant());
+        return Optional.empty();
+    }
+
+    public boolean cancelShortTurn(TrainHandle train) {
+        return shortTurns.remove(train.name()) != null;
+    }
+
+    /** The short turns ordered, train to station. */
+    public Map<String, String> shortTurns() {
+        return Map.copyOf(shortTurns);
+    }
+
+    /**
+     * Sends the train to the depot: no service, through every station, routed by the TrainCarts
+     * destination {@code control.depot-destination}; riders are told. An {@code atcs depot} sign
+     * takes it out of the world when it arrives empty.
+     */
+    public List<JourneyEvent> toDepot(TrainHandle train) {
+        train.markForDepot();
+        train.setDestination(settings.control().depotDestination());
+        shortTurns.remove(train.name());
+        offRouteVisits.remove(train.name());
+        List<JourneyEvent> events = tracker.assign(train.name(), null, store.network(), clock.instant());
+        eventLog.note(train.name(), "depot", settings.control().depotDestination(), clock.instant());
+        net.kyori.adventure.text.Component notice = messages.render("passenger.to-depot");
+        for (Player rider : train.riders()) {
+            rider.sendMessage(notice);
+        }
+        if (debug) {
+            logger.info("[debug] " + train.name() + " sent to the depot -> " + events);
+        }
+        handle(train, events);
+        return events;
+    }
+
+    public String depotDestination() {
+        return settings.control().depotDestination();
+    }
+
+    /** A train reached an {@code atcs depot} sign: one sent to the depot is taken out of the world, nobody aboard. */
+    public boolean atDepot(TrainHandle train) {
+        if (!ServiceResolver.isDepotBound(train.info().tags())) {
+            return false;
+        }
+        if (!train.riders().isEmpty()) {
+            logger.info(train.name() + " reached the depot with " + train.riders().size() + " aboard and carries on");
+            return false;
+        }
+        String name = train.name();
+        if (spawner == null || !spawner.destroy(train)) {
+            return false;
+        }
+        logger.info(name + " reached the depot and was taken out of the world");
+        return true;
     }
 
     public Set<String> skips(String trainName) {
@@ -997,12 +1170,29 @@ public final class RailwayRuntime {
                 next = index < 0 ? null : service.stop(index).stationId();
             }
         }
-        Optional<Heading> heading = rules.choose(key, next, network);
+        boolean toDepot = ServiceResolver.isDepotBound(train.info().tags());
+        Optional<SwitchRules.Rule> rule = rules.pick(new SwitchRules.Context(key, next, toDepot,
+                platform -> platformFree(platform, train.name())), network);
+        rule.flatMap(SwitchRules.Rule::freePlatform).ifPresent(platform ->
+                reservations.put(platform, new Reservation(train.name(), clock.instant().plus(RESERVATION))));
+        Optional<Heading> heading = rule.map(SwitchRules.Rule::heading);
         if (debug) {
-            logger.info("[debug] " + train.name() + " at a switch (service " + key + ", next " + next + ") -> "
-                    + heading.map(Heading::word).orElse("no rule, left as is"));
+            logger.info("[debug] " + train.name() + " at a switch (service " + key + ", next " + next
+                    + (toDepot ? ", to the depot" : "") + ") -> " + rule.map(SwitchRules.Rule::format).orElse("no rule, left as is"));
         }
         return heading;
+    }
+
+    /** Whether no train stands at the platform and no other train was sent there lately. */
+    boolean platformFree(PlatformRef platform, String forTrain) {
+        for (JourneySnapshot journey : tracker.snapshots()) {
+            if (!journey.trainId().equals(forTrain) && platform.equals(journey.platform())
+                    && (journey.phase() == JourneyPhase.AT_STOP || journey.phase() == JourneyPhase.PASSING)) {
+                return false;
+            }
+        }
+        Reservation reservation = reservations.get(platform);
+        return reservation == null || reservation.train().equals(forTrain) || !reservation.until().isAfter(clock.instant());
     }
 
     public boolean setsDestinations() {
@@ -1129,6 +1319,8 @@ public final class RailwayRuntime {
         }
         trainStates.remove(name);
         holdReasons.remove(name);
+        shortTurns.remove(name);
+        reservations.values().removeIf(reservation -> reservation.train().equals(name));
         paths.forget(name);
         display.remove(name);
         recorder.trainRemoved(name);

@@ -1229,8 +1229,11 @@
         : (t.next >= 0 && stops[t.next] ? 'Next ' + esc(stationName(parseStop(stops[t.next]).station)) + (typeof t.eta === 'number' ? ' in ' + Math.round(t.eta) + ' s' : '') : '');
       var hold = st.holds && st.holds[t.name];
       var skips = st.skips && st.skips[t.name];
+      var turn = st.turns && st.turns[t.name];
+      var toDepot = !!(st.depot && st.depot.indexOf(t.name) >= 0);
       var flags = (hold ? '<span class="tag warn" title="' + esc(hold) + '">held</span>' : '') + (t.late ? '<span class="tag bad">late</span>' : '')
-        + (t.held && !hold ? '<span class="tag soft">waiting</span>' : '') + (skips ? '<span class="tag soft">skips ' + esc(skips.map(stationName).join(', ')) + '</span>' : '');
+        + (t.held && !hold ? '<span class="tag soft">waiting</span>' : '') + (skips ? '<span class="tag soft">skips ' + esc(skips.map(stationName).join(', ')) + '</span>' : '')
+        + (turn ? '<span class="tag soft">turns back at ' + esc(stationName(turn)) + '</span>' : '') + (toDepot ? '<span class="tag warn">to the depot</span>' : '');
       var nextStations = [];
       if (entry && t.next >= 0) {
         var i = t.next, guard = 0;
@@ -1243,6 +1246,11 @@
           : '<button type="button" class="button small secondary" data-act="dispatch-hold" data-train="' + esc(t.name) + '">Hold</button>')
         + (nextStations.length ? '<select class="input" style="width:auto;padding:7px 28px 7px 9px;font-size:13px" data-act-change="dispatch-skip" data-train="' + esc(t.name) + '" aria-label="Run through a station">'
           + '<option value="">Skip&hellip;</option>' + nextStations.map(function (id) { return '<option value="' + esc(id) + '">' + esc(stationName(id)) + '</option>'; }).join('') + '</select>' : '')
+        + (nextStations.length && !toDepot ? (turn
+          ? '<button type="button" class="button small secondary" data-act="dispatch-unshortturn" data-train="' + esc(t.name) + '">No turn</button>'
+          : '<select class="input" style="width:auto;padding:7px 28px 7px 9px;font-size:13px" data-act-change="dispatch-shortturn" data-train="' + esc(t.name) + '" aria-label="Turn back at a station">'
+            + '<option value="">Turn back at&hellip;</option>' + nextStations.map(function (id) { return '<option value="' + esc(id) + '">' + esc(stationName(id)) + '</option>'; }).join('') + '</select>') : '')
+        + (toDepot ? '' : '<button type="button" class="button small secondary" data-act="dispatch-depot" data-train="' + esc(t.name) + '">Depot</button>')
         + '</span></div></li>';
     }).join('') + '</ul>';
 
@@ -2185,6 +2193,13 @@
       setTimeout(function () { var f = $('hold-reason'); if (f) f.focus(); }, 30);
     },
     'dispatch-release': function (node) { order({ action: 'release', train: data(node, 'train') }, 'Released ' + data(node, 'train')); },
+    'dispatch-unshortturn': function (node) { order({ action: 'unshortturn', train: data(node, 'train') }, data(node, 'train') + ' will not turn back'); },
+    'dispatch-depot': function (node) {
+      var train = data(node, 'train');
+      modal({ title: 'Send ' + train + ' to the depot', narrow: true,
+        body: '<p>The train loses its service, runs through every station and is taken out of the world at an <code>atcs depot</code> sign when nobody is aboard. Riders are told now.</p>',
+        buttons: [{ label: 'Cancel', kind: 'secondary' }, { label: 'Send to depot', kind: 'danger', action: function () { order({ action: 'depot', train: train }, train + ' is going to the depot'); } }] });
+    },
     'dispatch-suspend': function (node) {
       var line = data(node, 'line');
       modal({ title: 'Suspend ' + lineView(line).name, narrow: true, body: '<p>Boards show Suspended and riders of its trains see the notice. The line keeps running.</p><label class="field"><span>Notice</span><input type="text" id="suspend-notice" placeholder="Please use alternative routes."></label>',
@@ -2252,6 +2267,12 @@
       if (!station) return;
       node.value = '';
       order({ action: 'skip', train: train, station: station }, train + ' will run through ' + stationName(station));
+    },
+    'dispatch-shortturn': function (node) {
+      var train = data(node, 'train'), station = node.value;
+      if (!station) return;
+      node.value = '';
+      order({ action: 'shortturn', train: train, station: station }, train + ' turns back at ' + stationName(station));
     },
     'dispatch-switch': function (node) {
       var sign = data(node, 'sign'), heading = node.value;

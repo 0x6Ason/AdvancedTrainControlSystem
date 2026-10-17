@@ -45,6 +45,10 @@ passenger:
   unassigned-arrival-subtitle: ""
   # Told to riders when a dispatcher makes the train run through a station it would call at.
   skip-stop: "<red>This train will not stop at</red> <white><station></white><red>.</red>"
+  # Told to riders when the train turns back short of its destination. <station>, <destination>.
+  short-turn: "<red>This train terminates at</red> <white><station></white><red> and returns towards</red> <white><destination></white><red>.</red>"
+  # Told to riders when a dispatcher sends the train to the depot; it will not stop again.
+  to-depot: "<red>This train is going out of service and will not stop at the next stations.</red>"
   # Separator between lines in <interchanges>.
   interchange-separator: "<gray>, </gray>"
   # Lines reached through a walking transfer, as part of <interchanges>. <lines>, <station>.

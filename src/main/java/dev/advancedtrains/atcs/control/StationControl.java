@@ -121,6 +121,12 @@ public final class StationControl {
                     options.departureMinutes());
         }
 
+        /** The same stop, leaving the other way: a short turn. */
+        public Plan withHeading(Heading newHeading) {
+            return new Plan(dwellSeconds, newHeading, autoRoute, offset, launchDistance, launchSpeed, headwaySeconds,
+                    holdForSection, maxHoldSeconds, evenSpacing, evenMaxHoldSeconds, departureMinutes);
+        }
+
         public Plan withDepartureMinutes(List<Integer> minutes) {
             return new Plan(dwellSeconds, heading, autoRoute, offset, launchDistance, launchSpeed, headwaySeconds,
                     holdForSection, maxHoldSeconds, evenSpacing, evenMaxHoldSeconds, minutes);
@@ -365,6 +371,15 @@ public final class StationControl {
      */
     public static Decision decide(PlatformRef platform, List<JourneyEvent> events, @Nullable JourneySnapshot journey,
                                   Network network, Rules rules) {
+        return decide(platform, events, journey, network, rules, false);
+    }
+
+    /** As above; a train bound for the depot runs through every station on its way. */
+    public static Decision decide(PlatformRef platform, List<JourneyEvent> events, @Nullable JourneySnapshot journey,
+                                  Network network, Rules rules, boolean toDepot) {
+        if (toDepot) {
+            return new Decision(Verdict.PASS, "bound for the depot");
+        }
         for (JourneyEvent event : events) {
             switch (event) {
                 case JourneyEvent.Arrived arrived -> {

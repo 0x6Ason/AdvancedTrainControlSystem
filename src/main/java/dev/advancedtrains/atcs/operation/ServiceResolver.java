@@ -22,6 +22,8 @@ public final class ServiceResolver {
     public static final String TAG_INFERRED = "atcs:inferred";
     /** Tag value of a train an operator cleared: no service, and no automatic assignment either. */
     public static final String MANUAL_VALUE = "none";
+    /** The assignment value of a train sent to the depot: no service, and not assigned again. */
+    public static final String DEPOT_VALUE = "depot";
 
     private ServiceResolver() {
     }
@@ -47,9 +49,21 @@ public final class ServiceResolver {
         return tags.stream().anyMatch(ServiceResolver::isInferredTag);
     }
 
-    /** Whether an operator cleared the train's service and switched automatic assignment off for it. */
+    /**
+     * Whether an operator cleared the train's service and switched automatic assignment off for
+     * it, by hand or by sending it to the depot.
+     */
     public static boolean isManual(Collection<String> tags) {
-        return tags.stream().anyMatch(tag -> tag.equalsIgnoreCase(manualTag()));
+        return tags.stream().anyMatch(tag -> tag.equalsIgnoreCase(manualTag()) || tag.equalsIgnoreCase(depotTag()));
+    }
+
+    public static String depotTag() {
+        return TAG_PREFIX + DEPOT_VALUE;
+    }
+
+    /** Whether a dispatcher sent the train to the depot. */
+    public static boolean isDepotBound(Collection<String> tags) {
+        return tags.stream().anyMatch(tag -> tag.equalsIgnoreCase(depotTag()));
     }
 
     /** The service named by an assignment tag, if any, whether or not it still exists. */
