@@ -658,6 +658,23 @@ public final class RailwayRuntime {
      * their recorded path, are compared under {@link JunctionControl}.
      */
     Optional<String> junctionReason(String trainName) {
+        // The estimator asks how long a standing train will stand, which asks whether it gives way,
+        // which asks the estimator whether the train is late: the inner question gets no junction
+        // answer, so the chain ends there instead of overflowing the stack.
+        if (inJunctionCheck) {
+            return Optional.empty();
+        }
+        inJunctionCheck = true;
+        try {
+            return computeJunctionReason(trainName);
+        } finally {
+            inJunctionCheck = false;
+        }
+    }
+
+    private boolean inJunctionCheck;
+
+    private Optional<String> computeJunctionReason(String trainName) {
         Network network = store.network();
         JourneySnapshot mine = tracker.snapshot(trainName).orElse(null);
         Service myService = mine == null || mine.service() == null ? null : network.service(mine.service()).orElse(null);
