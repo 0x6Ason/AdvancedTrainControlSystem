@@ -40,6 +40,8 @@ class NetworkCodecTest {
                 .line(Line.of("b", "Line B", 0x00AA00).withService(other))
                 .board(new Board("main-1", "main", List.of("1"), List.of(BlockPos.parse("world,-320,65,-802")),
                         Map.of(BlockPos.parse("world,-321,65,-802"), 1)))
+                .output(Output.of(BlockPos.parse("world,-300,70,-800"), "main:1", "approach a"))
+                .output(Output.of(BlockPos.parse("world,-300,71,-800"), "main", ""))
                 .display(new Display("main-roadmap", Display.Kind.ROADMAP, "main", List.of("1"), ServiceKey.parse("a/north"),
                         2, 1, List.of(new Display.Frame(BlockPos.parse("world,-318,66,-802"), 0, 0, 12),
                                 new Display.Frame(BlockPos.parse("world,-317,66,-802"), 1, 0, 13)), List.of(), null))
@@ -76,6 +78,10 @@ class NetworkCodecTest {
         assertEquals("SH", read.service(ServiceKey.parse("b/x")).orElseThrow().shortName());
         assertTrue(yaml.contains("mirrors:") && yaml.contains("world,-321,65,-802"), "board mirrors are written: " + yaml);
         assertEquals(1, read.board("main-1").orElseThrow().mirrors().get(BlockPos.parse("world,-321,65,-802")));
+        assertEquals(network.outputs(), read.outputs(), "bound lamps and levers are written and read");
+        assertTrue(yaml.contains("outputs:") && yaml.contains("target: main:1") && yaml.contains("mode: approach a"), yaml);
+        assertEquals(dev.advancedtrains.atcs.operation.Indicator.Mode.APPROACH,
+                read.output(BlockPos.parse("world,-300,70,-800")).orElseThrow().rule().mode());
     }
 
     @Test

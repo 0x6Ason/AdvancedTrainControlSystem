@@ -30,6 +30,7 @@ AdvancedTrainControlSystem
 | `/atcs departures <station> [platform]` | `atcs.use` | Show the next departures from a station |
 | `/atcs transfer ...` | `atcs.use` | Walking transfers between nearby stations (see below) |
 | `/atcs board ...` | `atcs.manage` | Departure boards on signs (see below) |
+| `/atcs output ...` | `atcs.manage` | Redstone lamps and levers switched with the trains, bound by command (see below) |
 | `/atcs display ...` | `atcs.manage` | Pictures in item frames and hologram boards, placed with the wand (see below) |
 | `/atcs switch ...` | `atcs.manage` | Switch signs and directions set by hand (see below) |
 | `/atcs wand [pos1\|pos2\|clear\|info]` | `atcs.manage` | Get the selection wand: left click and right click two corners, then place displays or footprints |
@@ -142,6 +143,16 @@ Departure boards on signs.
 | `/atcs board unbind` | `atcs.manage` | Remove the sign you look at from its board |
 | `/atcs board remove <id>` | `atcs.manage` | Remove a board (its signs keep their last text) |
 | `/atcs board list` | `atcs.manage` | List boards |
+
+## /atcs output
+
+Redstone lamps and levers switched with the trains, bound by command.
+
+| Command | Permission | |
+|---|---|---|
+| `/atcs output add <station[:platform]>\|block <id> [at\|approach\|after\|to <station>\|between <station>] [line\|line/service]` | `atcs.manage` | Make the lamp or lever you look at show trains at, approaching or past a station, or inside a block |
+| `/atcs output remove` | `atcs.manage` | Unbind the lamp or lever you look at |
+| `/atcs output list` | `atcs.manage` | List bound lamps and levers |
 
 ## /atcs display
 

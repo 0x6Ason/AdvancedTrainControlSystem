@@ -343,7 +343,18 @@ public final class RailwayRuntime {
             }
             assignFromNewSpawnSigns(network);
             refreshHeldChunks(network);
+            bindOutputs(network);
         });
+    }
+
+    /** The lamps and levers bound by command: those in the network and no others. */
+    private void bindOutputs(Network network) {
+        for (BlockPos block : indicators.blocks()) {
+            if (!network.outputs().containsKey(block)) {
+                indicators.unregisterBlock(block);
+            }
+        }
+        network.outputs().forEach((block, output) -> indicators.registerBlock(block, output.rule()));
     }
 
     /** The displays in the world (map pictures and holograms), refreshed with the boards. */
@@ -360,6 +371,7 @@ public final class RailwayRuntime {
         webDirty = true;
         mapDirty = true;
         refreshHeldChunks(store.network());
+        bindOutputs(store.network());
         running = true;
         schedule();
     }

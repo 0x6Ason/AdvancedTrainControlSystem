@@ -152,6 +152,11 @@ TrainCarts server, configured with files and in-game commands.
 - Walking transfers between nearby stations (`/atcs transfer`, `transfers:` in network.yml): a
   dotted connector on the map, walked by the trip planner, and mentioned in arrival
   announcements.
+- Redstone outputs bound by command: `/atcs output add <station[:platform]>|block <id> [mode]
+  [line|service]` makes the redstone lamp or lever you look at follow the trains (the modes of
+  the `atcs indicator` sign), with no sign and no wiring to the track; ATCS sets the block
+  itself whenever its chunk is loaded. `/atcs output list` and `remove`; `outputs:` in
+  network.yml.
 - A complete example network in `docs/examples/network.yml`, read by a test so it stays valid.
 - Service recovery: `/atcs train shortturn <train> <station>` turns a train back at a station as
   the service of its line running the other way (riders are told there, the train leaves

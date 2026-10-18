@@ -16,13 +16,20 @@ import java.util.Map;
  */
 public final class IndicatorService {
 
-    /** Switches the output of a sign: the levers on the block it hangs on. */
+    /** Switches the output of a sign (the levers on the block it hangs on) or a bound lamp or lever. */
     public interface Output {
         void set(BlockPos sign, boolean powered);
+
+        /** Lights or clears a bound lamp or lever; false when it could not be reached (chunk not loaded). */
+        default boolean setBlock(BlockPos block, boolean powered) {
+            return true;
+        }
     }
 
     private final Output output;
     private final Map<BlockPos, Indicator> signs = new LinkedHashMap<>();
+    /** Lamps and levers bound by command, driven directly. */
+    private final Map<BlockPos, Indicator> blocks = new LinkedHashMap<>();
     private final Map<BlockPos, Boolean> applied = new HashMap<>();
 
     public IndicatorService(Output output) {
@@ -40,8 +47,24 @@ public final class IndicatorService {
         applied.remove(sign);
     }
 
+    /** Binds (or rebinds) a lamp or lever; set at the next refresh, and again whenever its chunk is loaded. */
+    public void registerBlock(BlockPos block, Indicator indicator) {
+        blocks.put(block, indicator);
+        applied.remove(block);
+    }
+
+    public void unregisterBlock(BlockPos block) {
+        if (blocks.remove(block) != null && Boolean.TRUE.equals(applied.remove(block))) {
+            output.setBlock(block, false);
+        }
+    }
+
+    public java.util.Set<BlockPos> blocks() {
+        return java.util.Set.copyOf(blocks.keySet());
+    }
+
     public int size() {
-        return signs.size();
+        return signs.size() + blocks.size();
     }
 
     public long lit() {
@@ -62,16 +85,32 @@ public final class IndicatorService {
                 output.set(entry.getKey(), active);
             }
         }
+        for (Map.Entry<BlockPos, Indicator> entry : blocks.entrySet()) {
+            boolean active = entry.getValue().active(journeys, network, blockOccupied);
+            Boolean previous = applied.get(entry.getKey());
+            if (previous != null && previous == active) {
+                continue;
+            }
+            // A block in an unloaded chunk is tried again next time; nobody sees it meanwhile.
+            if (output.setBlock(entry.getKey(), active)) {
+                applied.put(entry.getKey(), active);
+            }
+        }
     }
 
     /** Clears every lit output, for shutdown. */
     public void shutdown() {
         for (Map.Entry<BlockPos, Boolean> entry : applied.entrySet()) {
             if (entry.getValue()) {
-                output.set(entry.getKey(), false);
+                if (blocks.containsKey(entry.getKey())) {
+                    output.setBlock(entry.getKey(), false);
+                } else {
+                    output.set(entry.getKey(), false);
+                }
             }
         }
         applied.clear();
         signs.clear();
+        blocks.clear();
     }
 }

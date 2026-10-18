@@ -112,6 +112,18 @@ transfers:
   walk: 90
   outside: true
 
+# Redstone lamps or levers switched with the trains, no sign needed (/atcs output add).
+outputs:
+- block: world,100,68,-10
+  target: main:1
+  mode: approach
+- block: world,101,68,-10
+  target: main:1
+  mode: at
+- block: world,102,68,-10
+  target: main
+  mode: between park
+
 boards:
   main-east:
     station: main

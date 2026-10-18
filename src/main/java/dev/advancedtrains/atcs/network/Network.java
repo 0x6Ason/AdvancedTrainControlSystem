@@ -24,6 +24,7 @@ public final class Network {
     private final Map<String, Station> stations;
     private final Map<String, Line> lines;
     private final Map<String, Board> boards;
+    private final Map<BlockPos, Output> outputs;
     private final List<Transfer> transfers;
     private final MapOverrides map;
     private final Map<String, List<Transfer>> transfersByStation;
@@ -40,7 +41,14 @@ public final class Network {
         this.stations = Collections.unmodifiableMap(new LinkedHashMap<>(builder.stations));
         this.lines = Collections.unmodifiableMap(new LinkedHashMap<>(builder.lines));
         this.boards = Collections.unmodifiableMap(new LinkedHashMap<>(builder.boards));
+        this.outputs = Collections.unmodifiableMap(new LinkedHashMap<>(builder.outputs));
         List<String> problems = new ArrayList<>();
+        for (Output output : outputs.values()) {
+            if (output.rule().mode() != dev.advancedtrains.atcs.operation.Indicator.Mode.BLOCK
+                    && !builder.stations.containsKey(output.rule().stationId())) {
+                problems.add("Output " + output.block().coordinates() + " watches unknown station '" + output.rule().stationId() + "'");
+            }
+        }
 
         Map<BlockPos, PlatformRef> triggerIndex = new HashMap<>();
         for (Station station : stations.values()) {
@@ -182,6 +190,7 @@ public final class Network {
         builder.stations.putAll(stations);
         builder.lines.putAll(lines);
         builder.boards.putAll(boards);
+        builder.outputs.putAll(outputs);
         builder.displays.putAll(displays);
         builder.map = map;
         transfers.forEach(transfer -> builder.transfers.put(transfer.key(), transfer));
@@ -248,6 +257,15 @@ public final class Network {
 
     public Optional<Board> board(String id) {
         return Optional.ofNullable(boards.get(id));
+    }
+
+    /** Lamps and levers bound by command, by position. */
+    public Map<BlockPos, Output> outputs() {
+        return outputs;
+    }
+
+    public Optional<Output> output(BlockPos block) {
+        return Optional.ofNullable(outputs.get(block));
     }
 
     /** The short code of a station, used in sign variable names, for example {@code "gb"}. */
@@ -323,6 +341,7 @@ public final class Network {
         private final Map<String, Station> stations = new LinkedHashMap<>();
         private final Map<String, Line> lines = new LinkedHashMap<>();
         private final Map<String, Board> boards = new LinkedHashMap<>();
+        private final Map<BlockPos, Output> outputs = new LinkedHashMap<>();
         private final Map<String, Display> displays = new LinkedHashMap<>();
         private final Map<String, Transfer> transfers = new LinkedHashMap<>();
         private MapOverrides map = MapOverrides.EMPTY;
@@ -383,6 +402,16 @@ public final class Network {
 
         public Builder removeBoard(String id) {
             boards.remove(id);
+            return this;
+        }
+
+        public Builder output(Output output) {
+            outputs.put(output.block(), output);
+            return this;
+        }
+
+        public Builder removeOutput(BlockPos block) {
+            outputs.remove(block);
             return this;
         }
 

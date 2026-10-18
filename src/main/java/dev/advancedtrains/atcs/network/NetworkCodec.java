@@ -94,6 +94,9 @@ public final class NetworkCodec {
             }
         }
         builder.map(readMap(root.getConfigurationSection("map"), errors));
+        for (Output output : readOutputs(root, errors)) {
+            builder.output(output);
+        }
         Set<String> walks = new HashSet<>();
         for (Transfer transfer : readTransfers(root, errors)) {
             if (!walks.add(transfer.key())) {
@@ -192,6 +195,32 @@ public final class NetworkCodec {
             errors.add(path + ": " + exception.getMessage());
             return null;
         }
+    }
+
+    private static List<Output> readOutputs(ConfigurationSection root, List<String> errors) {
+        List<Output> outputs = new ArrayList<>();
+        if (!root.isSet("outputs")) {
+            return outputs;
+        }
+        if (!root.isList("outputs")) {
+            errors.add("outputs: expected a list of { block: world,x,y,z, target: main:2, mode: approach }");
+            return outputs;
+        }
+        List<?> items = root.getList("outputs", List.of());
+        for (int index = 0; index < items.size(); index++) {
+            String path = "outputs[" + (index + 1) + "]";
+            if (!(items.get(index) instanceof Map<?, ?> item) || item.get("block") == null || item.get("target") == null) {
+                errors.add(path + ": expected { block: world,x,y,z, target: main:2, mode: approach }");
+                continue;
+            }
+            try {
+                outputs.add(Output.of(BlockPos.parse(String.valueOf(item.get("block"))), String.valueOf(item.get("target")),
+                        item.get("mode") == null ? "" : String.valueOf(item.get("mode"))));
+            } catch (IllegalArgumentException exception) {
+                errors.add(path + ": " + exception.getMessage());
+            }
+        }
+        return outputs;
     }
 
     private static List<Transfer> readTransfers(ConfigurationSection root, List<String> errors) {
@@ -645,6 +674,19 @@ public final class NetworkCodec {
             }
         }
 
+        if (!network.outputs().isEmpty()) {
+            List<Map<String, Object>> outputs = new ArrayList<>();
+            for (Output output : network.outputs().values()) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("block", output.block().format());
+                item.put("target", output.target());
+                if (!output.mode().isEmpty()) {
+                    item.put("mode", output.mode());
+                }
+                outputs.add(item);
+            }
+            root.set("outputs", outputs);
+        }
         if (!network.transfers().isEmpty()) {
             List<Map<String, Object>> transfers = new ArrayList<>();
             for (Transfer transfer : network.transfers()) {

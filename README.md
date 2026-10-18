@@ -190,6 +190,13 @@ enter           a/express
 - `atcs clear` removes the assignment.
 - `atcs indicator` turns the levers on the block behind the sign on and off with the trains, for
   platform lamps, track diagrams or barriers, anywhere in the world and without any track wiring.
+  The same without a sign: look at a redstone lamp or a lever and run `/atcs output add main:2
+  approach` (the modes of the indicator sign: `at`, `approach`, `after`, `to <station>`,
+  `between <station>`, `block <id>`, and a line or service to filter by). ATCS lights the lamp or
+  throws the lever itself whenever the chunk is loaded, so a wall of lamps showing where every
+  train is needs no signs and no wiring to the track; `/atcs output list` shows them and
+  `/atcs output remove` unbinds the one you look at. They are kept in `network.yml` under
+  `outputs:`.
 - `atcs block` signs come in pairs, `enter` and `exit`, and let one train at a time through the
   track between them. See [Block signs](#block-signs).
 - `atcs speed` sets the speed limit of the trains that pass it, all of them or one line's or
