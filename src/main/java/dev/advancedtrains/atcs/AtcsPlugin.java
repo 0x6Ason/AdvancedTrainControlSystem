@@ -595,6 +595,10 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
      */
     private void upgradeFiles() {
         for (String name : List.of("config.yml", "messages.yml")) {
+            if (!Files.exists(dataPath().resolve(name))) {
+                // A first start: the bundled file is saved as it is, nothing to upgrade.
+                continue;
+            }
             try (InputStream bundled = getResource(name)) {
                 if (bundled == null) {
                     continue;
@@ -646,6 +650,11 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
 
     private @Nullable WebSite createWeb() {
         if (!settings.web().enabled()) {
+            return null;
+        }
+        if (settings.web().folder().isBlank() && getServer().getPluginManager().getPlugin("BlueMap") == null) {
+            getLogger().info("Website off: it is served from BlueMap's web root, and BlueMap is not installed."
+                    + " Set integrations.web.folder to a folder your web server serves to have it without BlueMap.");
             return null;
         }
         try {

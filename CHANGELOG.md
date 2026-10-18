@@ -152,6 +152,9 @@ TrainCarts server, configured with files and in-game commands.
 - Walking transfers between nearby stations (`/atcs transfer`, `transfers:` in network.yml): a
   dotted connector on the map, walked by the trip planner, and mentioned in arrival
   announcements.
+- A first start no longer warns about files it has not written yet, and without BlueMap the
+  website says what it needs (BlueMap, or `integrations.web.folder`) instead of blaming the
+  BlueMap version. Checked on a fresh Paper 1.21.5 server with only TrainCarts installed.
 - Redstone outputs bound by command: `/atcs output add <station[:platform]>|block <id> [mode]
   [line|service]` makes the redstone lamp or lever you look at follow the trains (the modes of
   the `atcs indicator` sign), with no sign and no wiring to the track; ATCS sets the block
