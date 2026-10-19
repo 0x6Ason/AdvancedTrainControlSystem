@@ -152,6 +152,15 @@ TrainCarts server, configured with files and in-game commands.
 - Walking transfers between nearby stations (`/atcs transfer`, `transfers:` in network.yml): a
   dotted connector on the map, walked by the trip planner, and mentioned in arrival
   announcements.
+- Displays redrawn: a split-flap departure board like an airport's (one flap per letter, the
+  line on a flap in its colour, columns by width, flaps turning to new departures); roadmaps that
+  run left or right to match the platform and fit the frames as a strip, rows or a column, with
+  passed stations grey and "You are here"; station signs in New York style (or Hong Kong style)
+  with route bullets; the lettering bundled (Inter, Barlow Condensed) so every server draws the
+  same; letters centred by their ink. Hologram boards face one way (`/atcs display face`).
+  Displays are much lighter: pictures kept as map colours, tiles sent only when they change,
+  boards assembled from shared, pre-drawn flaps (a 4 × 2 board in 0.03 ms instead of 2 ms) and
+  kept current only while a player is near. `/atcs display export` saves a display as a picture.
 - A first start no longer warns about files it has not written yet, and without BlueMap the
   website says what it needs (BlueMap, or `integrations.web.folder`) instead of blaming the
   BlueMap version. Checked on a fresh Paper 1.21.5 server with only TrainCarts installed.

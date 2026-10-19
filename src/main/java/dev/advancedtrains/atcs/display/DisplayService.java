@@ -39,6 +39,7 @@ import org.bukkit.map.MapRenderer;
 import org.bukkit.map.MapView;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.BoundingBox;
 import org.bukkit.util.Transformation;
 import org.joml.AxisAngle4f;
@@ -46,13 +47,16 @@ import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 
 import java.awt.image.BufferedImage;
+import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
@@ -63,17 +67,33 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Puts displays into the world and keeps them current: map items in item frames drawn by
- * {@link DisplayRenderer}, and hologram boards on text display entities. Only frames and
- * positions an operator selected are ever touched, and everything is recorded in network.yml
- * so it survives restarts and can be taken down again.
+ * Puts displays into the world and keeps them current: map items in item frames, and hologram
+ * boards on text display entities. Only frames and positions an operator selected are ever
+ * touched, and everything is recorded in network.yml so it survives restarts and can be taken
+ * down again.
+ *
+ * <p>Displays are kept light. Every map holds its tile as map colours (16 KB, not a 64 KB RGB
+ * picture), a tile is sent to players only when its bytes change, signs and roadmaps are drawn
+ * once and again only when the network changes, and departure boards are assembled from flaps
+ * drawn once and shared by every board, only when what they show changes and only while a
+ * player is near enough to see them.
  */
 public final class DisplayService {
     /** The id of the hand-held network map display. */
     public static final String HANDHELD_ID = "map";
 
+    /** A board is kept current while a player is this close to it, in blocks. */
+    static final double WATCH_DISTANCE = 96;
+    /** Game ticks between the steps of the flaps turning. */
+    private static final long TURN_TICKS = 3;
+
+    private final Plugin plugin;
     private final Logger logger;
     private final Logos logos;
+    private final SplitFlapRenderer.Cache flaps = new SplitFlapRenderer.Cache();
+    /** Each departure board's scene and what it shows, by display id. */
+    private final Map<String, BoardState> boards = new HashMap<>();
+    private @Nullable BukkitTask turning;
     private final NamespacedKey hologramKey;
     private AtcsSettings.Displays settings;
     /** Our renderer on each map we draw, by map id. */
@@ -81,6 +101,7 @@ public final class DisplayService {
     private final Set<Integer> missingMaps = new HashSet<>();
     private final Map<String, String> liveSignatures = new HashMap<>();
     private final Map<String, UUID> hologramEntities = new HashMap<>();
+    private Map<String, Display> currentDisplays = Map.of();
     private boolean staticDirty = true;
     private int drawnPathsVersion = -1;
 
@@ -98,6 +119,7 @@ public final class DisplayService {
     }
 
     public DisplayService(Plugin plugin, AtcsSettings.Displays settings, Logos logos) {
+        this.plugin = plugin;
         this.logger = plugin.getLogger();
         this.logos = logos;
         this.settings = settings;
@@ -113,6 +135,7 @@ public final class DisplayService {
     public void networkChanged() {
         staticDirty = true;
         liveSignatures.clear();
+        boards.clear();
     }
 
     public void redrawAll() {
@@ -127,6 +150,8 @@ public final class DisplayService {
             return;
         }
         boolean redrawStatic = staticDirty || drawnPathsVersion != paths.version();
+        currentDisplays = network.displays();
+        boards.keySet().retainAll(currentDisplays.keySet());
         for (Display display : network.displays().values()) {
             try {
                 if (display.kind() == Display.Kind.HOLOGRAM) {
@@ -193,15 +218,25 @@ public final class DisplayService {
                 if (service == null) {
                     return;
                 }
-                mosaic = DisplayRenderer.roadmap(network, service, display.stationId(), width, height);
+                mosaic = RoadmapRenderer.draw(network, service, display.stationId(),
+                        display.option("left") ? RoadmapRenderer.Flow.LEFT : RoadmapRenderer.Flow.RIGHT, shape(display), width, height);
             }
             case LOGO -> {
                 Station station = network.station(display.stationId()).orElse(null);
                 if (station == null) {
                     return;
                 }
-                int size = Math.min(width, height);
-                mosaic = DisplayRenderer.logo(logos.station(network, station, size), station.name(), width, height);
+                if (logos.stationOverridden(station.id())) {
+                    // The operator's own picture for the station, with its name under it.
+                    int size = Math.min(width, height);
+                    mosaic = DisplayRenderer.logo(logos.station(network, station, size), station.name(), width, height);
+                } else {
+                    List<StationSignRenderer.LineMark> lines = new ArrayList<>();
+                    for (Line line : network.linesCallingAt(station.id())) {
+                        lines.add(new StationSignRenderer.LineMark(line.shortName(), line.color(), line.name()));
+                    }
+                    mosaic = StationSignRenderer.draw(station.name(), lines, display.note(), signStyle(display), width, height);
+                }
             }
             case STATUS -> {
                 List<DisplayRenderer.StatusRow> rows = new ArrayList<>();
@@ -223,22 +258,72 @@ public final class DisplayService {
                 return;
             }
         }
-        show(display, mosaic, projection, world);
+        show(display, MapPixels.of(mosaic), projection, world);
     }
 
-    private void show(Display display, BufferedImage mosaic, DisplayRenderer.@Nullable Projection projection, @Nullable String world) {
+    private static RoadmapRenderer.Shape shape(Display display) {
+        return display.option("strip") ? RoadmapRenderer.Shape.STRIP
+                : display.option("rows") ? RoadmapRenderer.Shape.ROWS
+                : display.option("column") ? RoadmapRenderer.Shape.COLUMN
+                : RoadmapRenderer.Shape.AUTO;
+    }
+
+    private StationSignRenderer.Style signStyle(Display display) {
+        if (display.option("hong-kong")) {
+            return StationSignRenderer.Style.MTR;
+        }
+        if (display.option("new-york")) {
+            return StationSignRenderer.Style.MTA;
+        }
+        return settings.hongKongSigns() ? StationSignRenderer.Style.MTR : StationSignRenderer.Style.MTA;
+    }
+
+    /** Hands each map its tile; only tiles whose pixels changed are sent to players again. */
+    private void show(Display display, MapPixels picture, DisplayRenderer.@Nullable Projection projection, @Nullable String world) {
         for (Display.Frame frame : display.frames()) {
             TileRenderer renderer = renderers.get(frame.map());
             if (renderer != null) {
-                renderer.show(DisplayRenderer.tile(mosaic, frame.column(), frame.row()), null, null);
+                renderer.show(picture.tile(frame.column(), frame.row()), null, null);
             }
         }
         for (int id : display.maps()) {
             TileRenderer renderer = renderers.get(id);
             if (renderer != null) {
-                renderer.show(DisplayRenderer.tile(mosaic, 0, 0), projection, world);
+                renderer.show(picture.tile(0, 0), projection, world);
             }
         }
+    }
+
+    /** What a display shows now, put together from its maps: for exports. Null when nothing is drawn yet. */
+    public @Nullable BufferedImage picture(Display display) {
+        int columns = Math.max(1, display.columns());
+        int rows = Math.max(1, display.rows());
+        MapPixels picture = new MapPixels(columns * MapPixels.TILE, rows * MapPixels.TILE);
+        boolean any = false;
+        for (Display.Frame frame : display.frames()) {
+            TileRenderer renderer = renderers.get(frame.map());
+            byte[] tile = renderer == null ? null : renderer.pixels;
+            if (tile != null) {
+                picture.blit(MapPixels.ofTile(tile), frame.column() * MapPixels.TILE, frame.row() * MapPixels.TILE);
+                any = true;
+            }
+        }
+        if (!any && !display.maps().isEmpty()) {
+            TileRenderer renderer = renderers.get(display.maps().get(0));
+            if (renderer != null && renderer.pixels != null) {
+                return MapPixels.ofTile(renderer.pixels).toImage();
+            }
+        }
+        return any ? picture.toImage() : null;
+    }
+
+    /** Bytes held for displays: every map's tile and every board's scene, plus the shared flaps. */
+    public long memoryBytes() {
+        long total = (long) renderers.size() * MapPixels.TILE * MapPixels.TILE;
+        for (BoardState board : boards.values()) {
+            total += (long) board.scene.width() * board.scene.height();
+        }
+        return total + flaps.bytes();
     }
 
     /** The world a network map shows: where its frames hang, or else where most stations are. */
@@ -291,39 +376,157 @@ public final class DisplayService {
         return DisplayRenderer.networkMap("", lines, stations, hereId, width, height);
     }
 
+    /**
+     * A departure board: its scene (drawn once), what it shows now, and while its flaps turn the
+     * rows they turn from and the step they are at.
+     */
+    private static final class BoardState {
+        final String sceneKey;
+        final MapPixels scene;
+        List<SplitFlapRenderer.Row> shown = List.of();
+        String clock = "";
+        String empty = "";
+        List<SplitFlapRenderer.Row> from = List.of();
+        int step = -1;
+
+        BoardState(String sceneKey, MapPixels scene) {
+            this.sceneKey = sceneKey;
+            this.scene = scene;
+        }
+    }
+
     private void refreshBoardPicture(Display display, Network network, Messages messages, DepartureSource departures) {
         Station station = network.station(display.stationId()).orElse(null);
-        if (station == null) {
+        if (station == null || !watched(display)) {
             return;
         }
-        int rows = Math.max(1, display.rows()) * 5;
-        List<Departures.Departure> upcoming = departures.departures(station.id(), display::includesPlatform, rows);
-        List<DisplayRenderer.BoardRow> picture = new ArrayList<>();
-        StringBuilder signature = new StringBuilder();
-        for (Departures.Departure departure : upcoming) {
+        int width = Math.max(1, display.columns()) * DisplayRenderer.TILE;
+        int height = Math.max(1, display.rows()) * DisplayRenderer.TILE;
+        String clock = LocalTime.now().withSecond(0).withNano(0).toString();
+        String platforms = display.platforms().isEmpty() ? null
+                : (display.platforms().size() == 1 ? "Platform " : "Platforms ") + String.join(", ", display.platforms());
+        String sceneKey = width + "x" + height + "|" + station.name() + "|" + platforms + "|" + clock.length();
+        BoardState state = boards.get(display.id());
+        if (state == null || !state.sceneKey.equals(sceneKey)) {
+            state = new BoardState(sceneKey, SplitFlapRenderer.scene(station.name(), platforms, clock.length(), width, height));
+            boards.put(display.id(), state);
+        }
+        List<SplitFlapRenderer.Row> rows = new ArrayList<>();
+        for (Departures.Departure departure : departures.departures(station.id(), display::includesPlatform,
+                SplitFlapRenderer.rows(width, height))) {
             Line line = network.line(departure.service().key().lineId()).orElse(null);
-            if (line == null) {
-                continue;
+            if (line != null) {
+                rows.add(row(departure, line, network));
             }
-            String destination = departure.service().destinationFrom(departure.stopIndex())
-                    .map(stop -> network.stationName(stop.stationId())).orElse(departure.service().name());
-            String status = PlainTextComponentSerializer.plainText().serialize(BoardRenderer.status(departure, line, messages));
-            boolean good = departure.status() == Departures.Status.BOARDING
-                    || departure.etaSeconds().isPresent() && departure.etaSeconds().getAsDouble() <= BoardRenderer.ARRIVING_SECONDS;
-            String platform = display.platforms().size() == 1 ? null : BoardRenderer.platformName(network, departure);
-            picture.add(new DisplayRenderer.BoardRow(line.shortName(), line.color(), destination, status, good && !line.suspended(), platform));
-            signature.append(line.id()).append('|').append(destination).append('|').append(status).append('|').append(platform).append('\n');
         }
-        String key = signature.toString();
-        if (key.equals(liveSignatures.get(display.id()))) {
+        String empty = PlainTextComponentSerializer.plainText().serialize(messages.render("hologram.empty"));
+        if (rows.equals(state.shown) && clock.equals(state.clock) && empty.equals(state.empty) && state.step < 0) {
             return;
         }
-        liveSignatures.put(display.id(), key);
-        String subtitle = display.platforms().isEmpty() ? null : "Platform " + String.join(", ", display.platforms());
-        String empty = PlainTextComponentSerializer.plainText().serialize(messages.render("hologram.empty"));
-        BufferedImage mosaic = DisplayRenderer.board(station.name(), subtitle, picture, empty,
-                Math.max(1, display.columns()) * DisplayRenderer.TILE, Math.max(1, display.rows()) * DisplayRenderer.TILE);
-        show(display, mosaic, null, null);
+        boolean turn = settings.boardAnimation() && !state.shown.isEmpty() && !rows.equals(state.shown);
+        state.from = state.step >= 0 ? state.from : state.shown;
+        state.shown = rows;
+        state.clock = clock;
+        state.empty = empty;
+        if (turn) {
+            state.step = 1;
+            draw(display, state, SplitFlapRenderer.between(state.from, rows, 1, width, height));
+            startTurning();
+        } else {
+            state.step = -1;
+            draw(display, state, rows);
+        }
+    }
+
+    private void draw(Display display, BoardState state, List<SplitFlapRenderer.Row> rows) {
+        show(display, SplitFlapRenderer.board(flaps, state.scene, state.clock, rows, state.empty), null, null);
+    }
+
+    /** Steps every turning board on; the task stops itself when no board is turning. */
+    private void startTurning() {
+        if (turning != null) {
+            return;
+        }
+        turning = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
+            boolean any = false;
+            for (Map.Entry<String, BoardState> entry : boards.entrySet()) {
+                BoardState state = entry.getValue();
+                if (state.step < 0) {
+                    continue;
+                }
+                Display display = currentDisplays.get(entry.getKey());
+                if (display == null) {
+                    state.step = -1;
+                    continue;
+                }
+                int width = state.scene.width();
+                int height = state.scene.height();
+                state.step += 2;
+                if (state.step >= SplitFlapRenderer.steps()) {
+                    state.step = -1;
+                    draw(display, state, state.shown);
+                } else {
+                    draw(display, state, SplitFlapRenderer.between(state.from, state.shown, state.step, width, height));
+                    any = true;
+                }
+            }
+            if (!any && turning != null) {
+                turning.cancel();
+                turning = null;
+            }
+        }, TURN_TICKS, TURN_TICKS);
+    }
+
+    /** Whether a player is near enough to see the display; boards nobody can see are not kept current. */
+    private static boolean watched(Display display) {
+        if (display.frames().isEmpty()) {
+            return true;
+        }
+        BlockPos at = display.frames().get(0).at();
+        World world = Bukkit.getWorld(at.world());
+        if (world == null || !world.isChunkLoaded(at.chunkX(), at.chunkZ())) {
+            return false;
+        }
+        double limit = WATCH_DISTANCE * WATCH_DISTANCE;
+        for (Player player : world.getPlayers()) {
+            Location location = player.getLocation();
+            double dx = location.getX() - at.x();
+            double dy = location.getY() - at.y();
+            double dz = location.getZ() - at.z();
+            if (dx * dx + dy * dy + dz * dz <= limit) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** A departure as the flaps show it: minutes to go, the line, where it goes, the platform, a remark. */
+    static SplitFlapRenderer.Row row(Departures.Departure departure, Line line, Network network) {
+        String destination = departure.service().destinationFrom(departure.stopIndex())
+                .map(stop -> network.stationName(stop.stationId())).orElse(departure.service().name());
+        SplitFlapRenderer.Remark remark;
+        String due;
+        if (line.suspended()) {
+            remark = SplitFlapRenderer.Remark.SUSPENDED;
+            due = "";
+        } else if (departure.status() == Departures.Status.BOARDING) {
+            remark = SplitFlapRenderer.Remark.BOARDING;
+            due = "NOW";
+        } else if (departure.etaSeconds().isEmpty()) {
+            remark = departure.late() ? SplitFlapRenderer.Remark.DELAYED : SplitFlapRenderer.Remark.NONE;
+            due = "--";
+        } else {
+            double seconds = departure.etaSeconds().getAsDouble();
+            int minutes = (int) Math.max(1, Math.ceil(seconds / 60));
+            due = seconds <= 30 && !departure.approximate() ? "NOW" : (departure.approximate() ? "~" : "") + minutes + " MIN";
+            if (due.length() > 6) {
+                due = minutes + " MIN";
+            }
+            remark = departure.late() ? SplitFlapRenderer.Remark.DELAYED
+                    : seconds <= BoardRenderer.ARRIVING_SECONDS && !departure.approximate() ? SplitFlapRenderer.Remark.ARRIVING
+                    : SplitFlapRenderer.Remark.NONE;
+        }
+        return new SplitFlapRenderer.Row(due, line.shortName(), line.color(), destination, departure.platformId(), remark);
     }
 
     private void refreshHologram(Display display, Network network, Messages messages, DepartureSource departures) {
@@ -354,6 +557,7 @@ public final class DisplayService {
         if (entity == null) {
             return;
         }
+        face(entity, hologram.facing());
         if (signature.equals(liveSignatures.get(display.id()))) {
             return;
         }
@@ -387,16 +591,61 @@ public final class DisplayService {
         if (!spawnIfMissing) {
             return null;
         }
-        TextDisplay spawned = spawnHologram(display.id(), new Location(world, hologram.x(), hologram.y(), hologram.z()));
+        TextDisplay spawned = spawnHologram(display.id(), new Location(world, hologram.x(), hologram.y(), hologram.z()), hologram.facing());
         hologramEntities.put(display.id(), spawned.getUniqueId());
         liveSignatures.remove(display.id());
         return spawned;
     }
 
-    private TextDisplay spawnHologram(String id, Location at) {
+    /**
+     * Turns the hologram to face one way and keeps it there; one placed before holograms had a
+     * direction keeps turning to each viewer until it is given one ({@code /atcs display face}).
+     */
+    private static void face(TextDisplay entity, @Nullable Float facing) {
+        if (facing == null) {
+            return;
+        }
+        if (entity.getBillboard() != org.bukkit.entity.Display.Billboard.FIXED) {
+            entity.setBillboard(org.bukkit.entity.Display.Billboard.FIXED);
+        }
+        if (Math.abs(entity.getLocation().getYaw() - facing) > 0.1) {
+            entity.setRotation(facing, 0);
+        }
+    }
+
+    /** Points a hologram at a yaw now and records nothing: the caller saves the display. */
+    public void face(Display display, float yaw) {
+        if (display.hologram() == null) {
+            return;
+        }
+        TextDisplay entity = hologramEntity(display, display.hologram(), false);
+        if (entity != null) {
+            face(entity, yaw);
+        }
+    }
+
+    /** The yaw that turns a hologram's text towards someone looking with this yaw, square to the walls. */
+    public static float facing(float viewerYaw) {
+        float yaw = viewerYaw + 180;
+        while (yaw > 180) {
+            yaw -= 360;
+        }
+        while (yaw <= -180) {
+            yaw += 360;
+        }
+        // Square to the walls: someone placing a board looks along the platform, give or take.
+        return Math.round(yaw / 90f) * 90f;
+    }
+
+    private TextDisplay spawnHologram(String id, Location at, @Nullable Float facing) {
         float scale = (float) settings.hologramScale();
-        return at.getWorld().spawn(at, TextDisplay.class, entity -> {
-            entity.setBillboard(org.bukkit.entity.Display.Billboard.VERTICAL);
+        Location place = at.clone();
+        if (facing != null) {
+            place.setYaw(facing);
+            place.setPitch(0);
+        }
+        return at.getWorld().spawn(place, TextDisplay.class, entity -> {
+            entity.setBillboard(facing == null ? org.bukkit.entity.Display.Billboard.VERTICAL : org.bukkit.entity.Display.Billboard.FIXED);
             entity.setAlignment(TextDisplay.TextAlignment.CENTER);
             entity.setLineWidth(400);
             entity.setSeeThrough(settings.hologramSeeThrough());
@@ -500,7 +749,7 @@ public final class DisplayService {
 
     /** Creates the maps, puts them into the frames and returns the display to record. */
     public Display createFrames(String id, Display.Kind kind, @Nullable String stationId, List<String> platforms,
-                                @Nullable ServiceKey service, FrameGrid grid, String label) {
+                                @Nullable ServiceKey service, FrameGrid grid, String label, List<String> options, @Nullable String note) {
         List<Display.Frame> frames = new ArrayList<>();
         for (FrameSlot slot : grid.slots()) {
             MapView view = newView(grid.world(), false);
@@ -513,15 +762,15 @@ public final class DisplayService {
             frames.add(new Display.Frame(position(frame), slot.column(), slot.row(), view.getId()));
         }
         staticDirty = true;
-        return new Display(id, kind, stationId, platforms, service, grid.columns(), grid.rows(), frames, List.of(), null);
+        return new Display(id, kind, stationId, platforms, service, grid.columns(), grid.rows(), frames, List.of(), null, options, note);
     }
 
     /** Spawns the hologram and returns the display to record. */
-    public Display createHologram(String id, String stationId, List<String> platforms, Location at) {
-        TextDisplay entity = spawnHologram(id, at);
+    public Display createHologram(String id, String stationId, List<String> platforms, Location at, float facing) {
+        TextDisplay entity = spawnHologram(id, at, facing);
         hologramEntities.put(id, entity.getUniqueId());
         return new Display(id, Display.Kind.HOLOGRAM, stationId, platforms, null, 0, 0, List.of(), List.of(),
-                new Display.Hologram(at.getWorld().getName(), at.getX(), at.getY(), at.getZ(), entity.getUniqueId()));
+                new Display.Hologram(at.getWorld().getName(), at.getX(), at.getY(), at.getZ(), entity.getUniqueId(), facing));
     }
 
     /**
@@ -643,9 +892,12 @@ public final class DisplayService {
 
     // ---------------------------------------------------------------- renderer
 
-    /** Draws one tile onto a map, once per change, and the holder's position on hand-held maps. */
+    /**
+     * Draws one tile onto a map, once per change, and the holder's position on hand-held maps.
+     * The tile is kept as map colours and copied onto the map as it is, without converting it.
+     */
     private static final class TileRenderer extends MapRenderer {
-        private volatile @Nullable BufferedImage image;
+        private volatile byte @Nullable [] pixels;
         private volatile DisplayRenderer.@Nullable Projection projection;
         private volatile @Nullable String world;
         private volatile int version;
@@ -655,22 +907,34 @@ public final class DisplayService {
             super(contextual);
         }
 
-        void show(BufferedImage tile, DisplayRenderer.@Nullable Projection newProjection, @Nullable String newWorld) {
-            image = tile;
+        /** Takes the tile; false when it is what the map already shows. */
+        boolean show(byte[] tile, DisplayRenderer.@Nullable Projection newProjection, @Nullable String newWorld) {
+            byte[] current = pixels;
+            if (current != null && Arrays.equals(current, tile) && Objects.equals(world, newWorld)
+                    && Objects.equals(projection, newProjection)) {
+                return false;
+            }
+            pixels = tile;
             projection = newProjection;
             world = newWorld;
             version++;
+            return true;
         }
 
         @Override
+        @SuppressWarnings("deprecation")
         public void render(MapView view, MapCanvas canvas, Player player) {
-            BufferedImage current = image;
+            byte[] current = pixels;
             if (current == null) {
                 return;
             }
             Integer seen = drawn.get(canvas);
             if (seen == null || seen != version) {
-                canvas.drawImage(0, 0, current);
+                for (int y = 0; y < MapPixels.TILE; y++) {
+                    for (int x = 0; x < MapPixels.TILE; x++) {
+                        canvas.setPixel(x, y, current[y * MapPixels.TILE + x]);
+                    }
+                }
                 drawn.put(canvas, version);
             }
             DisplayRenderer.Projection currentProjection = projection;

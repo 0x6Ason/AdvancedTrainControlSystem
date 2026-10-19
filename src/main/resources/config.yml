@@ -46,6 +46,13 @@ displays:
   # Frames that hold a display are fixed so players cannot rotate or empty them; set to false to
   # leave them as they are.
   fix-frames: true
+  # Station signs (/atcs display logo): new-york (white on black under a white stripe, with route
+  # bullets) or hong-kong (dark on white over a band of the line colours). A sign can say
+  # otherwise: /atcs display logo <station> hong-kong.
+  sign-style: new-york
+  # The flaps of departure boards turn through the alphabet to new departures, as at an airport.
+  # Off, a board changes at once (and sends players fewer map updates).
+  board-animation: true
   hologram:
     # How many departures a hologram board lists.
     departures: 5

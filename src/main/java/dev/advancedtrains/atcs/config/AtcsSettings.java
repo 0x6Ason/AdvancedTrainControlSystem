@@ -63,8 +63,20 @@ public record AtcsSettings(
      * @param hologramScale      text size of hologram boards, 1 being the vanilla size
      * @param hologramSeeThrough whether hologram boards show through blocks
      */
-    public record Displays(boolean fixFrames, int hologramDepartures, double hologramScale, boolean hologramSeeThrough) {
+    /**
+     * @param hongKongSigns  station signs in the Hong Kong manner unless a display says otherwise
+     *                       (white with a band of line colours) rather than the New York one
+     * @param boardAnimation the flaps of departure boards turn to new departures
+     */
+    public record Displays(boolean fixFrames, int hologramDepartures, double hologramScale, boolean hologramSeeThrough,
+                           boolean hongKongSigns, boolean boardAnimation) {
+        public Displays(boolean fixFrames, int hologramDepartures, double hologramScale, boolean hologramSeeThrough) {
+            this(fixFrames, hologramDepartures, hologramScale, hologramSeeThrough, false, true);
+        }
     }
+
+    /** The manner of station signs: {@code new-york} or {@code hong-kong} in config.yml. */
+    public enum SignStyle { NEW_YORK, HONG_KONG }
 
     public record Boards(int refreshTicks, double defaultDwellSeconds) {
     }
@@ -199,7 +211,9 @@ public record AtcsSettings(
                 reader.bool("displays.fix-frames", true),
                 reader.integer("displays.hologram.departures", 5, 1, 20),
                 reader.decimal("displays.hologram.scale", 1.0, 0.25, 8),
-                reader.bool("displays.hologram.see-through", false));
+                reader.bool("displays.hologram.see-through", false),
+                reader.enumeration("displays.sign-style", SignStyle.NEW_YORK, SignStyle.class) == SignStyle.HONG_KONG,
+                reader.bool("displays.board-animation", true));
         Timing timing = new Timing(
                 reader.decimal("timing.smoothing", 0.3, 0.01, 1),
                 reader.integer("timing.save-interval-minutes", 5, 1, 1440),
@@ -337,7 +351,7 @@ public record AtcsSettings(
                 return fallback;
             }
             try {
-                return Enum.valueOf(type, value.strip().toUpperCase(Locale.ROOT));
+                return Enum.valueOf(type, value.strip().toUpperCase(Locale.ROOT).replace('-', '_'));
             } catch (IllegalArgumentException exception) {
                 warnings.add(path + ": unknown value '" + value + "', using " + fallback);
                 return fallback;

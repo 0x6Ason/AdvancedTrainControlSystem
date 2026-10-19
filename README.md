@@ -368,23 +368,48 @@ initials).
 Pictures on map items in item frames, and floating hologram boards, placed where you select.
 
 ```
-/atcs wand                               (a wand: left click one corner, right click the other)
-/atcs display roadmap 1/north main 1     (the selected frames show line 1's strip diagram, "you are here" at Main St.)
-/atcs display logo main                  (the station's logo)
-/atcs display board main 1               (a departure board picture that keeps updating)
-/atcs display map main                   (the network map, marking Main St.)
-/atcs display status                     (every line and whether it runs)
-/atcs display hologram main 1            (a floating departure board at the selection's centre, or where you look)
-/atcs display list | remove <id> | redraw
-/atcs map                                (a hand-held map of the railway that shows where you are)
+/atcs wand                                     (a wand: left click one corner, right click the other)
+/atcs display roadmap 1/north main left        (line 1's diagram, "You are here" at Main St., trains leaving to the left)
+/atcs display roadmap 1/north main column      (the same as a column of stops, for a pillar)
+/atcs display logo main                        (the station's name sign with its lines)
+/atcs display logo main Platform 2 · to Park   (with a smaller line under the name)
+/atcs display board main 1                     (a split-flap departure board that keeps updating)
+/atcs display map main                         (the network map, marking Main St.)
+/atcs display status                           (every line and whether it runs)
+/atcs display hologram main 1                  (a floating departure board facing you, at the selection's centre or where you look)
+/atcs display face <id> | export <id> | list | remove <id> | redraw
+/atcs map                                      (a hand-held map of the railway that shows where you are)
 ```
 
-Hang the item frames first, as many as you like in a rectangle on one wall: a roadmap reads best
-on a row of four, a logo on one, a board on two by two. ATCS fills them as one picture, fixes the
-frames so players cannot turn or empty them (`displays.fix-frames`), records the display under
-`displays:` in `network.yml` and draws it again after a restart. Roadmaps, logos and maps are
-drawn again when the network changes, boards and holograms whenever a departure changes. When
-WorldEdit is installed its selection is used instead of the wand's whenever you have one.
+Hang the item frames first, as many as you like in a rectangle on one wall. ATCS fills them as one
+picture, fixes the frames so players cannot turn or empty them (`displays.fix-frames`), records
+the display under `displays:` in `network.yml` and draws it again after a restart. When WorldEdit
+is installed its selection is used instead of the wand's whenever you have one.
+
+- **Departure board**: an airport's split-flap board, one flap per letter. The columns follow the
+  width (the platform from three frames, BOARDING and DELAYED from five; a narrower board colours
+  the time instead), and a taller board gets larger flaps, up to seven departures. When the
+  departures change, the flaps turn through the alphabet to the new ones
+  (`displays.board-animation`).
+- **Roadmap**: the line in its colour with every stop, the stations already passed in grey, a red
+  "You are here", the other lines at each interchange, chevrons the way the train goes. `left` or
+  `right` is the way trains leave the platform, so the diagram matches it. The shape follows the
+  frames: one strip on a long row (1 × 10, 1 × 4), the line folded into rows on a wall (4 × 3), a
+  column on a pillar or a square; `strip`, `rows` or `column` sets it.
+- **Station sign** (`logo`): New York style, white lettering on black under a white stripe with the
+  route bullets, or Hong Kong style, dark on white over a band of the line colours
+  (`displays.sign-style`, or `new-york` / `hong-kong` after the station). A long sign puts the lines
+  at the end, a square one under the name; one frame becomes an emblem. A `<station>.png` in the
+  plugin's `logos/` folder is shown instead.
+- **Hologram board**: faces the way you look when you place it and stays so; `/atcs display face`
+  turns it to you again. One placed by an older version turns to each player until then.
+
+Displays cost little. Each map keeps its picture as map colours, a tile is sent to players only
+when it changes, signs and roadmaps are drawn once (and again when the network changes), and a
+departure board is put together from flaps drawn once and shared by every board, only when what
+it shows changes and only while a player is within 96 blocks. `/atcs status` says how much memory
+the displays hold. `/atcs display export <id>` saves what a display shows as a picture in the
+plugin's `exports/` folder.
 
 The wand also gives a station a footprint and binds signs in bulk:
 

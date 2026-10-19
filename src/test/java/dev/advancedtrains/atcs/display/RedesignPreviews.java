@@ -63,7 +63,7 @@ public final class RedesignPreviews {
             int w = size[0] * T;
             int h = size[1] * T;
             emit("board", "board-" + size[0] + "x" + size[1], size, "Main St. departures, " + size[0] + "×" + size[1] + " frames",
-                    SplitFlapRenderer.board("Main St.", "Platforms 2–5", "14:05", now, "No departures", w, h));
+                    SplitFlapRenderer.image("Main St.", "Platforms 2–5", "14:05", now, "No departures", w, h));
         }
         // The turn from one set of departures to the next, frame by frame.
         int w = 4 * T;
@@ -71,7 +71,7 @@ public final class RedesignPreviews {
         List<String> frames = new ArrayList<>();
         for (int step = 0; step <= SplitFlapRenderer.steps(); step++) {
             String name = "board-turn-" + step;
-            BufferedImage image = SplitFlapRenderer.board("Main St.", "Platforms 2–5", "14:06",
+            BufferedImage image = SplitFlapRenderer.image("Main St.", "Platforms 2–5", "14:06",
                     SplitFlapRenderer.between(now, next, step, w, h), "No departures", w, h);
             write(name, image);
             frames.add(name + ".png");
@@ -83,7 +83,7 @@ public final class RedesignPreviews {
         turn.put("rows", 2);
         MANIFEST.add(turn);
         emit("board", "board-empty-3x1", new int[] {3, 1}, "Late at night, 3×1",
-                SplitFlapRenderer.board("YSYSign Station", null, "02:40", List.of(), "No further departures", 3 * T, T));
+                SplitFlapRenderer.image("YSYSign Station", null, "02:40", List.of(), "No further departures", 3 * T, T));
 
         // ---- roadmaps
         Service local = network.service(ServiceKey.parse("1/to-main")).orElseThrow();

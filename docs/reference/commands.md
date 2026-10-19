@@ -160,12 +160,14 @@ Pictures in item frames and hologram boards, placed with the wand.
 
 | Command | Permission | |
 |---|---|---|
-| `/atcs display roadmap <line[/service]> <station> [platform]` | `atcs.manage` | Fill the selected item frames with the line's strip diagram and 'you are here' |
-| `/atcs display logo <station>` | `atcs.manage` | Fill the selected item frames with the station's logo |
+| `/atcs display roadmap <line[/service]> <station> [platform] [left\|right] [strip\|rows\|column]` | `atcs.manage` | Fill the selected item frames with the line's diagram and 'you are here'; left or right is the way trains leave |
+| `/atcs display logo <station> [new-york\|hong-kong] [note...]` | `atcs.manage` | Fill the selected item frames with the station's name sign; text after it goes on a smaller line under the name |
 | `/atcs display board <station> [platform...]` | `atcs.manage` | Fill the selected item frames with a departure board picture that keeps updating |
 | `/atcs display map [station]` | `atcs.manage` | Fill the selected item frames with the network map, marking the station |
 | `/atcs display status` | `atcs.manage` | Fill the selected item frames with a service status panel of every line |
 | `/atcs display hologram <station> [platform...]` | `atcs.manage` | Put a floating departure board at the selection's centre, or where you look |
+| `/atcs display face <display>` | `atcs.manage` | Turn a hologram board to face you, and keep it so |
+| `/atcs display export <display>` | `atcs.manage` | Save what a display shows as a picture in the plugin's exports folder |
 | `/atcs display list` | `atcs.manage` | List displays |
 | `/atcs display remove <display>` | `atcs.manage` | Take a display down: empty its frames or remove its hologram |
 | `/atcs display redraw` | `atcs.manage` | Draw every display again, for example after changing a logo file |

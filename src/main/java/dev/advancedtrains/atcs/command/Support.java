@@ -35,6 +35,10 @@ public final class Support {
     final TrainSource trains;
     final ImportService importer;
     final PluginControl control;
+
+    java.nio.file.Path dataFolder() {
+        return control.dataFolder();
+    }
     final FareService fares;
     private final DisplayService displays;
     private final SelectionService selections;
@@ -72,6 +76,11 @@ public final class Support {
 
         /** Loaded worlds in which TrainCarts is enabled. */
         List<org.bukkit.World> railwayWorlds();
+
+        /** The plugin's folder, where exports are saved. */
+        default java.nio.file.Path dataFolder() {
+            return java.nio.file.Path.of("plugins", "AdvancedTrainControlSystem");
+        }
 
         /** A fresh one-time link to the web editor, or empty with the reason when it is not running. */
         default java.util.Optional<String> editorLink() {

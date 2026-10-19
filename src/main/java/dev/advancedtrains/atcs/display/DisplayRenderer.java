@@ -25,9 +25,9 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Draws the pictures displays show: strip-diagram roadmaps, logos, departure boards, the network
- * map and a service status panel. Pure Java2D so it is testable without a server; the
- * {@link DisplayService} cuts the result into 128 px map tiles.
+ * Draws the pictures displays show besides the board, the roadmap and the station sign: an
+ * operator's own logo picture, the network map and a service status panel. Pure Java2D so it is
+ * testable without a server; the {@link DisplayService} keeps the result as map colours.
  */
 public final class DisplayRenderer {
     /** The size of one map item, in pixels. */
@@ -50,129 +50,6 @@ public final class DisplayRenderer {
     private DisplayRenderer() {
     }
 
-    // ---------------------------------------------------------------- roadmap
-
-    /**
-     * The strip diagram of a service: every stop on a line in the line colour, interchanges with
-     * the badges of the other lines, run-through stops as small ticks, the direction of travel,
-     * and "You are here" at {@code hereStationId}.
-     */
-    public static BufferedImage roadmap(Network network, Service service, @Nullable String hereStationId, int width, int height) {
-        Line line = network.line(service.key().lineId()).orElse(Line.of(service.key().lineId(), service.key().lineId(), 0x9E9E9E));
-        BufferedImage image = paper(width, height);
-        Graphics2D g = graphics(image);
-        try {
-            Color color = new Color(line.color());
-            double pad = Math.max(4, height / 18.0);
-            double headerHeight = height * 0.2;
-            double badge = Math.max(8, height * 0.13);
-            BufferedImage badgeImage = LogoRenderer.lineBadge(line.shortName(), line.color(), (int) Math.round(badge));
-            g.drawImage(badgeImage, (int) Math.round(pad), (int) Math.round(pad), null);
-            String destination = service.destination().map(stop -> network.stationName(stop.stationId())).orElse(service.name());
-            Font headerFont = bold(badge * 0.62);
-            double arrowWidth = badge * 0.8;
-            double toWidth = Math.min(width * 0.45, textWidth(g, headerFont, "to " + destination) + arrowWidth + pad);
-            Font toFont = fit(g, headerFont, "to " + destination, toWidth - arrowWidth - pad / 2);
-            double toX = width - pad - textWidth(g, toFont, "to " + destination);
-            drawString(g, "to " + destination, toX, pad + badge * 0.5 + ascent(g, toFont) / 2.5, toFont, INK);
-            String title = line.name() + "  " + service.name();
-            double titleX = pad + badge + pad * 0.8;
-            Font titleFont = fit(g, headerFont, title, toX - arrowWidth - titleX - pad);
-            drawString(g, title, titleX, pad + badge * 0.5 + ascent(g, titleFont) / 2.5, titleFont, INK);
-            arrow(g, toX - arrowWidth - pad / 4, pad + badge * 0.5, arrowWidth, badge * 0.5, color);
-
-            List<Stop> stops = service.stops();
-            int count = stops.size();
-            double lineY = height * 0.72;
-            double thickness = Math.max(3, height / 15.0);
-            double namesTop = headerHeight + pad * 0.5;
-            double radius = thickness * 0.8;
-            double diagonal = (lineY - radius - pad * 0.4 - namesTop) / Math.sin(Math.toRadians(55));
-            // Names run up and to the right, so the last stop needs room on the right for its name.
-            String lastName = count == 0 ? "" : network.stationName(stops.get(count - 1).stationId());
-            double nameSizeGuess = Math.max(6, Math.min(height * 0.09, (width - 2 * pad) / Math.max(1, count - 1) * 1.35));
-            double lastNameWidth = Math.min(diagonal, textWidth(g, bold(nameSizeGuess), lastName));
-            double rightRoom = Math.min(width * 0.2, lastNameWidth * Math.cos(Math.toRadians(55)));
-            double left = pad + thickness;
-            double right = width - pad - Math.max(thickness * 2.2, rightRoom);
-            // The line itself, with an arrowhead showing the direction of travel.
-            g.setColor(color);
-            g.setStroke(new BasicStroke((float) thickness, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g.draw(new Line2D.Double(left, lineY, right + thickness * 0.6, lineY));
-            arrow(g, right + thickness * 0.3, lineY, thickness * 1.9, thickness * 1.8, color);
-
-            double step = count > 1 ? (right - left) / (count - 1) : 0;
-            double nameSize = Math.max(6, Math.min(height * 0.09, step * 1.35));
-            Font nameFont = bold(nameSize);
-            int longest = 0;
-            for (Stop stop : stops) {
-                longest = Math.max(longest, (int) Math.ceil(textWidth(g, nameFont, network.stationName(stop.stationId()))));
-            }
-            if (longest > diagonal) {
-                nameFont = bold(Math.max(5, nameSize * diagonal / longest));
-            }
-            Font badgeFont = bold(Math.max(5, thickness * 0.9));
-            for (int index = 0; index < count; index++) {
-                Stop stop = stops.get(index);
-                double x = left + index * step;
-                boolean here = stop.stationId().equals(hereStationId);
-                List<Line> others = new ArrayList<>(network.linesCallingAt(stop.stationId()));
-                others.removeIf(other -> other.id().equals(line.id()));
-                boolean terminus = index == 0 || index == count - 1;
-                if (!stop.stops()) {
-                    // A run-through stop: a tick across the line and a muted name.
-                    g.setColor(PAPER);
-                    g.setStroke(new BasicStroke((float) Math.max(1, thickness * 0.22)));
-                    g.draw(new Line2D.Double(x, lineY - thickness * 0.5, x, lineY + thickness * 0.5));
-                    rotatedName(g, network.stationName(stop.stationId()), x, lineY - thickness * 0.7, nameFont, MUTED);
-                    continue;
-                }
-                if (here) {
-                    g.setColor(HERE);
-                    g.fill(new Ellipse2D.Double(x - radius * 1.25, lineY - radius * 1.25, radius * 2.5, radius * 2.5));
-                    g.setColor(PAPER);
-                    g.fill(new Ellipse2D.Double(x - radius * 0.45, lineY - radius * 0.45, radius * 0.9, radius * 0.9));
-                } else if (!others.isEmpty() || terminus) {
-                    g.setColor(PAPER);
-                    g.fill(new Ellipse2D.Double(x - radius, lineY - radius, radius * 2, radius * 2));
-                    g.setColor(INK);
-                    g.setStroke(new BasicStroke((float) Math.max(1.2, thickness * 0.28)));
-                    g.draw(new Ellipse2D.Double(x - radius, lineY - radius, radius * 2, radius * 2));
-                } else {
-                    double small = radius * 0.62;
-                    g.setColor(PAPER);
-                    g.fill(new Ellipse2D.Double(x - small, lineY - small, small * 2, small * 2));
-                }
-                rotatedName(g, network.stationName(stop.stationId()), x, lineY - radius - pad * 0.35, nameFont, here ? HERE : INK);
-                double below = lineY + radius + pad * 0.3;
-                if (here) {
-                    Font hereFont = bold(Math.max(5, thickness * 0.95));
-                    String label = "YOU ARE HERE";
-                    double labelWidth = textWidth(g, hereFont, label);
-                    double labelX = Math.max(pad, Math.min(width - pad - labelWidth, x - labelWidth / 2));
-                    drawString(g, label, labelX, below + ascent(g, hereFont), hereFont, HERE);
-                } else if (!others.isEmpty()) {
-                    double size = thickness * 1.15;
-                    double total = others.size() * size + (others.size() - 1) * 1;
-                    double start = Math.max(pad, Math.min(width - pad - total, x - total / 2));
-                    for (int other = 0; other < others.size(); other++) {
-                        Line otherLine = others.get(other);
-                        double bx = start + other * (size + 1);
-                        g.setColor(new Color(otherLine.color()));
-                        g.fill(new RoundRectangle2D.Double(bx, below, size, size, size * 0.4, size * 0.4));
-                        Font fitted = fit(g, badgeFont, otherLine.shortName(), size * 0.9);
-                        double textWidth = textWidth(g, fitted, otherLine.shortName());
-                        drawString(g, otherLine.shortName(), bx + (size - textWidth) / 2, below + size / 2 + ascent(g, fitted) / 2.6,
-                                fitted, LogoRenderer.onColor(otherLine.color()));
-                    }
-                }
-            }
-        } finally {
-            g.dispose();
-        }
-        return image;
-    }
-
     // ---------------------------------------------------------------- logo
 
     /** A station logo centred on white; {@code roundel} is the picture {@link Logos} provides. */
@@ -191,71 +68,6 @@ public final class DisplayRenderer {
                 Font font = fit(g, bold(captionHeight * 0.7), caption, width - 2 * pad);
                 double textWidth = textWidth(g, font, caption);
                 drawString(g, caption, (width - textWidth) / 2, y + size + captionHeight * 0.75, font, INK);
-            }
-        } finally {
-            g.dispose();
-        }
-        return image;
-    }
-
-    // ---------------------------------------------------------------- board
-
-    /** One departure as a board picture shows it. */
-    public record BoardRow(String badge, int color, String destination, String status, boolean statusGood,
-                           @Nullable String platform) {
-    }
-
-    /** The next departures as a picture: a header, then one row per departure. */
-    public static BufferedImage board(String title, @Nullable String subtitle, List<BoardRow> rows, String emptyText,
-                                      int width, int height) {
-        BufferedImage image = paper(width, height);
-        Graphics2D g = graphics(image);
-        try {
-            double pad = Math.max(4, Math.min(width, height) / 20.0);
-            double headerHeight = Math.max(12, height * 0.16);
-            g.setColor(INK);
-            g.fill(new Rectangle2D.Double(0, 0, width, headerHeight));
-            Font titleFont = fit(g, bold(headerHeight * 0.55), title, width * 0.62);
-            drawString(g, title, pad, headerHeight / 2 + ascent(g, titleFont) / 2.6, titleFont, PAPER);
-            if (subtitle != null && !subtitle.isEmpty()) {
-                Font subtitleFont = fit(g, plain(headerHeight * 0.42), subtitle, width * 0.34);
-                double subtitleWidth = textWidth(g, subtitleFont, subtitle);
-                drawString(g, subtitle, width - pad - subtitleWidth, headerHeight / 2 + ascent(g, subtitleFont) / 2.6,
-                        subtitleFont, FAINT);
-            }
-            if (rows.isEmpty()) {
-                Font font = fit(g, plain(Math.max(8, height * 0.1)), emptyText, width - 2 * pad);
-                double textWidth = textWidth(g, font, emptyText);
-                drawString(g, emptyText, (width - textWidth) / 2, headerHeight + (height - headerHeight) / 2, font, MUTED);
-                return image;
-            }
-            double rowHeight = Math.min(Math.max(10, height * 0.17), (height - headerHeight - pad) / rows.size());
-            double y = headerHeight + pad / 2;
-            for (BoardRow row : rows) {
-                double badge = rowHeight * 0.72;
-                BufferedImage badgeImage = LogoRenderer.lineBadge(row.badge(), row.color(), (int) Math.round(badge));
-                g.drawImage(badgeImage, (int) Math.round(pad), (int) Math.round(y + (rowHeight - badge) / 2), null);
-                Font statusFont = plain(rowHeight * 0.5);
-                double statusWidth = textWidth(g, statusFont, row.status());
-                double platformWidth = 0;
-                if (row.platform() != null) {
-                    Font platformFont = plain(rowHeight * 0.42);
-                    String platform = "P" + row.platform();
-                    platformWidth = textWidth(g, platformFont, platform) + pad;
-                    drawString(g, platform, width - pad - platformWidth + pad, y + rowHeight / 2 + ascent(g, platformFont) / 2.6,
-                            platformFont, MUTED);
-                }
-                double statusX = width - pad - platformWidth - statusWidth;
-                drawString(g, row.status(), statusX, y + rowHeight / 2 + ascent(g, statusFont) / 2.6, statusFont,
-                        row.statusGood() ? GOOD : INK);
-                double destinationX = pad + badge + pad * 0.8;
-                Font destinationFont = fit(g, bold(rowHeight * 0.55), row.destination(), statusX - pad - destinationX);
-                drawString(g, row.destination(), destinationX, y + rowHeight / 2 + ascent(g, destinationFont) / 2.6,
-                        destinationFont, INK);
-                g.setColor(FAINT);
-                g.setStroke(new BasicStroke(1));
-                g.draw(new Line2D.Double(pad, y + rowHeight - 1, width - pad, y + rowHeight - 1));
-                y += rowHeight;
             }
         } finally {
             g.dispose();
@@ -442,22 +254,6 @@ public final class DisplayRenderer {
         return new NetworkMap(image, projection);
     }
 
-    // ---------------------------------------------------------------- tiles
-
-    /** The 128 px tile at column {@code column}, row {@code row} of a mosaic; blank beyond its edge. */
-    public static BufferedImage tile(BufferedImage mosaic, int column, int row) {
-        BufferedImage tile = new BufferedImage(TILE, TILE, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = tile.createGraphics();
-        try {
-            g.setColor(PAPER);
-            g.fillRect(0, 0, TILE, TILE);
-            g.drawImage(mosaic, -column * TILE, -row * TILE, null);
-        } finally {
-            g.dispose();
-        }
-        return tile;
-    }
-
     // ---------------------------------------------------------------- helpers
 
     static BufferedImage paper(int width, int height) {
@@ -515,31 +311,6 @@ public final class DisplayRenderer {
         g.setFont(font);
         g.setColor(color);
         g.drawString(text, (float) x, (float) y);
-    }
-
-    /** A station name running up and to the right from {@code (x, y)}, as on strip maps. */
-    private static void rotatedName(Graphics2D g, String text, double x, double y, Font font, Color color) {
-        AffineTransform saved = g.getTransform();
-        try {
-            g.translate(x, y);
-            g.rotate(Math.toRadians(-55));
-            g.setFont(font);
-            g.setColor(color);
-            g.drawString(text, (float) (font.getSize2D() * 0.2), (float) (font.getSize2D() * 0.35));
-        } finally {
-            g.setTransform(saved);
-        }
-    }
-
-    /** A solid arrowhead pointing right, {@code length} wide and {@code height} tall, centred on {@code (x, y)} vertically. */
-    private static void arrow(Graphics2D g, double x, double y, double length, double height, Color color) {
-        Path2D.Double head = new Path2D.Double();
-        head.moveTo(x, y - height / 2);
-        head.lineTo(x + length, y);
-        head.lineTo(x, y + height / 2);
-        head.closePath();
-        g.setColor(color);
-        g.fill(head);
     }
 
     static String upper(String text) {

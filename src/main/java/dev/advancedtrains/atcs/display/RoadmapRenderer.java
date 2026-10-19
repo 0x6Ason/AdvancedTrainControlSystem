@@ -361,7 +361,7 @@ public final class RoadmapRenderer {
         boolean[] rightward = geometry.rightward();
         Color colour = new Color(plan.color());
         double bullet = Draw.clamp(Math.min(t * 1.7, geometry.pitch() * 0.13), 10, 22);
-        double tagHeight = Draw.clamp(t * 1.7, 14, 22);
+        double tagHeight = Draw.clamp(t * 1.7, 16, 22);
 
         // The line: each stretch coloured by whether the train has already run it.
         g.setStroke(new BasicStroke((float) t, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
@@ -641,7 +641,7 @@ public final class RoadmapRenderer {
         double width = tagWidth(g, height);
         g.setColor(RED);
         g.fill(new RoundRectangle2D.Double(left, top, width, height, height * 0.35, height * 0.35));
-        Draw.textCentred(g, "You are here", left + width / 2, top + height / 2, Draw.of(Fonts.BOLD, height * 0.6), Color.WHITE);
+        Draw.inkCentred(g, "You are here", left + width / 2, top + height / 2, Draw.of(Fonts.BOLD, height * 0.6), Color.WHITE);
     }
 
     /** A white chevron inside the band pointing the way the train runs. */

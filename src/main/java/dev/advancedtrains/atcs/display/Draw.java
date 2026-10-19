@@ -67,6 +67,24 @@ final class Draw {
         textMiddle(g, text, centre - width(g, font, text) / 2, middle, font, color);
     }
 
+    /**
+     * Text centred by its ink rather than its advance: a "1" carries more room on its left than
+     * on its right, so centring the advance leaves it off to one side in a bullet or on a flap.
+     * Horizontally the glyphs' outline is centred; vertically the capitals are, so a row of
+     * flaps keeps one baseline.
+     */
+    static void inkCentred(Graphics2D g, String text, double centre, double middle, Font font, Color color) {
+        if (text.isEmpty()) {
+            return;
+        }
+        java.awt.font.GlyphVector glyphs = font.createGlyphVector(g.getFontRenderContext(), text);
+        java.awt.geom.Rectangle2D ink = glyphs.getVisualBounds();
+        double x = centre - (ink.getX() + ink.getWidth() / 2);
+        double baseline = middle + cap(g, font) / 2;
+        g.setColor(color);
+        g.drawGlyphVector(glyphs, (float) x, (float) baseline);
+    }
+
     /** The largest size up to {@code max} at which the text fits the width. */
     static double fit(Graphics2D g, Font font, String text, double maxWidth, double max) {
         double atMax = width(g, of(font, max), text);
@@ -184,19 +202,23 @@ final class Draw {
      * on the capitals; a badge of three or more characters becomes a rounded pill.
      */
     static double bullet(Graphics2D g, String text, int rgb, double x, double centreY, double diameter) {
-        double width = diameter;
-        Font font = of(Fonts.BOLD, diameter * (text.length() <= 1 ? 0.64 : 0.5));
+        // On whole pixels, so the disc and its letter come out of the map colours the same on every side.
+        double d = Math.max(4, Math.round(diameter));
+        double left = Math.round(x);
+        double top = Math.round(centreY - d / 2);
+        double width = d;
+        Font font = of(Fonts.BOLD, d * (text.length() <= 1 ? 0.64 : 0.5));
         if (text.length() > 2) {
-            width = Math.max(diameter, width(g, font, text) + diameter * 0.5);
+            width = Math.round(Math.max(d, width(g, font, text) + d * 0.5));
         }
         g.setColor(new Color(rgb));
-        if (width > diameter) {
-            g.fill(new RoundRectangle2D.Double(x, centreY - diameter / 2, width, diameter, diameter, diameter));
+        if (width > d) {
+            g.fill(new RoundRectangle2D.Double(left, top, width, d, d, d));
         } else {
-            g.fill(new Ellipse2D.Double(x, centreY - diameter / 2, diameter, diameter));
+            g.fill(new Ellipse2D.Double(left, top, d, d));
         }
-        double fitted = fit(g, font, text, width - diameter * 0.24, font.getSize2D());
-        textCentred(g, text, x + width / 2, centreY, of(Fonts.BOLD, fitted), on(rgb));
+        double fitted = fit(g, font, text, width - d * 0.24, font.getSize2D());
+        inkCentred(g, text, left + width / 2, top + d / 2, of(Fonts.BOLD, fitted), on(rgb));
         return width;
     }
 

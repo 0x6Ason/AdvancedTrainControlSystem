@@ -250,7 +250,7 @@ public final class StationSignRenderer {
             double room = right - left - height * 0.6;
             String text = names ? line.name() : Draw.width(g, font, line.badge()) <= room ? line.badge() : "";
             if (!text.isEmpty()) {
-                Draw.textCentred(g, text, (left + right) / 2, y + height / 2, font, Draw.on(line.color()));
+                Draw.inkCentred(g, text, (left + right) / 2, y + height / 2, font, Draw.on(line.color()));
             }
             if (index > 0) {
                 g.setColor(MTR_PAPER);

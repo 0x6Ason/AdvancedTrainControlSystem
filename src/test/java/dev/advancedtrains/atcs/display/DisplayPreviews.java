@@ -16,7 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Renders sample displays from the staging network fixture for the documentation:
+ * Renders sample displays from the staging network fixture for the documentation, in map colours:
  * {@code ./gradlew generatePreviews} writes them under {@code docs/images/displays}.
  */
 public final class DisplayPreviews {
@@ -30,18 +30,20 @@ public final class DisplayPreviews {
         Network network = new NetworkCodec().read(yaml).network();
         Service local = network.service(ServiceKey.parse("1/to-main")).orElseThrow();
         Service express = network.service(ServiceKey.parse("a/to-new-village")).orElseThrow();
-        write(out, "roadmap-4x1", DisplayRenderer.roadmap(network, local, "golden-islands", 512, 128));
-        write(out, "roadmap-4x2", DisplayRenderer.roadmap(network, local, "golden-islands", 512, 256));
-        write(out, "roadmap-express-4x1", DisplayRenderer.roadmap(network, express, "main", 512, 128));
-        Station main = network.station("main").orElseThrow();
-        List<Integer> colors = network.linesCallingAt("main").stream().map(Line::color).toList();
-        write(out, "logo-1x1", DisplayRenderer.logo(LogoRenderer.station(network.code("main"), colors, 128), main.name(), 128, 128));
-        List<DisplayRenderer.BoardRow> rows = List.of(
-                new DisplayRenderer.BoardRow("A", 0xE53935, "New Village St.", "2:05", false, "1"),
-                new DisplayRenderer.BoardRow("1", 0x1E88E5, "Old Village St.", "Boarding", true, "2"),
-                new DisplayRenderer.BoardRow("S", 0x8E24AA, "1st Street", "Expected", false, "1"));
-        write(out, "board-2x2", DisplayRenderer.board("Main St.", "Platform 1, 2", rows, "No departures", 256, 256));
-        write(out, "board-2x1", DisplayRenderer.board("Main St.", "Platform 1", rows, "No departures", 256, 128));
+        write(out, "roadmap-6x1", RoadmapRenderer.draw(network, local, "golden-islands", RoadmapRenderer.Flow.RIGHT, 768, 128));
+        write(out, "roadmap-4x3", RoadmapRenderer.draw(network, local, "golden-islands", RoadmapRenderer.Flow.RIGHT, 512, 384));
+        write(out, "roadmap-express-6x1", RoadmapRenderer.draw(network, express, "main", RoadmapRenderer.Flow.RIGHT, 768, 128));
+        List<StationSignRenderer.LineMark> mainLines = network.linesCallingAt("main").stream()
+                .map(line -> new StationSignRenderer.LineMark(line.shortName(), line.color(), line.name())).toList();
+        write(out, "sign-10x1", StationSignRenderer.draw("Main St.", mainLines, null, StationSignRenderer.Style.MTA, 1280, 128));
+        write(out, "sign-1x1", StationSignRenderer.draw("Main St.", mainLines, null, StationSignRenderer.Style.MTA, 128, 128));
+        write(out, "sign-hong-kong-3x1", StationSignRenderer.draw("Main St.", mainLines, null, StationSignRenderer.Style.MTR, 384, 128));
+        List<SplitFlapRenderer.Row> rows = List.of(
+                new SplitFlapRenderer.Row("NOW", "1", 0x1E88E5, "Old Village St.", "2", SplitFlapRenderer.Remark.BOARDING),
+                new SplitFlapRenderer.Row("2 MIN", "A", 0xE53935, "New Village St.", "1", SplitFlapRenderer.Remark.NONE),
+                new SplitFlapRenderer.Row("6 MIN", "S", 0x8E24AA, "1st Street", "1", SplitFlapRenderer.Remark.DELAYED));
+        write(out, "board-4x2", SplitFlapRenderer.image("Main St.", "Platforms 1, 2", "14:05", rows, "No departures", 512, 256));
+        write(out, "board-2x1", SplitFlapRenderer.image("Main St.", "Platform 1", "14:05", rows, "No departures", 256, 128));
         List<DisplayRenderer.StatusRow> status = new ArrayList<>();
         for (Line line : network.lines().values()) {
             status.add(new DisplayRenderer.StatusRow(line.shortName(), line.color(), line.name(),
@@ -68,7 +70,8 @@ public final class DisplayPreviews {
         System.out.println("wrote previews to " + out);
     }
 
+    /** Writes the picture as an item frame shows it, in map colours. */
     private static void write(Path out, String name, BufferedImage image) throws IOException {
-        ImageIO.write(image, "png", out.resolve(name + ".png").toFile());
+        ImageIO.write(MapPixels.of(image).toImage(), "png", out.resolve(name + ".png").toFile());
     }
 }

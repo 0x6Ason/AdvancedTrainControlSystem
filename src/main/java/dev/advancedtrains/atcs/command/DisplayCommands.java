@@ -49,8 +49,8 @@ final class DisplayCommands {
                 : support.platformIds(context.argOr(0, ""));
         Node.Completer displays = (context, index) -> index == 0 ? List.copyOf(support.network().displays().keySet()) : List.of();
         return group("display", MANAGE, "Pictures in item frames and hologram boards, placed with the wand",
-                leaf("roadmap", MANAGE, "<line[/service]> <station> [platform]",
-                        "Fill the selected item frames with the line's strip diagram and 'you are here'",
+                leaf("roadmap", MANAGE, "<line[/service]> <station> [platform] [left|right] [strip|rows|column]",
+                        "Fill the selected item frames with the line's diagram and 'you are here'; left or right is the way trains leave",
                         context -> roadmap(support, context), (context, index) -> switch (index) {
                             case 0 -> {
                                 List<String> keys = new ArrayList<>(support.lineIds());
@@ -58,11 +58,19 @@ final class DisplayCommands {
                                 yield keys;
                             }
                             case 1 -> support.stationIds();
-                            case 2 -> support.platformIds(context.argOr(1, ""));
+                            default -> {
+                                List<String> words = new ArrayList<>(support.platformIds(context.argOr(1, "")));
+                                words.addAll(List.of("left", "right", "strip", "rows", "column"));
+                                yield words;
+                            }
+                        }),
+                leaf("logo", MANAGE, "<station> [new-york|hong-kong] [note...]",
+                        "Fill the selected item frames with the station's name sign; text after it goes on a smaller line under the name",
+                        context -> logo(support, context), (context, index) -> switch (index) {
+                            case 0 -> support.stationIds();
+                            case 1 -> List.of("new-york", "hong-kong");
                             default -> List.of();
                         }),
-                leaf("logo", MANAGE, "<station>", "Fill the selected item frames with the station's logo",
-                        context -> logo(support, context), (context, index) -> index == 0 ? support.stationIds() : List.of()),
                 leaf("board", MANAGE, "<station> [platform...]",
                         "Fill the selected item frames with a departure board picture that keeps updating",
                         context -> board(support, context), stationThenPlatforms),
@@ -73,6 +81,10 @@ final class DisplayCommands {
                 leaf("hologram", MANAGE, "<station> [platform...]",
                         "Put a floating departure board at the selection's centre, or where you look",
                         context -> hologram(support, context), stationThenPlatforms),
+                leaf("face", MANAGE, "<display>", "Turn a hologram board to face you, and keep it so",
+                        context -> face(support, context), displays),
+                leaf("export", MANAGE, "<display>", "Save what a display shows as a picture in the plugin's exports folder",
+                        context -> export(support, context), displays),
                 leaf("list", MANAGE, "", "List displays", context -> list(support, context)),
                 leaf("remove", MANAGE, "<display>", "Take a display down: empty its frames or remove its hologram",
                         context -> remove(support, context), displays),
@@ -146,37 +158,81 @@ final class DisplayCommands {
         if (!service.callsAt(station.id())) {
             throw new CommandError(service.key() + " does not call at " + station.name());
         }
-        List<String> platforms = context.size() > 2 ? List.of(Support.id("platform", context.arg(2))) : List.of();
-        if (!platforms.isEmpty() && !station.platforms().containsKey(platforms.get(0))) {
-            throw new CommandError("Unknown platform '" + platforms.get(0) + "' at " + station.name());
+        // After the station, in any order: a platform, the way trains leave, the shape.
+        List<String> platforms = new ArrayList<>();
+        List<String> options = new ArrayList<>();
+        for (int index = 2; index < context.size(); index++) {
+            String word = context.arg(index).toLowerCase(Locale.ROOT);
+            switch (word) {
+                case "left", "right" -> {
+                    options.removeIf(option -> option.equals("left") || option.equals("right"));
+                    options.add(word);
+                }
+                case "strip", "rows", "column", "auto" -> {
+                    options.removeIf(option -> option.equals("strip") || option.equals("rows") || option.equals("column"));
+                    if (!word.equals("auto")) {
+                        options.add(word);
+                    }
+                }
+                default -> {
+                    String platform = Support.id("platform", word);
+                    if (!station.platforms().containsKey(platform)) {
+                        throw new CommandError("'" + context.arg(index) + "' is not a platform of " + station.name()
+                                + ", left or right, or strip, rows or column");
+                    }
+                    platforms.clear();
+                    platforms.add(platform);
+                }
+            }
         }
         Line line = network.line(service.key().lineId()).orElseThrow();
         String label = line.shortName() + " " + service.name() + " roadmap";
         fill(support, context, Display.Kind.ROADMAP, station.id(), platforms, service.key(), label,
-                "Roadmap of " + service.key() + " at " + station.name());
+                "Roadmap of " + service.key() + " at " + station.name()
+                        + (options.contains("left") ? ", trains leaving to the left" : ""), options, null);
     }
 
     private static void logo(Support support, CommandContext context) throws CommandError {
         Station station = support.station(context.arg(0));
-        fill(support, context, Display.Kind.LOGO, station.id(), List.of(), null, station.name() + " logo",
-                "Logo of " + station.name());
+        List<String> options = new ArrayList<>();
+        int noteFrom = 1;
+        if (context.size() > 1) {
+            String style = context.arg(1).toLowerCase(Locale.ROOT);
+            switch (style) {
+                case "new-york", "newyork", "nyc", "mta" -> {
+                    options.add("new-york");
+                    noteFrom = 2;
+                }
+                case "hong-kong", "hongkong", "hk", "mtr" -> {
+                    options.add("hong-kong");
+                    noteFrom = 2;
+                }
+                default -> {
+                    // No style: everything after the station is the note.
+                }
+            }
+        }
+        String note = context.size() > noteFrom ? context.restOr(noteFrom, "") : null;
+        fill(support, context, Display.Kind.LOGO, station.id(), List.of(), null, station.name() + " sign",
+                "Station sign of " + station.name(), options, note);
     }
 
     private static void board(Support support, CommandContext context) throws CommandError {
         Station station = support.station(context.arg(0));
         List<String> platforms = platforms(station, context, 1);
         fill(support, context, Display.Kind.BOARD, station.id(), platforms, null, station.name() + " departures",
-                "Departure board of " + station.name() + (platforms.isEmpty() ? "" : " platform " + String.join(", ", platforms)));
+                "Departure board of " + station.name() + (platforms.isEmpty() ? "" : " platform " + String.join(", ", platforms)),
+                List.of(), null);
     }
 
     private static void networkMap(Support support, CommandContext context) throws CommandError {
         Station station = context.size() > 0 ? support.station(context.arg(0)) : null;
         fill(support, context, Display.Kind.MAP, station == null ? null : station.id(), List.of(), null, "Railway map",
-                "Network map" + (station == null ? "" : " marking " + station.name()));
+                "Network map" + (station == null ? "" : " marking " + station.name()), List.of(), null);
     }
 
     private static void status(Support support, CommandContext context) throws CommandError {
-        fill(support, context, Display.Kind.STATUS, null, List.of(), null, "Service status", "Service status panel");
+        fill(support, context, Display.Kind.STATUS, null, List.of(), null, "Service status", "Service status panel", List.of(), null);
     }
 
     private static List<String> platforms(Station station, CommandContext context, int from) throws CommandError {
@@ -192,7 +248,8 @@ final class DisplayCommands {
     }
 
     private static void fill(Support support, CommandContext context, Display.Kind kind, @Nullable String stationId,
-                             List<String> platforms, @Nullable ServiceKey service, String label, String what) throws CommandError {
+                             List<String> platforms, @Nullable ServiceKey service, String label, String what,
+                             List<String> options, @Nullable String note) throws CommandError {
         Player player = context.player();
         Box selection = selection(support, player);
         Network network = support.network();
@@ -206,7 +263,7 @@ final class DisplayCommands {
             throw new CommandError(exception.getMessage());
         }
         String id = freeId(network, (stationId == null ? "" : stationId + "-") + kind.key());
-        Display display = support.displays().createFrames(id, kind, stationId, platforms, service, grid, label);
+        Display display = support.displays().createFrames(id, kind, stationId, platforms, service, grid, label, options, note);
         support.edit(current -> current.toBuilder().display(display).build());
         Chat.success(context.sender(), what + " is now display " + id + " on " + grid.columns() + " x " + grid.rows()
                 + " frames. /atcs display remove " + id + " takes it down.");
@@ -236,11 +293,47 @@ final class DisplayCommands {
         }
         Network network = support.network();
         String id = freeId(network, station.id() + "-hologram");
-        Display display = support.displays().createHologram(id, station.id(), platforms, at);
+        Display display = support.displays().createHologram(id, station.id(), platforms, at,
+                DisplayService.facing(player.getLocation().getYaw()));
         support.edit(current -> current.toBuilder().display(display).build());
         Chat.success(context.sender(), "Hologram board " + id + " for " + station.name()
                 + (platforms.isEmpty() ? "" : " platform " + String.join(", ", platforms)) + " placed at "
-                + display.hologram().formatPosition() + ". /atcs display remove " + id + " takes it down.");
+                + display.hologram().formatPosition() + ", facing you. /atcs display face " + id
+                + " turns it to face you again; /atcs display remove " + id + " takes it down.");
+    }
+
+    private static void face(Support support, CommandContext context) throws CommandError {
+        Player player = context.player();
+        String name = context.arg(0);
+        Display display = support.network().display(name.toLowerCase(Locale.ROOT))
+                .orElseThrow(() -> new CommandError("Unknown display '" + name + "'"));
+        if (display.hologram() == null) {
+            throw new CommandError("Only a hologram board turns; " + display.id() + " is a picture in item frames");
+        }
+        float yaw = DisplayService.facing(player.getLocation().getYaw());
+        Display turned = display.withHologram(display.hologram().withFacing(yaw));
+        support.edit(current -> current.toBuilder().display(turned).build());
+        support.displays().face(turned, yaw);
+        Chat.success(context.sender(), "Hologram board " + display.id() + " faces you now and stays that way");
+    }
+
+    private static void export(Support support, CommandContext context) throws CommandError {
+        String name = context.arg(0);
+        Display display = support.network().display(name.toLowerCase(Locale.ROOT))
+                .orElseThrow(() -> new CommandError("Unknown display '" + name + "'"));
+        java.awt.image.BufferedImage picture = support.displays().picture(display);
+        if (picture == null) {
+            throw new CommandError("Display " + display.id() + " has nothing drawn yet; its frames have to be loaded once");
+        }
+        java.nio.file.Path folder = support.dataFolder().resolve("exports");
+        java.nio.file.Path file = folder.resolve(display.id() + ".png");
+        try {
+            java.nio.file.Files.createDirectories(folder);
+            javax.imageio.ImageIO.write(picture, "png", file.toFile());
+        } catch (java.io.IOException exception) {
+            throw new CommandError("Could not write " + file + ": " + exception.getMessage());
+        }
+        Chat.success(context.sender(), "Saved " + display.id() + " as " + support.dataFolder().getFileName() + "/exports/" + display.id() + ".png");
     }
 
     // ---------------------------------------------------------------- hand-held map

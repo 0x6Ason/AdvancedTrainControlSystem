@@ -60,48 +60,6 @@ class DisplayRendererTest {
     }
 
     @Test
-    void roadmapDrawsTheLineInItsColourWithYouAreHere() {
-        Network network = network();
-        Service service = network.service(ServiceKey.parse("a/north")).orElseThrow();
-        BufferedImage image = DisplayRenderer.roadmap(network, service, "nerdy", 512, 128);
-        assertEquals(512, image.getWidth());
-        int lineY = (int) (128 * 0.72);
-        assertTrue(hasColour(image, RED, 0, lineY - 2, 512, lineY + 3), "the line runs across in the line colour");
-        assertTrue(count(image, DisplayRenderer.HERE.getRGB() & 0xFFFFFF) > 20, "you are here is marked in red");
-        assertTrue(hasColour(image, BLUE, 0, lineY, 512, 128), "the interchange shows Line B's badge below the line");
-        BufferedImage elsewhere = DisplayRenderer.roadmap(network, service, null, 512, 128);
-        assertEquals(0, count(elsewhere, DisplayRenderer.HERE.getRGB() & 0xFFFFFF), "no here marker without a station");
-        BufferedImage tiny = DisplayRenderer.roadmap(network, service, "main", 128, 128);
-        assertEquals(128, tiny.getHeight(), "a single frame still renders");
-    }
-
-    @Test
-    void tilesCutTheMosaicAndPadBeyondItsEdge() {
-        BufferedImage mosaic = new BufferedImage(256, 128, BufferedImage.TYPE_INT_RGB);
-        mosaic.setRGB(200, 10, RED);
-        BufferedImage right = DisplayRenderer.tile(mosaic, 1, 0);
-        assertEquals(RED, right.getRGB(72, 10) & 0xFFFFFF, "pixel 200 lands at 72 in the second tile");
-        BufferedImage beyond = DisplayRenderer.tile(mosaic, 1, 1);
-        assertEquals(0xFFFFFF, beyond.getRGB(5, 5) & 0xFFFFFF, "outside the mosaic is paper");
-        assertEquals(0, count(beyond, RED));
-    }
-
-    @Test
-    void boardListsDeparturesUnderADarkHeader() {
-        List<DisplayRenderer.BoardRow> rows = List.of(
-                new DisplayRenderer.BoardRow("A", RED, "New Village", "2:05", false, "1"),
-                new DisplayRenderer.BoardRow("B", BLUE, "Golden Beach", "Boarding", true, null));
-        BufferedImage image = DisplayRenderer.board("Main St.", "Platform 1", rows, "No departures", 256, 128);
-        int ink = DisplayRenderer.INK.getRGB() & 0xFFFFFF;
-        assertEquals(ink, image.getRGB(3, 3) & 0xFFFFFF, "header bar");
-        assertTrue(hasColour(image, RED, 0, 20, 60, 128), "first row's badge");
-        assertTrue(hasColour(image, BLUE, 0, 20, 60, 128), "second row's badge");
-        assertTrue(hasColour(image, DisplayRenderer.GOOD.getRGB() & 0xFFFFFF, 128, 20, 256, 128), "Boarding is green");
-        BufferedImage empty = DisplayRenderer.board("Main St.", null, List.of(), "No departures", 128, 128);
-        assertFalse(hasColour(empty, RED, 0, 0, 128, 128));
-    }
-
-    @Test
     void networkMapFitsTheTrackAndProjectsPositions() {
         List<DisplayRenderer.MapLine> lines = List.of(new DisplayRenderer.MapLine(RED,
                 List.of(new double[] {0, 0}, new double[] {100, 0}, new double[] {100, 50})));

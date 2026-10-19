@@ -22,6 +22,10 @@ import java.util.UUID;
  * @param frames     the item frames, one per tile
  * @param maps       map ids of hand-held copies (the network map item), without a frame
  * @param hologram   where a hologram stands, for {@link Kind#HOLOGRAM}
+ * @param options    how the picture is drawn: {@code left} or {@code right} and {@code strip},
+ *                   {@code rows} or {@code column} for a roadmap, {@code new-york} or
+ *                   {@code hong-kong} for a station sign
+ * @param note       a smaller line a station sign shows under the name, or null
  */
 public record Display(
         String id,
@@ -33,7 +37,18 @@ public record Display(
         int rows,
         List<Frame> frames,
         List<Integer> maps,
-        @Nullable Hologram hologram) {
+        @Nullable Hologram hologram,
+        List<String> options,
+        @Nullable String note) {
+
+    /** The words a display's options may hold. */
+    public static final java.util.Set<String> OPTIONS = java.util.Set.of("left", "right", "strip", "rows", "column",
+            "new-york", "hong-kong");
+
+    public Display(String id, Kind kind, @Nullable String stationId, List<String> platforms, @Nullable ServiceKey service,
+                   int columns, int rows, List<Frame> frames, List<Integer> maps, @Nullable Hologram hologram) {
+        this(id, kind, stationId, platforms, service, columns, rows, frames, maps, hologram, List.of(), null);
+    }
 
     /** What a display shows. */
     public enum Kind {
@@ -106,8 +121,9 @@ public record Display(
      *
      * @param world  world name
      * @param entity the text display entity, once spawned
+     * @param facing the way the text faces, as a yaw; null for a hologram that turns to each viewer
      */
-    public record Hologram(String world, double x, double y, double z, @Nullable UUID entity) {
+    public record Hologram(String world, double x, double y, double z, @Nullable UUID entity, @Nullable Float facing) {
         public Hologram {
             Objects.requireNonNull(world, "world");
             if (world.isBlank()) {
@@ -115,8 +131,16 @@ public record Display(
             }
         }
 
+        public Hologram(String world, double x, double y, double z, @Nullable UUID entity) {
+            this(world, x, y, z, entity, null);
+        }
+
         public Hologram withEntity(@Nullable UUID newEntity) {
-            return new Hologram(world, x, y, z, newEntity);
+            return new Hologram(world, x, y, z, newEntity, facing);
+        }
+
+        public Hologram withFacing(@Nullable Float newFacing) {
+            return new Hologram(world, x, y, z, entity, newFacing);
         }
 
         public String formatPosition() {
@@ -158,6 +182,13 @@ public record Display(
         platforms = platforms.stream().map(platform -> Ids.normalize("platform", platform)).toList();
         frames = List.copyOf(frames);
         maps = List.copyOf(maps);
+        options = options.stream().map(option -> option.strip().toLowerCase(Locale.ROOT)).filter(option -> !option.isEmpty()).toList();
+        for (String option : options) {
+            if (!OPTIONS.contains(option)) {
+                throw new IllegalArgumentException("Unknown display option '" + option + "'; use " + String.join(", ", OPTIONS.stream().sorted().toList()));
+            }
+        }
+        note = note == null || note.isBlank() ? null : note.strip();
         if (kind.needsStation() && stationId == null) {
             throw new IllegalArgumentException("A " + kind.label().toLowerCase(Locale.ROOT) + " display needs a station");
         }
@@ -194,11 +225,19 @@ public record Display(
     }
 
     public Display withHologram(Hologram newHologram) {
-        return new Display(id, kind, stationId, platforms, service, columns, rows, frames, maps, newHologram);
+        return new Display(id, kind, stationId, platforms, service, columns, rows, frames, maps, newHologram, options, note);
     }
 
     public Display withMaps(List<Integer> newMaps) {
-        return new Display(id, kind, stationId, platforms, service, columns, rows, frames, newMaps, hologram);
+        return new Display(id, kind, stationId, platforms, service, columns, rows, frames, newMaps, hologram, options, note);
+    }
+
+    public Display withOptions(List<String> newOptions, @Nullable String newNote) {
+        return new Display(id, kind, stationId, platforms, service, columns, rows, frames, maps, hologram, newOptions, newNote);
+    }
+
+    public boolean option(String option) {
+        return options.contains(option);
     }
 
     /** What the display shows, for lists: {@code Roadmap of 1/north at Main St. platform 1}. */

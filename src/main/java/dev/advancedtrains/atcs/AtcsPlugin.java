@@ -542,6 +542,10 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
                 + "; every train keeps chunks loaded: " + onOff(settings.trains().keepChunksLoaded())
                 + "; train naming: " + onOff(settings.trains().rename()));
         lines.add("Indicator signs: " + runtime.indicators().size() + " loaded, " + runtime.indicators().lit() + " lit");
+        if (!network.displays().isEmpty() && displays != null) {
+            lines.add("Displays: " + network.displays().size() + " on " + displays.attachedMaps() + " map(s), holding "
+                    + Math.max(1, displays.memoryBytes() / 1024) + " KB");
+        }
         if (runtime.blocks().size() > 0 || !runtime.control().manualHolds().isEmpty()) {
             lines.add("Blocks occupied: " + runtime.blocks().size() + "; trains held by hand: " + runtime.control().manualHolds().size());
         }
@@ -565,6 +569,11 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
     @Override
     public boolean debug() {
         return runtime.debug();
+    }
+
+    @Override
+    public Path dataFolder() {
+        return dataPath();
     }
 
     @Override

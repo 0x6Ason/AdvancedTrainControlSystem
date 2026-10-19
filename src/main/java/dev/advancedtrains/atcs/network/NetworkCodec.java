@@ -188,9 +188,16 @@ public final class NetworkCodec {
                     }
                 }
                 hologram = Display.Hologram.parse(at, uuid);
+                if (node.isSet("facing")) {
+                    if (!node.isDouble("facing") && !node.isInt("facing")) {
+                        throw new IllegalArgumentException("facing must be a number of degrees");
+                    }
+                    hologram = hologram.withFacing((float) node.getDouble("facing"));
+                }
             }
             return new Display(key, kind, node.getString("station"), stringOrList(node, "platforms", "platform"), service,
-                    columns, rows, frames, node.getIntegerList("maps"), hologram);
+                    columns, rows, frames, node.getIntegerList("maps"), hologram, stringOrList(node, "options", "option"),
+                    node.getString("note"));
         } catch (IllegalArgumentException exception) {
             errors.add(path + ": " + exception.getMessage());
             return null;
@@ -646,6 +653,15 @@ public final class NetworkCodec {
                     if (display.hologram().entity() != null) {
                         node.set("entity", display.hologram().entity().toString());
                     }
+                    if (display.hologram().facing() != null) {
+                        node.set("facing", (double) Math.round(display.hologram().facing() * 10) / 10);
+                    }
+                }
+                if (!display.options().isEmpty()) {
+                    node.set("options", display.options());
+                }
+                if (display.note() != null) {
+                    node.set("note", display.note());
                 }
             }
         }
