@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "dev.advancedtrains"
-version = "0.2.0"
+version = "0.2.1-SNAPSHOT"
 
 // The oldest server API ATCS compiles against. Anything newer in the 1.21 line keeps working,
 // so stick to this API surface instead of bumping it for convenience. CI's compatibility matrix

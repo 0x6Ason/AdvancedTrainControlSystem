@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.2.0 (2026-10-19)
 
 A complete redesign. ATCS is now a passenger-information and network plugin that works on any
