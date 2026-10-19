@@ -144,6 +144,18 @@ val generatePreviews by tasks.registering(JavaExec::class) {
     workingDir = projectDir
 }
 
+// Renders the display redesign for review from a website network.json:
+// ./gradlew redesignPreviews -Pnetwork=<network.json> -Pout=<folder>
+val redesignPreviews by tasks.registering(JavaExec::class) {
+    group = "documentation"
+    description = "Renders the redesigned displays from a website network.json for review."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("dev.advancedtrains.atcs.display.RedesignPreviews")
+    args(providers.gradleProperty("network").getOrElse("network.json"), providers.gradleProperty("out").getOrElse("build/redesign"))
+    workingDir = projectDir
+}
+
 tasks.jar {
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
