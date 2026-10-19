@@ -67,6 +67,23 @@ class SwitchRulesTest {
         assertTrue(rules.unknownSelectors(network).isEmpty());
     }
 
+    /** 'depot' and 'free' still name a station or line called that, as they did before depot runs. */
+    @Test
+    void stationsCalledDepotOrFreeKeepTheirRules() {
+        Network yard = Network.builder()
+                .station(dev.advancedtrains.atcs.network.Station.of("depot", "Depot").withPlatform(dev.advancedtrains.atcs.network.Platform.of("1")))
+                .station(dev.advancedtrains.atcs.network.Station.of("free", "Free").withPlatform(dev.advancedtrains.atcs.network.Platform.of("1")))
+                .line(dev.advancedtrains.atcs.network.Line.of("a", "Line A", 0xE53935)
+                        .withService(service("a/in", "free", "depot")))
+                .build();
+        SwitchRules rules = SwitchRules.parse(List.of("left depot", "right free"));
+        assertEquals(Optional.of(Heading.LEFT), rules.choose(ServiceKey.parse("a/in"), "depot", yard), "trains for the station depot");
+        assertEquals(Optional.of(Heading.RIGHT), rules.choose(ServiceKey.parse("a/in"), "free", yard), "trains for the station free");
+        SwitchRules.Context toDepot = new SwitchRules.Context(null, null, true, platform -> true);
+        assertEquals(Optional.of(Heading.LEFT), rules.pick(toDepot, yard).map(SwitchRules.Rule::heading), "and depot runs");
+        assertTrue(rules.unknownSelectors(yard).isEmpty());
+    }
+
     @Test
     void starAndBareDirectionCatchEveryTrain() {
         SwitchRules rules = SwitchRules.parse(List.of("left a", "", "right"));

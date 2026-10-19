@@ -167,8 +167,10 @@ TrainCarts server, configured with files and in-game commands.
 - Redstone outputs bound by command: `/atcs output add <station[:platform]>|block <id> [mode]
   [line|service]` makes the redstone lamp or lever you look at follow the trains (the modes of
   the `atcs indicator` sign), with no sign and no wiring to the track; ATCS sets the block
-  itself whenever its chunk is loaded. `/atcs output list` and `remove`; `outputs:` in
-  network.yml.
+  itself whenever its chunk is loaded, and again every second, for a lamp lit without power
+  goes out at the next block update beside it. A lever is thrown as a player throws it, so
+  redstone wired through the block it hangs on follows too. `/atcs output list` and `remove`;
+  `outputs:` in network.yml.
 - A complete example network in `docs/examples/network.yml`, read by a test so it stays valid.
 - Service recovery: `/atcs train shortturn <train> <station>` turns a train back at a station as
   the service of its line running the other way (riders are told there, the train leaves
@@ -178,7 +180,12 @@ TrainCarts server, configured with files and in-game commands.
   back too), where an `atcs depot` sign takes it out of
   the world once nobody is aboard; `atcs switch` rules `free <station:platform>` (a free-platform
   picker for termini with several platforms, with the platform kept for the train sent there)
-  and `depot`. All three from the editor's Dispatch section too.
+  and `depot`. All three from the editor's Dispatch section too. A short turn is only ordered
+  where a service runs back the way the train came, and ends when the train runs through the
+  station or is given another service first. A depot run survives `atcs service` and
+  `atcs clear` signs on the way, and with `control.set-destinations` off a train put back in
+  service gets its own TrainCarts destination back. `depot` and `free` in a switch rule still
+  name a station or line called that.
 - `/atcs service fleet` changes the number of trains, the interval or the train pattern of a
   fleet from anywhere (the console too): a service that has a fleet keeps its spawn point
   and direction unless the sender stands on a rail. Its hours and off-peak setting are kept.
@@ -187,18 +194,21 @@ TrainCarts server, configured with files and in-game commands.
   server on some file systems.
 - Board mirrors: `/atcs board mirror <id> [line]` makes another sign repeat one of a board's
   lines, so the same next departure can be read at both ends of a platform (`mirrors:` under
-  the board in network.yml). Services have a short name for sign lines their name does not fit
-  (`/atcs service short`, `short:` in network.yml, `<service_short>` in layouts); boards use it
+  the board in network.yml, a list of `{ sign: world,x,y,z, line: 1 }`). Services have a short
+  name for sign lines their name does not fit (`/atcs service short`, `short:` in network.yml,
+  `<service_short>` in layouts); boards use it
   where the full name would be cut off, and without one abbreviate *Clockwise* to CW and
   *Counter-clockwise* to CCW.
-- Trains standing at a station survive a plugin reload or a restart: an ATCS hold ends the
-  moment the plugin stops (or its check fails), so the train leaves on the launch queued behind
-  it; when ATCS starts, and every few seconds after, a train on a service that stands at an
-  `atcs station` or block sign with nothing to move it is stopped afresh and sent on, or launched
-  onwards when its sign now has nothing for it; a hold left by the old plugin on a train that is
-  no longer seen on its sign is dropped; a train loaded again on top of its sign is stopped afresh
-  too. No check inside a hold can keep it from ending. A train on a service that stands still for
-  five minutes with no dispatcher holding it is logged with what holds it, and
+- Trains standing at a station or block survive a plugin reload or a restart: when ATCS stops,
+  a train it holds stays where it is (one let go then could run into an occupied block) until
+  the next ATCS takes it over, or the hold's time limit passes; which train is in each block and
+  the dispatcher's holds are kept over the reload (`data/dispatch-state.yml`, read once). A hold
+  whose check fails is reported once and ends at its time limit. When ATCS starts, and every
+  few seconds after, a train on a service that stands at an `atcs station` or block sign with
+  nothing to move it is stopped afresh and sent on, or launched onwards when its sign now has
+  nothing for it; a hold left by the old plugin on a train that is no longer seen on its sign is
+  dropped; a train loaded again on top of its sign is stopped afresh too. A train on a service
+  that stands still for five minutes with no dispatcher holding it is logged with what holds it, and
   `/atcs train info` shows how long a standing train has stood and what TrainCarts has queued for
   it. Fleet trains keep their chunks loaded whatever `trains.keep-chunks-loaded` says, so a fleet
   never counts a train frozen out of sight. With `trains.keep-chunks-loaded` on,
@@ -206,6 +216,11 @@ TrainCarts server, configured with files and in-game commands.
   the server stopped comes back after a restart with TrainCarts'
   `keepChunksLoadedOnlyWhenMoving` instead of waiting for a player. `/atcs service info` counts
   the trains assigned to the service and names those not loaded, which a fleet counts as running.
+- Stuck trains: a train on a service that has stood for a minute (`trains.stuck-seconds`) with
+  nothing to move it, wherever it is (TrainCarts has no wait or launch queued for it and it waits
+  for no train ahead, switch or speed limit), is launched onwards; one that still stands there a
+  minute later is taken out of the world when nobody is aboard, so a fleet sends a new one
+  (`trains.stuck-trains`: `remove`, `restart` or `report`).
 
 ### Changed
 

@@ -11,15 +11,17 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * Keeps a train standing at an {@code atcs station} sign while ATCS has a reason (the headway has
- * not passed, the section ahead is occupied). The reason is asked for twice a second; the train is
- * let go when there is none, or after the maximum hold time so a stale journey can never block a
- * platform for good.
+ * Keeps a train standing at an {@code atcs station} or block entry sign while ATCS has a reason (the
+ * headway has not passed, the block ahead is occupied). The reason is asked for twice a second; the
+ * train is let go when there is none, or after the maximum hold time so a stale journey can never
+ * block a platform for good.
  *
- * <p>The hold also ends the moment ATCS stops (the plugin is disabled or reloaded) and when any of
- * its checks fails: the action lives in TrainCarts' queue, beyond ATCS' own lifetime, and a hold
- * that nobody can release any more would freeze the train where it stands. A check that throws
- * every tick would do the same, since TrainCarts would run the hold again the next tick.
+ * <p>The action lives in TrainCarts' queue, beyond ATCS' own lifetime. Once ATCS stops (the plugin
+ * is disabled or reloaded) the hold no longer asks it anything and keeps the train where it is, for
+ * a train let go then could run into a block another train is in; the next ATCS takes the train
+ * over at once and stops it afresh. A check that fails is reported once and keeps the train too.
+ * Either way the hold still ends at its time limit, the dispatcher's included, so a train is never
+ * kept for good by a hold nobody can answer any more.
  */
 final class HoldAction extends GroupAction implements WaitAction {
     private static final int CHECK_TICKS = 10;
@@ -31,13 +33,14 @@ final class HoldAction extends GroupAction implements WaitAction {
     private final BooleanSupplier alive;
     private final Consumer<Throwable> failure;
     private String current = "waiting";
+    private boolean failed;
 
     /**
      * @param reason     why the train must keep standing, or empty when it may go
      * @param maxTicks   the longest hold, after which {@code timeout} is told and the train goes
      * @param mayTimeOut false while the hold is a dispatcher's, which lasts until released
-     * @param alive      false once ATCS has stopped, which ends the hold at once
-     * @param failure    told when the reason check throws; the train goes
+     * @param alive      false once ATCS has stopped; the hold then keeps the train until its time limit
+     * @param failure    told the first time the reason check throws
      */
     HoldAction(Supplier<Optional<String>> reason, int maxTicks, Consumer<String> timeout, BooleanSupplier mayTimeOut,
                BooleanSupplier alive, Consumer<Throwable> failure) {
@@ -54,19 +57,22 @@ final class HoldAction extends GroupAction implements WaitAction {
         try {
             return check();
         } catch (RuntimeException | LinkageError error) {
-            try {
-                failure.accept(error);
-            } catch (RuntimeException | LinkageError ignored) {
-                // The plugin that made this hold may be half unloaded; letting go is what matters.
+            if (!failed) {
+                failed = true;
+                try {
+                    failure.accept(error);
+                } catch (RuntimeException | LinkageError ignored) {
+                    // The plugin that made this hold may be half unloaded.
+                }
             }
-            return true;
+            return timeIsUp();
         }
     }
 
     /** True when the train may go. */
     private boolean check() {
-        if (!alive.getAsBoolean()) {
-            return true;
+        if (failed || !alive.getAsBoolean()) {
+            return timeIsUp();
         }
         int ticks = elapsedTicks();
         if (ticks % CHECK_TICKS == 0) {
@@ -81,6 +87,11 @@ final class HoldAction extends GroupAction implements WaitAction {
             return true;
         }
         return false;
+    }
+
+    /** A hold nobody can answer any more ends at its time limit, whatever kind it was. */
+    private boolean timeIsUp() {
+        return elapsedTicks() >= maxTicks;
     }
 
     /** Why the train stands, as last checked. */

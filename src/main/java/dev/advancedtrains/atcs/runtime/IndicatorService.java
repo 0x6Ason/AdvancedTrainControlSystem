@@ -87,10 +87,8 @@ public final class IndicatorService {
         }
         for (Map.Entry<BlockPos, Indicator> entry : blocks.entrySet()) {
             boolean active = entry.getValue().active(journeys, network, blockOccupied);
-            Boolean previous = applied.get(entry.getKey());
-            if (previous != null && previous == active) {
-                continue;
-            }
+            // Every time, not only on a change: a lamp ATCS lit has no power behind it and goes out
+            // at the next block update beside it. Setting a block as it is already changes nothing.
             // A block in an unloaded chunk is tried again next time; nobody sees it meanwhile.
             if (output.setBlock(entry.getKey(), active)) {
                 applied.put(entry.getKey(), active);

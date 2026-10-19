@@ -15,7 +15,11 @@ import static dev.advancedtrains.atcs.TestNetworks.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Lamps and levers bound by command: switched only when their state changes, retried while unloaded. */
+/**
+ * Lamps and levers bound by command: asked for their state on every refresh (a lamp lit without
+ * power goes out at the next block update beside it), retried while unloaded. Indicator signs'
+ * levers are switched only when their state changes.
+ */
 class IndicatorServiceTest {
     private final Network network = network(2, service("a/east", "s1", "s2"));
     private final BlockPos lamp = BlockPos.parse("world,10,70,10");
@@ -45,7 +49,7 @@ class IndicatorServiceTest {
     }
 
     @Test
-    void boundBlocksFollowTheRuleAndAreSetOnlyOnChange() {
+    void boundBlocksFollowTheRuleAndAreAskedAgainEveryRefresh() {
         indicators.registerBlock(lamp, Indicator.parse("block tunnel", ""));
         indicators.register(sign, Indicator.parse("block tunnel", ""));
         assertEquals(2, indicators.size());
@@ -53,7 +57,8 @@ class IndicatorServiceTest {
         assertEquals(List.of("sign 20 70 10 false", "block 10 70 10 false"), calls, "both cleared on the first refresh");
         calls.clear();
         refresh();
-        assertTrue(calls.isEmpty(), "nothing changed, nothing touched");
+        assertEquals(List.of("block 10 70 10 false"), calls, "the sign is left; the block is asked again, in case it was changed");
+        calls.clear();
         occupied.add("tunnel");
         refresh();
         assertEquals(List.of("sign 20 70 10 true", "block 10 70 10 true"), calls);
@@ -73,7 +78,7 @@ class IndicatorServiceTest {
         assertEquals(List.of("block 10 70 10 true"), calls, "lit as soon as the chunk is loaded");
         calls.clear();
         refresh();
-        assertTrue(calls.isEmpty());
+        assertEquals(List.of("block 10 70 10 true"), calls, "and kept lit");
     }
 
     @Test

@@ -139,10 +139,15 @@ public record AtcsSettings(
      * @param rename           name trains after their service when ATCS assigns one
      * @param nameFormat       with placeholders {@code <line>}, {@code <service>} and {@code <n>}
      * @param keepChunksLoaded switch TrainCarts' keep-chunks-loaded on for every train
+     * @param stuckTrains      what is done with a train on a service that stands with nothing to move it
+     * @param stuckSeconds     how long such a train stands before it counts as stuck
      */
-    public record Trains(boolean rename, String nameFormat, boolean keepChunksLoaded) {
+    public record Trains(boolean rename, String nameFormat, boolean keepChunksLoaded, StuckTrains stuckTrains, int stuckSeconds) {
         public static final String DEFAULT_NAME_FORMAT = "<line>-<service>-<n>";
     }
+
+    /** What happens to a stuck train: only named in the console, sent on, or sent on and then taken away. */
+    public enum StuckTrains { REPORT, RESTART, REMOVE }
 
     /**
      * @param keepSpawnChunksLoaded hold the chunks of spawn signs and fleet spawn points
@@ -266,7 +271,9 @@ public record AtcsSettings(
         Trains trains = new Trains(
                 reader.bool("trains.rename", true),
                 reader.string("trains.name-format", Trains.DEFAULT_NAME_FORMAT),
-                reader.bool("trains.keep-chunks-loaded", false));
+                reader.bool("trains.keep-chunks-loaded", false),
+                reader.enumeration("trains.stuck-trains", StuckTrains.REMOVE, StuckTrains.class),
+                reader.integer("trains.stuck-seconds", 60, 15, 3600));
         Spawning spawning = new Spawning(
                 reader.bool("spawning.keep-spawn-chunks-loaded", true),
                 reader.integer("spawning.check-seconds", 5, 1, 600));

@@ -3,6 +3,7 @@ package dev.advancedtrains.atcs.traincarts;
 import com.bergerkiller.bukkit.tc.actions.Action;
 import com.bergerkiller.bukkit.tc.controller.MinecartGroup;
 import com.bergerkiller.bukkit.tc.controller.MinecartMember;
+import com.bergerkiller.bukkit.tc.controller.status.TrainStatus;
 import com.bergerkiller.bukkit.tc.properties.TrainProperties;
 import com.bergerkiller.bukkit.tc.properties.TrainPropertiesStore;
 import com.bergerkiller.bukkit.tc.properties.standard.type.ChunkLoadOptions;
@@ -153,6 +154,35 @@ final class TrainCartsTrain implements TrainHandle {
             what = "TrainCarts " + current.getClass().getSimpleName() + " for " + current.elapsedTicks() / 20 + "s";
         }
         return queued.size() > 1 ? what + ", then " + (queued.size() - 1) + " more action(s)" : what;
+    }
+
+    @Override
+    public boolean stuck() {
+        if (group.isEmpty() || group.isUnloaded() || group.isMoving()) {
+            return false;
+        }
+        Action current = group.getActions().getCurrentAction();
+        if (current != null && !TrainCartsTrains.staleHold(current)) {
+            return false;
+        }
+        // A train ahead, a mutex zone, a rail block, path-finding or a speed limit of nothing:
+        // TrainCarts lets it go itself once that clears.
+        try {
+            for (TrainStatus status : group.getStatusInfo()) {
+                if (status instanceof TrainStatus.Waiting) {
+                    return false;
+                }
+            }
+        } catch (RuntimeException | LinkageError unknown) {
+            // A TrainCarts build that cannot say: better to leave the train be.
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public void sendOn() {
+        TrainCartsTrains.sendOn(group);
     }
 
     private static void removeAtcsTags(TrainProperties properties) {

@@ -125,6 +125,11 @@ class RuntimeStressTest {
         StationControl.@Nullable Plan plan;
         int index;
         Service service;
+        /** Standing with nothing to move it; whether a launch gets it going; how often it was launched. */
+        boolean stuck;
+        boolean canMove = true;
+        int launches;
+        List<Player> aboard = List.of();
 
         FakeTrain(String name, Service service, double x, double z) {
             this.name = name;
@@ -155,7 +160,21 @@ class RuntimeStressTest {
 
         @Override
         public List<Player> riders() {
-            return List.of();
+            return aboard;
+        }
+
+        @Override
+        public boolean stuck() {
+            return stuck && speed == 0;
+        }
+
+        @Override
+        public void sendOn() {
+            launches++;
+            if (canMove) {
+                stuck = false;
+                speed = BLOCKS_PER_SECOND / 20;
+            }
         }
 
         @Override
@@ -426,6 +445,10 @@ class RuntimeStressTest {
 
     /** The runtime as the plugin wires it, with every control feature on, over this network. */
     private void start(Network railway) throws Exception {
+        start(railway, config -> { });
+    }
+
+    private void start(Network railway, java.util.function.Consumer<YamlConfiguration> tweak) throws Exception {
         network = railway;
         YamlConfiguration config = bundled("config.yml");
         config.set("control.dwell-seconds", 10);
@@ -438,6 +461,7 @@ class RuntimeStressTest {
         config.set("control.set-destinations", true);
         config.set("trains.rename", false);
         config.set("logging.events", false);
+        tweak.accept(config);
         AtcsSettings settings = AtcsSettings.read(config);
         assertTrue(settings.warnings().isEmpty(), settings.warnings()::toString);
         Messages messages = Messages.read(bundled("messages.yml"), LOG);
@@ -658,5 +682,143 @@ class RuntimeStressTest {
         assertTrue(runtime.atDepot(l2), "L2 is taken out of the world");
         assertTrue(trains.stream().noneMatch(train -> train.name.equals("L2")));
         runtime.stop();
+    }
+
+    /**
+     * A short turn finds the service that runs back the way the train came, never one running its
+     * own way: here the express turning at s3 becomes the southbound local, although the
+     * northbound local, listed first, calls at s3 as well.
+     */
+    @Test
+    void aShortTurnBecomesTheServiceRunningBackNeverOneRunningTheSameWay() {
+        Network line = network(5,
+                service("1/north", "s1:1", "s2:1", "s3:1", "s4:1", "s5:1"),
+                service("1/south", "s5:1", "s4:1", "s3:1", "s2:1", "s1:1"),
+                service("1/express", "s1:1", "s3:1", "s5:1"));
+        Service express = line.service(ServiceKey.parse("1/express")).orElseThrow();
+        assertTrue(RailwayRuntime.oppositeService(express, 1, "s3", line).map(Service::key)
+                .equals(Optional.of(ServiceKey.parse("1/south"))), "the southbound local");
+        Network oneWay = network(5,
+                service("1/north", "s1:1", "s2:1", "s3:1", "s4:1", "s5:1"),
+                service("1/express", "s1:1", "s3:1", "s5:1"));
+        assertTrue(RailwayRuntime.oppositeService(oneWay.service(ServiceKey.parse("1/express")).orElseThrow(), 1, "s3", oneWay).isEmpty(),
+                "no service runs back, so there is no turn");
+    }
+
+    /**
+     * A short-turn order ends when the train runs through the station or is given another
+     * service before it gets there, so it never turns a train round later on another trip.
+     */
+    @Test
+    void aShortTurnOrderEndsWhenTheTrainRunsThroughOrChangesService() throws Exception {
+        start(network(5,
+                service("5/cw", "s1:1", "s2:1", "s3:1", "s4:1").withCircular(true),
+                service("5/ccw", "s4:1", "s3:1", "s2:1", "s1:1").withCircular(true)));
+        loopTrack();
+        Service loop = network.service(LOOP).orElseThrow();
+        FakeTrain l1 = new FakeTrain("L1", loop, 100, 4);
+        trains.add(l1);
+        runtime.assign(l1, LOOP);
+        clock.set(T0);
+        arrive(l1, 0, "10s");
+        assertTrue(runtime.shortTurn(l1, "s3").isEmpty(), "ordered");
+        assertTrue(runtime.skipStop(l1, "s3").isEmpty(), "and s3 skipped");
+        clock.set(T0.plusSeconds(12));
+        depart(l1);
+        clock.set(T0.plusSeconds(40));
+        arrive(l1, 1, "10s");
+        clock.set(T0.plusSeconds(52));
+        depart(l1);
+        clock.set(T0.plusSeconds(80));
+        arrive(l1, 2, "10s");
+        assertTrue(l1.plan == null, "it runs through s3");
+        assertTrue(runtime.shortTurns().isEmpty(), "and the order is gone with it");
+
+        assertTrue(runtime.shortTurn(l1, "s1").isEmpty(), "ordered again");
+        runtime.assign(l1, LOOP);
+        assertTrue(runtime.shortTurns().containsKey("L1"), "the same service again keeps it");
+        runtime.assign(l1, ServiceKey.parse("5/ccw"));
+        assertTrue(runtime.shortTurns().isEmpty(), "another service ends it");
+        runtime.stop();
+    }
+
+    /**
+     * With set-destinations off, a train sent to the depot and put back in service gets back the
+     * TrainCarts destination it had, so its switchers stop routing it to the depot. Service and
+     * clear signs on the way leave a depot run alone.
+     */
+    @Test
+    void aTrainBackFromTheDepotGetsItsOwnDestinationBack() throws Exception {
+        start(network(5, service("5/cw", "s1:1", "s2:1", "s3:1", "s4:1").withCircular(true)),
+                config -> config.set("control.set-destinations", false));
+        Service loop = network.service(LOOP).orElseThrow();
+        FakeTrain l1 = new FakeTrain("L1", loop, 100, 4);
+        l1.destination = "yard-east";
+        trains.add(l1);
+        runtime.assign(l1, LOOP);
+        runtime.toDepot(l1);
+        assertTrue(l1.destination.equals("depot"), "routed to the depot: " + l1.destination);
+        runtime.assign(l1, LOOP);
+        assertTrue(l1.destination.equals("yard-east"), "its own destination is back: " + l1.destination);
+        assertTrue(!ServiceResolver.isDepotBound(l1.tags), "and it is in service");
+        runtime.stop();
+    }
+
+    /**
+     * Trains left standing with nothing to move them, as a plugin reload can leave a line's
+     * trains: after the stuck time one is launched and gets going; one that cannot move is taken
+     * out of the world a stuck time later, unless someone is aboard; one waiting for a train
+     * ahead, one a dispatcher holds and one on no service are left as they are.
+     */
+    @Test
+    void stuckTrainsAreLaunchedAndTheOnesThatCannotMoveAreTakenAway() throws Exception {
+        start(network(5, service("5/cw", "s1:1", "s2:1", "s3:1", "s4:1").withCircular(true)));
+        loopTrack();
+        Service loop = network.service(LOOP).orElseThrow();
+        FakeTrain free = new FakeTrain("Free", loop, 150, 4);
+        FakeTrain wedged = new FakeTrain("Wedged", loop, 250, 4);
+        FakeTrain aboard = new FakeTrain("Aboard", loop, 350, 4);
+        FakeTrain waiting = new FakeTrain("Waiting", loop, 120, 4);
+        FakeTrain held = new FakeTrain("Held", loop, 180, 4);
+        FakeTrain stray = new FakeTrain("Stray", loop, 300, -100);
+        trains.addAll(List.of(free, wedged, aboard, waiting, held, stray));
+        for (FakeTrain train : List.of(free, wedged, aboard, waiting, held)) {
+            runtime.assign(train, LOOP);
+        }
+        free.stuck = true;
+        wedged.stuck = true;
+        wedged.canMove = false;
+        aboard.stuck = true;
+        aboard.canMove = false;
+        aboard.aboard = List.of(fake(Player.class, Map.of()));
+        held.stuck = true;
+        runtime.holdByHand(held, "testing");
+        stray.stuck = true;
+
+        Map<String, Integer> launchedAt = new HashMap<>();
+        for (int second = 1; second <= 200; second++) {
+            clock.set(T0.plusSeconds(second));
+            for (FakeTrain train : trains) {
+                if (train.speed > 0) {
+                    train.x += BLOCKS_PER_SECOND;
+                }
+                if (train.launches > 0) {
+                    launchedAt.putIfAbsent(train.name, second);
+                }
+            }
+            tasks.get(1).run();
+            tasks.get(6).run();
+        }
+        runtime.stop();
+
+        int stuckSeconds = 60;
+        assertTrue(free.launches == 1 && launchedAt.get("Free") <= stuckSeconds + 7, "Free launched once after a minute: " + launchedAt);
+        assertTrue(trains.contains(free), "Free got going and stays");
+        assertTrue(!trains.contains(wedged), "Wedged could not move and was taken away");
+        assertTrue(wedged.launches == 1, "Wedged was launched before it was taken away: " + wedged.launches);
+        assertTrue(trains.contains(aboard) && aboard.launches >= 2, "Aboard has someone aboard: kept and launched again: " + aboard.launches);
+        assertTrue(waiting.launches == 0 && trains.contains(waiting), "Waiting waits for something; left alone");
+        assertTrue(held.launches == 0 && trains.contains(held), "Held is held by the dispatcher; left alone");
+        assertTrue(stray.launches == 0 && trains.contains(stray), "Stray is on no service; left alone");
     }
 }

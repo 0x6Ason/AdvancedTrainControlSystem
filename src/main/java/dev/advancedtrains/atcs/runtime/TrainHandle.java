@@ -58,4 +58,17 @@ public interface TrainHandle {
     default String activity() {
         return "";
     }
+
+    /**
+     * Whether nothing moves the standing train or will: nothing is queued for it (or only a hold
+     * of an ATCS that is gone), and it waits for no train ahead, switch or speed limit. Such a
+     * train never moves again by itself.
+     */
+    default boolean stuck() {
+        return false;
+    }
+
+    /** Sets the standing train going again the way it faces, at its speed limit, as a spawn does. */
+    default void sendOn() {
+    }
 }

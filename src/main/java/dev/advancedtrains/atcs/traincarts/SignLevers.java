@@ -4,6 +4,7 @@ import com.bergerkiller.bukkit.common.utils.BlockUtil;
 import dev.advancedtrains.atcs.network.BlockPos;
 import dev.advancedtrains.atcs.runtime.IndicatorService;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.Sign;
@@ -31,9 +32,11 @@ public final class SignLevers implements IndicatorService.Output {
     }
 
     /**
-     * A bound lamp is lit or cleared by its block state; a bound lever is thrown, which powers
-     * what it is wired to. Anything else is left alone (the command refuses to bind it, and
-     * {@code /atcs output list} says when it is gone).
+     * A bound lamp is lit or cleared by its block state; a bound lever is thrown as a player
+     * throws it, which powers what it is wired to, through the block it hangs on too. Anything
+     * else is left alone (the command refuses to bind it, and {@code /atcs output list} says
+     * when it is gone). Asked again every refresh: a lamp lit without power behind it goes out at
+     * the next block update beside it, and is lit again here.
      */
     @Override
     public boolean setBlock(BlockPos position, boolean powered) {
@@ -50,8 +53,12 @@ public final class SignLevers implements IndicatorService.Output {
             }
         } else if (data instanceof Powerable lever) {
             if (lever.isPowered() != powered) {
-                lever.setPowered(powered);
-                block.setBlockData(lever, true);
+                if (block.getType() == Material.LEVER) {
+                    BlockUtil.setLever(block, powered);
+                } else {
+                    lever.setPowered(powered);
+                    block.setBlockData(lever, true);
+                }
             }
         }
         return true;

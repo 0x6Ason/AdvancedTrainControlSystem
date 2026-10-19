@@ -79,9 +79,11 @@ public final class StationSignRenderer {
             List<String> nameLines = List.of(name);
             if (fitted < size * 0.62) {
                 double two = Draw.fitWrapped(g, Fonts.DISPLAY, name, textRoom, 2, size * 0.62, 5);
-                if (two > fitted) {
+                // fitWrapped answers its smallest size even when nothing fits; then wrap has no lines.
+                List<String> wrapped = two > fitted ? Draw.wrap(g, Draw.of(Fonts.DISPLAY, two), name, textRoom, 2) : null;
+                if (wrapped != null) {
                     fitted = two;
-                    nameLines = Draw.wrap(g, Draw.of(Fonts.DISPLAY, fitted), name, textRoom, 2);
+                    nameLines = wrapped;
                 }
             }
             Font font = Draw.of(Fonts.DISPLAY, fitted);

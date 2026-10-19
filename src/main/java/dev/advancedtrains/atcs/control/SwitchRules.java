@@ -69,8 +69,8 @@ public record SwitchRules(List<Rule> rules) {
             if (selector.equals("*")) {
                 return true;
             }
-            if (selector.equals(DEPOT)) {
-                return train.toDepot();
+            if (selector.equals(DEPOT) && train.toDepot()) {
+                return true;
             }
             if (selector.startsWith(FREE)) {
                 PlatformRef platform = freePlatform(selector);
@@ -82,6 +82,7 @@ public record SwitchRules(List<Rule> rules) {
             if (selector.contains("/")) {
                 return train.service() != null && train.service().equals(ServiceKey.parse(selector));
             }
+            // 'depot' is also a station or line of that name, as it was before depot runs.
             boolean line = network.line(selector).isPresent() && train.service() != null && train.service().lineId().equals(selector);
             boolean station = network.station(selector).isPresent() && selector.equals(train.nextStationId());
             return line || station;
@@ -146,8 +147,9 @@ public record SwitchRules(List<Rule> rules) {
                     selectors.add("*");
                 } else if (word.equals(DEPOT)) {
                     selectors.add(DEPOT);
-                } else if (word.equals("free")) {
-                    String platform = index + 1 < words.length ? words[++index] : "";
+                } else if (word.equals("free") && index + 1 < words.length) {
+                    // 'free' last on a line is a station or line of that name.
+                    String platform = words[++index];
                     String[] parts = platform.split(":", 2);
                     if (parts.length != 2 || parts[0].isEmpty() || parts[1].isEmpty()) {
                         throw new IllegalArgumentException("'free' needs the platform to fill, for example 'free main:2'");

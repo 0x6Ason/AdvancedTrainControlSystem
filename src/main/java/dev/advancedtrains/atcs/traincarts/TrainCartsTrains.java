@@ -210,7 +210,7 @@ public final class TrainCartsTrains implements TrainSource, TrainSpawner {
     }
 
     /** Sets a standing train going again the way it faces, at its speed limit, as a spawn does. */
-    private static void sendOn(MinecartGroup group) {
+    static void sendOn(MinecartGroup group) {
         group.getActions().clear();
         group.setForwardForce(group.getProperties().getSpeedLimit());
     }

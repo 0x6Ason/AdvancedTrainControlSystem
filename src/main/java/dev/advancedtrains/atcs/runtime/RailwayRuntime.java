@@ -111,6 +111,7 @@ public final class RailwayRuntime {
     private final Path tripsFile;
     private final Path samplesFile;
     private final Path layoutFile;
+    private final Path dispatchFile;
     /** Saved diagram cells by station id, from data/map-layout.yml; null until read. */
     private @Nullable Map<String, Object> savedLayout;
     private final EtaSamples samples = new EtaSamples();
@@ -153,6 +154,8 @@ public final class RailwayRuntime {
     private final Map<String, String> holdReasons = new HashMap<>();
     /** Short turns a dispatcher ordered: the station at which each train turns back. */
     private final Map<String, String> shortTurns = new HashMap<>();
+    /** The TrainCarts destination a train had before it was sent to the depot, to give back. */
+    private final Map<String, String> destinationsBeforeDepot = new HashMap<>();
     /** Platforms a switch sent a train to while free, kept for it until it arrives or the time passes. */
     private final Map<PlatformRef, Reservation> reservations = new HashMap<>();
     private record Reservation(String train, Instant until) {
@@ -172,6 +175,20 @@ public final class RailwayRuntime {
     private static final int LONG_STANDS_NAMED = 5;
     /** The stand last reported per train (when it began), so each one is logged once. */
     private final Map<String, Instant> longStandsReported = new HashMap<>();
+    /** Where and when a stuck train was sent on, until it gets going or is taken away. */
+    private record SentOn(String world, double x, double y, double z, Instant at) {
+        /** Still where it was sent on: it did not get going. */
+        boolean near(TrainState state) {
+            double dx = state.x() - x;
+            double dy = state.y() - y;
+            double dz = state.z() - z;
+            return world.equals(state.world()) && dx * dx + dy * dy + dz * dz <= GOT_GOING_BLOCKS * GOT_GOING_BLOCKS;
+        }
+    }
+
+    /** A stuck train this far from where it was sent on has got going. */
+    private static final double GOT_GOING_BLOCKS = 8;
+    private final Map<String, SentOn> sentOn = new HashMap<>();
     /** True while a fleet spawns a train, whose chunks are kept loaded from its first tick. */
     private boolean spawningForFleet;
     /** True between {@link #start} and {@link #stop}; holds in TrainCarts' queues end when it is false. */
@@ -328,6 +345,7 @@ public final class RailwayRuntime {
         this.tripsFile = data.resolve("trips.yml");
         this.samplesFile = data.resolve("eta-samples.yml");
         this.layoutFile = data.resolve("map-layout.yml");
+        this.dispatchFile = data.resolve("dispatch-state.yml");
         this.eventLog = new EventLog(data.resolve("events.log"), settings.logging().maxMegabytes() * 1024L * 1024L,
                 writer, logger, settings.logging().events(), settings.logging().positions());
         this.times = new TravelTimes(settings.timing().smoothing());
@@ -373,6 +391,7 @@ public final class RailwayRuntime {
     public void start(@Nullable MapLayer mapLayer, @Nullable SignLinkPublisher signLinkPublisher,
                       @Nullable WebSite webSite) {
         loadData();
+        loadDispatchState();
         this.map = mapLayer;
         this.signLink = signLinkPublisher;
         this.web = webSite;
@@ -413,6 +432,7 @@ public final class RailwayRuntime {
             Thread.currentThread().interrupt();
         }
         saveData(false);
+        saveDispatchState();
     }
 
     /** Applies new settings and messages after {@code /atcs reload}. */
@@ -484,6 +504,7 @@ public final class RailwayRuntime {
         for (TrainSource.Relaunch relaunch : trains.relaunchStranded(this::hasService, train -> standingAtLeast(train, STRANDED_AFTER))) {
             relaunched(relaunch.train(), "stood with nothing to move it; " + relaunch.how().describe());
         }
+        restartStuckTrains(network);
         reportLongStands(network);
         if (spawner == null) {
             return;
@@ -591,6 +612,77 @@ public final class RailwayRuntime {
         }
         return settings.trains().keepChunksLoaded()
                 || network.service(service.get()).map(found -> found.fleet() != null).orElse(false);
+    }
+
+    /**
+     * Sends on the trains of a service that stand with nothing to move them, as a stop that never
+     * launched them, a plugin reload or a derailment can leave them: such a train never moves
+     * again by itself, and the trains behind it wait behind it or run through it. One that still
+     * stands where it was sent on a while later is taken out of the world, with nobody aboard,
+     * when stuck-trains says remove, so a fleet sends a new one.
+     */
+    private void restartStuckTrains(Network network) {
+        AtcsSettings.Trains rules = settings.trains();
+        if (rules.stuckTrains() == AtcsSettings.StuckTrains.REPORT) {
+            return;
+        }
+        Duration after = Duration.ofSeconds(rules.stuckSeconds());
+        Instant now = clock.instant();
+        List<String> launched = new ArrayList<>();
+        List<String> removed = new ArrayList<>();
+        for (TrainHandle train : trains.loadedTrains()) {
+            String name = train.name();
+            TrainState state = trainStates.get(name);
+            if (state == null) {
+                continue;
+            }
+            SentOn earlier = sentOn.get(name);
+            if (earlier != null && !earlier.near(state)) {
+                // It got going; a later stand is a new one.
+                sentOn.remove(name);
+                earlier = null;
+            }
+            if (!standingAtLeast(name, after) || control.manualHold(name).isPresent()
+                    || ServiceResolver.resolve(train.info(), network).isEmpty() || !train.stuck()) {
+                continue;
+            }
+            String where = name + " at " + Math.round(state.x()) + " " + Math.round(state.y()) + " " + Math.round(state.z());
+            if (earlier == null) {
+                train.sendOn();
+                sentOn.put(name, new SentOn(state.world(), state.x(), state.y(), state.z(), now));
+                launched.add(where);
+                continue;
+            }
+            if (Duration.between(earlier.at(), now).compareTo(after) < 0) {
+                continue;
+            }
+            if (rules.stuckTrains() == AtcsSettings.StuckTrains.REMOVE && train.riders().isEmpty()
+                    && spawner != null && spawner.destroy(train)) {
+                removed.add(where);
+                continue;
+            }
+            // Kept (someone is aboard, or only restarts are wanted): tried again now and then.
+            train.sendOn();
+            sentOn.put(name, new SentOn(earlier.world(), earlier.x(), earlier.y(), earlier.z(), now));
+        }
+        sentOn.keySet().retainAll(trainStates.keySet());
+        if (!launched.isEmpty()) {
+            logger.info("Launched " + count(launched.size()) + " that stood " + after.toSeconds() + " s with nothing to move "
+                    + (launched.size() == 1 ? "it" : "them") + ": " + firstFew(launched));
+        }
+        if (!removed.isEmpty()) {
+            logger.warning("Removed " + count(removed.size()) + " that launching did not get going: " + firstFew(removed));
+        }
+    }
+
+    private static String count(int trains) {
+        return trains == 1 ? "a train" : trains + " trains";
+    }
+
+    /** The first few of a list for the console, and how many more. */
+    private static String firstFew(List<String> items) {
+        int shown = Math.min(items.size(), LONG_STANDS_NAMED);
+        return String.join("; ", items.subList(0, shown)) + (items.size() > shown ? "; and " + (items.size() - shown) + " more" : "");
     }
 
     /**
@@ -773,6 +865,11 @@ public final class RailwayRuntime {
                     + ": " + decision.reason());
         }
         if (!decision.stops()) {
+            if (platform.stationId().equals(shortTurns.get(train.name()))) {
+                shortTurns.remove(train.name());
+                logger.info(train.name() + " ran through " + store.network().stationName(platform.stationId())
+                        + " where it was to turn back; the short turn is cancelled");
+            }
             return null;
         }
         StationControl.Plan plan = StationControl.Plan.of(options, rules.rules());
@@ -827,38 +924,58 @@ public final class RailwayRuntime {
 
     /**
      * The service of the same line that runs the other way from stop {@code here} of
-     * {@code current} at the station: the one whose next stop is the station the train came
-     * from, else any other of the line that calls there and goes on somewhere.
+     * {@code current} at the station: from there it reaches the station the train came from
+     * before the one the train was going on to, the sooner the better. A service running the
+     * same way as the train never qualifies, nor one that never comes back to where it came from.
      */
     static Optional<Service> oppositeService(Service current, int here, String stationId, Network network) {
-        String cameFrom = null;
         int previous = here - 1;
         if (previous < 0 && current.circular() && current.size() > 1) {
             previous = current.size() - 1;
         }
-        if (previous >= 0 && previous < current.size()) {
-            cameFrom = current.stop(previous).stationId();
+        if (previous < 0 || previous >= current.size()) {
+            return Optional.empty();
         }
-        Service other = null;
+        String cameFrom = current.stop(previous).stationId();
+        int ahead = current.nextIndex(here);
+        String goingTo = ahead < 0 ? null : current.stop(ahead).stationId();
+        Service best = null;
+        int bestSteps = Integer.MAX_VALUE;
         for (Service candidate : network.services()) {
             if (candidate.key().equals(current.key()) || !candidate.key().lineId().equals(current.key().lineId())) {
                 continue;
             }
             for (int index = 0; index < candidate.size(); index++) {
                 Stop stop = candidate.stop(index);
-                int next = candidate.nextIndex(index);
-                if (!stop.stationId().equals(stationId) || !stop.stops() || next < 0) {
+                if (!stop.stationId().equals(stationId) || !stop.stops() || candidate.nextIndex(index) < 0) {
                     continue;
                 }
-                if (cameFrom != null && candidate.stop(next).stationId().equals(cameFrom)) {
-                    return Optional.of(candidate);
-                }
-                if (other == null) {
-                    other = candidate;
+                int back = stepsTo(candidate, index, cameFrom);
+                if (back < bestSteps && back < stepsTo(candidate, index, goingTo)) {
+                    best = candidate;
+                    bestSteps = back;
                 }
             }
         }
-        return Optional.ofNullable(other);
+        return Optional.ofNullable(best);
+    }
+
+    /** Stops from stop {@code from} of the service until it reaches the station; MAX_VALUE if it never does. */
+    private static int stepsTo(Service service, int from, @Nullable String stationId) {
+        if (stationId == null) {
+            return Integer.MAX_VALUE;
+        }
+        int index = from;
+        for (int steps = 1; steps < service.size(); steps++) {
+            index = service.nextIndex(index);
+            if (index < 0) {
+                break;
+            }
+            if (service.stop(index).stationId().equals(stationId)) {
+                return steps;
+            }
+        }
+        return Integer.MAX_VALUE;
     }
 
     /** Whether a dispatcher holds the train, in which case its hold never times out. */
@@ -1013,6 +1130,9 @@ public final class RailwayRuntime {
      * takes it out of the world when it arrives empty.
      */
     public List<JourneyEvent> toDepot(TrainHandle train) {
+        if (!ServiceResolver.isDepotBound(train.info().tags())) {
+            destinationsBeforeDepot.put(train.name(), train.info().destination());
+        }
         train.markForDepot();
         train.setDestination(settings.control().depotDestination());
         shortTurns.remove(train.name());
@@ -1397,6 +1517,8 @@ public final class RailwayRuntime {
             eventLog.block(name, freed, "exit", "train removed", clock.instant());
         }
         trainStates.remove(name);
+        sentOn.remove(name);
+        destinationsBeforeDepot.remove(name);
         holdReasons.remove(name);
         shortTurns.remove(name);
         reservations.values().removeIf(reservation -> reservation.train().equals(name));
@@ -1436,6 +1558,11 @@ public final class RailwayRuntime {
     }
 
     private List<JourneyEvent> assign(TrainHandle train, ServiceKey service, boolean inferred) {
+        leaveDepotRun(train);
+        if (!service.equals(tracker.snapshot(train.name()).map(JourneySnapshot::service).orElse(null))) {
+            // A short turn was ordered for the service the train ran; it no longer does.
+            shortTurns.remove(train.name());
+        }
         train.setAssignment(service, inferred);
         settle(train, service);
         offRouteVisits.remove(train.name());
@@ -1452,6 +1579,8 @@ public final class RailwayRuntime {
      * assigns it again; otherwise spawn signs, match rules and route inference apply as usual.
      */
     public List<JourneyEvent> unassign(TrainHandle train, boolean manual) {
+        leaveDepotRun(train);
+        shortTurns.remove(train.name());
         train.clearAssignment(manual);
         offRouteVisits.remove(train.name());
         List<JourneyEvent> events = tracker.assign(train.name(), null, store.network(), clock.instant());
@@ -1460,6 +1589,21 @@ public final class RailwayRuntime {
         }
         handle(train, events);
         return events;
+    }
+
+    /**
+     * A train sent to the depot that is put back in service, or taken off it by hand, gets back
+     * the TrainCarts destination it had, when ATCS does not keep destinations itself: else its
+     * switchers would keep routing it to the depot.
+     */
+    private void leaveDepotRun(TrainHandle train) {
+        String before = destinationsBeforeDepot.remove(train.name());
+        if (!ServiceResolver.isDepotBound(train.info().tags()) || settings.control().setDestinations()) {
+            return;
+        }
+        if (settings.control().depotDestination().equalsIgnoreCase(train.info().destination())) {
+            train.setDestination(before == null ? "" : before);
+        }
     }
 
     /**
@@ -1955,6 +2099,66 @@ public final class RailwayRuntime {
     private void expireJourneys() {
         Set<String> loaded = trains.loadedTrains().stream().map(TrainHandle::name).collect(Collectors.toSet());
         tracker.expire(clock.instant().minus(JOURNEY_EXPIRY), loaded::contains);
+    }
+
+    /**
+     * Keeps what holds trains apart over a plugin reload or a restart: which train is in each
+     * block, and the dispatcher's holds. Without it the next ATCS would let a train waiting at a
+     * block entry into a block another train is still in, and would let held trains go.
+     */
+    private void saveDispatchState() {
+        List<Map<String, Object>> inside = new ArrayList<>();
+        blocks.all().forEach((block, occupancy) -> inside.add(Map.of("block", block, "train", occupancy.trainId(),
+                "since", occupancy.since().toString())));
+        List<Map<String, Object>> held = new ArrayList<>();
+        control.manualHolds().forEach((train, reason) -> held.add(Map.of("train", train, "reason", reason)));
+        try {
+            if (inside.isEmpty() && held.isEmpty()) {
+                Files.deleteIfExists(dispatchFile);
+                return;
+            }
+            YamlConfiguration yaml = new YamlConfiguration();
+            yaml.options().setHeader(List.of("Blocks and dispatcher holds when ATCS stopped; read once when it starts again."));
+            yaml.set("blocks", inside);
+            yaml.set("holds", held);
+            Files2.writeAtomically(dispatchFile, yaml.saveToString());
+        } catch (IOException exception) {
+            logger.log(Level.WARNING, "Could not save " + dispatchFile.getFileName(), exception);
+        }
+    }
+
+    /** Takes back the blocks and holds of trains that are still there, once; see {@link #saveDispatchState}. */
+    private void loadDispatchState() {
+        if (!Files.exists(dispatchFile)) {
+            return;
+        }
+        YamlConfiguration yaml = readYaml(dispatchFile);
+        for (Map<?, ?> entry : yaml.getMapList("blocks")) {
+            Object block = entry.get("block");
+            Object train = entry.get("train");
+            if (block == null || train == null || !trains.nameTaken(train.toString())) {
+                continue;
+            }
+            Instant since;
+            try {
+                since = Instant.parse(String.valueOf(entry.get("since")));
+            } catch (java.time.format.DateTimeParseException exception) {
+                since = clock.instant();
+            }
+            blocks.force(block.toString(), train.toString(), since);
+        }
+        for (Map<?, ?> entry : yaml.getMapList("holds")) {
+            Object train = entry.get("train");
+            if (train != null && trains.nameTaken(train.toString())) {
+                Object reason = entry.get("reason");
+                control.holdByHand(train.toString(), reason == null ? "" : reason.toString());
+            }
+        }
+        try {
+            Files.delete(dispatchFile);
+        } catch (IOException exception) {
+            logger.log(Level.WARNING, "Could not remove " + dispatchFile.getFileName(), exception);
+        }
     }
 
     private void loadData() {

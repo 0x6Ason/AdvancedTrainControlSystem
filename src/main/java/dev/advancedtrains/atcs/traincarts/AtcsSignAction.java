@@ -22,6 +22,7 @@ import dev.advancedtrains.atcs.network.PlatformRef;
 import dev.advancedtrains.atcs.operation.AtcsSign;
 import dev.advancedtrains.atcs.operation.Indicator;
 import dev.advancedtrains.atcs.operation.JourneyEvent;
+import dev.advancedtrains.atcs.operation.ServiceResolver;
 import dev.advancedtrains.atcs.runtime.RailwayRuntime;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -86,14 +87,19 @@ public final class AtcsSignAction extends SignAction {
             }
             case AtcsSign.StationSign station -> station(info, station, train, entering);
             case AtcsSign.SwitchSign switcher -> switchRails(info, switcher, train, entering);
-            case AtcsSign.ServiceSign service when entering && info.isPowered() -> runtime.assign(train, service.service());
-            case AtcsSign.ClearSign ignored when entering && info.isPowered() -> runtime.unassign(train, true);
+            // A train a dispatcher sent to the depot keeps that order past service and clear signs.
+            case AtcsSign.ServiceSign service when entering && info.isPowered() && !toDepot(train) -> runtime.assign(train, service.service());
+            case AtcsSign.ClearSign ignored when entering && info.isPowered() && !toDepot(train) -> runtime.unassign(train, true);
             case AtcsSign.DepotSign ignored when entering && info.isPowered() -> runtime.atDepot(train);
             case AtcsSign.BlockSign block -> block(info, block, train, entering);
             case AtcsSign.SpeedSign speed when entering && info.isPowered() -> runtime.applySpeedSign(train, speed.speed(), speed.selector());
             default -> {
             }
         }
+    }
+
+    private static boolean toDepot(TrainCartsTrain train) {
+        return ServiceResolver.isDepotBound(train.info().tags());
     }
 
     /**

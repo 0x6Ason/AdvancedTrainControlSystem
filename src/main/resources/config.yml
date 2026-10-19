@@ -137,6 +137,14 @@ trains:
   # when it is off: a fleet counts every train of its service, so one frozen where nobody is
   # would keep the fleet from ever sending a replacement.
   keep-chunks-loaded: false
+  # A train on a service is stuck when it has stood for stuck-seconds with nothing to move it on:
+  # TrainCarts has no wait or launch queued for it, and it waits for no train ahead, switch or
+  # speed limit. A stop that never launched it, a plugin reload or a derailment can leave a train
+  # like that, and it never moves again by itself. restart: it is launched onwards. remove: the
+  # same, and if it still stands there stuck-seconds later it is taken out of the world (never
+  # with anyone aboard), so a fleet sends a new one. report: it is only named in the console.
+  stuck-trains: remove
+  stuck-seconds: 60
 
 spawning:
   # Hold the chunks of every spawn sign listed in network.yml and of every fleet spawn point, so

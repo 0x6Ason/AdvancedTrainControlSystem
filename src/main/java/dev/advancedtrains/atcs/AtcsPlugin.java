@@ -147,7 +147,8 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
     public void onDisable() {
         stopEditor();
         if (runtime != null) {
-            // Holds in TrainCarts' queues end at once; the trains leave on the launch queued behind them.
+            // Held trains stay where they are until the next ATCS takes them over (or their hold's time
+            // limit); blocks and dispatcher holds are written down for it.
             runtime.stop();
         }
         if (signAction != null) {

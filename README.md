@@ -153,6 +153,12 @@ fleet never counts a train that froze where nobody was. With
 and fleet spawn point. Together these replace
 force-loading the railway: `/forceload remove all` and the trains keep running.
 
+**Stuck trains.** A train on a service that stands for a minute with nothing to move it (no wait
+or launch queued in TrainCarts, no train ahead or switch it waits for), as a plugin reload, a stop
+that never launched it or a derailment can leave it, is launched onwards. If it still stands there
+a minute later it is taken out of the world, unless someone is aboard, and a fleet sends a new one.
+`trains.stuck-trains: restart` only launches such trains, `report` only names them in the console.
+
 **A loop line.** Build the stations with ordinary TrainCarts `station` signs so trains stop
 (ATCS never drives trains; it reads those signs as platform triggers), bind or import them, create
 the service with `/atcs service stops ... ` and `/atcs service circular <service> true`, and put

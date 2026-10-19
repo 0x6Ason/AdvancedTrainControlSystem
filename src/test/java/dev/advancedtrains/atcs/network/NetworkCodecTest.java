@@ -85,6 +85,33 @@ class NetworkCodecTest {
     }
 
     @Test
+    void boardMirrorsSurviveWorldNamesWithDotsAndTheEarlierLayout() {
+        String yaml = """
+                stations:
+                  main:
+                    name: Main
+                boards:
+                  old:
+                    station: main
+                    signs: ['city.v2,1,64,1']
+                    mirrors:
+                      world,5,64,5: 2
+                      city.v2,9,64,9: 1
+                """;
+        NetworkCodec.ReadResult first = codec.read(yaml);
+        assertTrue(first.clean(), () -> first.errors().toString());
+        Board old = first.network().board("old").orElseThrow();
+        assertEquals(2, old.mirrors().get(BlockPos.parse("world,5,64,5")));
+        assertEquals(1, old.mirrors().get(BlockPos.parse("city.v2,9,64,9")), "the earlier layout split this key at the dot");
+
+        String written = codec.write(first.network());
+        assertTrue(written.contains("sign: city.v2,9,64,9"), written);
+        NetworkCodec.ReadResult again = codec.read(written);
+        assertTrue(again.clean(), () -> again.errors().toString());
+        assertEquals(old, again.network().board("old").orElseThrow());
+    }
+
+    @Test
     void badMapAdjustmentsAreReportedAndSkipped() {
         String yaml = """
                 stations:

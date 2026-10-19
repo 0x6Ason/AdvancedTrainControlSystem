@@ -529,8 +529,23 @@ public final class NetworkCodec {
         try {
             Map<BlockPos, Integer> mirrors = new LinkedHashMap<>();
             ConfigurationSection mirrorNodes = node.getConfigurationSection("mirrors");
-            if (mirrorNodes != null) {
-                for (String position : mirrorNodes.getKeys(false)) {
+            if (node.isList("mirrors")) {
+                for (Map<?, ?> entry : node.getMapList("mirrors")) {
+                    Object sign = entry.get("sign");
+                    Object line = entry.get("line");
+                    if (sign == null || !(line instanceof Number number)) {
+                        errors.add(path + ".mirrors: expected { sign: world,x,y,z, line: 1 }, not " + entry);
+                        continue;
+                    }
+                    mirrors.put(BlockPos.parse(sign.toString()), number.intValue());
+                }
+            } else if (mirrorNodes != null) {
+                // Written by 0.2.0 snapshots as "world,x,y,z": line. A world name with a dot in it
+                // came back as nested sections, so the full key path is the position.
+                for (String position : mirrorNodes.getKeys(true)) {
+                    if (mirrorNodes.isConfigurationSection(position)) {
+                        continue;
+                    }
                     if (!mirrorNodes.isInt(position)) {
                         errors.add(path + ".mirrors: '" + position + "' needs the line it repeats, for example 1");
                         continue;
@@ -538,7 +553,7 @@ public final class NetworkCodec {
                     mirrors.put(BlockPos.parse(position), mirrorNodes.getInt(position));
                 }
             } else if (node.isSet("mirrors")) {
-                errors.add(path + ".mirrors: expected positions with the line each repeats, for example \"world,10,64,-5\": 1");
+                errors.add(path + ".mirrors: expected a list of { sign: world,x,y,z, line: 1 }");
             }
             return new Board(
                     key,
@@ -610,8 +625,15 @@ public final class NetworkCodec {
             }
             node.set("signs", board.signs().stream().map(BlockPos::format).toList());
             if (!board.mirrors().isEmpty()) {
-                ConfigurationSection mirrorNodes = node.createSection("mirrors");
-                board.mirrors().forEach((sign, line) -> mirrorNodes.set(sign.format(), line));
+                // A list rather than positions as keys: a world name may contain a dot.
+                List<Map<String, Object>> mirrorNodes = new ArrayList<>();
+                board.mirrors().forEach((sign, line) -> {
+                    Map<String, Object> mirror = new LinkedHashMap<>();
+                    mirror.put("sign", sign.format());
+                    mirror.put("line", line);
+                    mirrorNodes.add(mirror);
+                });
+                node.set("mirrors", mirrorNodes);
             }
         }
 
