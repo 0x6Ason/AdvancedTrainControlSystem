@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "dev.advancedtrains"
-version = "0.2.0-SNAPSHOT"
+version = "0.2.0"
 
 // The oldest server API ATCS compiles against. Anything newer in the 1.21 line keeps working,
 // so stick to this API surface instead of bumping it for convenience. CI's compatibility matrix
@@ -141,18 +141,6 @@ val generatePreviews by tasks.registering(JavaExec::class) {
     classpath = sourceSets.test.get().runtimeClasspath
     mainClass.set("dev.advancedtrains.atcs.display.DisplayPreviews")
     args("docs/images/displays")
-    workingDir = projectDir
-}
-
-// Renders the display redesign for review from a website network.json:
-// ./gradlew redesignPreviews -Pnetwork=<network.json> -Pout=<folder>
-val redesignPreviews by tasks.registering(JavaExec::class) {
-    group = "documentation"
-    description = "Renders the redesigned displays from a website network.json for review."
-    dependsOn(tasks.testClasses)
-    classpath = sourceSets.test.get().runtimeClasspath
-    mainClass.set("dev.advancedtrains.atcs.display.RedesignPreviews")
-    args(providers.gradleProperty("network").getOrElse("network.json"), providers.gradleProperty("out").getOrElse("build/redesign"))
     workingDir = projectDir
 }
 
