@@ -1,22 +1,46 @@
 # AdvancedTrainControlSystem (ATCS)
 
-Passenger information, departure boards and live network maps for [TrainCarts](https://github.com/bergerhealer/TrainCarts) railways.
+[![Build](https://github.com/0x6Ason/AdvancedTrainControlSystem/actions/workflows/build.yml/badge.svg)](https://github.com/0x6Ason/AdvancedTrainControlSystem/actions/workflows/build.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
 
-TrainCarts drives the trains. ATCS knows your network — stations, platforms, lines and the services
-trains run — follows every train through it, and tells passengers where they are:
+Passenger information, departure boards, maps and station control for
+[TrainCarts](https://github.com/bergerhealer/TrainCarts) railways on Paper servers.
 
-- **Boss bar** in the line colour: line, service, destination, next stop and an arrival estimate.
-- **Arrival titles** with a chime, **"Next station"** and **interchange** announcements, end-of-line notices.
-- **Departure boards** on ordinary signs, with arrival times learned from your real trains.
-- **BlueMap**: stations, lines drawn along the track your trains actually use, and live trains.
-- **SignLink** variables for existing SignLink displays.
+<p align="center">
+  <img src="docs/images/displays/sign-10x1.png" alt="A New York style station sign for Main St. with the bullets of lines A and 1" width="640"><br>
+  <img src="docs/images/displays/roadmap-6x1.png" alt="Line 1's diagram on a strip of item frames, You are here at Golden Islands St." width="640"><br>
+  <img src="docs/images/displays/board-4x2.png" alt="A split-flap departure board at Main St." width="420"><br>
+  <em>A station sign, a line diagram and a departure board, drawn by ATCS on item frames.</em>
+</p>
+
+TrainCarts drives the trains. ATCS knows your network (stations, platforms, lines and the services
+trains run), follows every train through it, and tells passengers where they are.
+
+**For riders**
+
+- A **boss bar** in the line colour: line, service, destination, next stop and an arrival estimate.
+- **Arrival titles** with a chime, **next station** and **interchange** announcements, end-of-line
+  notices.
+- **Departure boards** on signs, **split-flap boards**, **line diagrams** and **station signs** on
+  item frames, and floating **hologram boards**, with arrival times learned from your real trains.
+- A **website**: a metro-style map of the network, live trains, departures and a realtime trip
+  planner with fares.
+
+**For operators**
+
 - **Set-up from what you already have**: stations are drafted from your TrainCarts station signs and
   `Arrived: ...` announcements, and lines and services are suggested from the trips your trains make.
+- **Station control where you want it**: `atcs station` signs stop the trains that call and let the
+  others run through (an express on a local track), with headways, even spacing, timetables, block
+  signals and junction priority; `atcs switch` signs set junctions by service.
+- **Fleets** that keep a loop line running with a set number of trains, with service hours.
+- **Dispatching**: hold, skip, short-turn or send a train to the depot, by command or from the
+  **web editor**; stuck trains are restarted or cleared on their own.
+- **BlueMap**, **SignLink** and **PlaceholderAPI** integrations, and a fare system other plugins
+  can ask.
 
 ATCS observes TrainCarts and adds information on top; your existing signs keep working exactly as
-before. Where you want it to, it also runs the stations: `atcs station` signs stop the trains that
-call and let the others run through (an express on a local track), hold trains apart, and
-`atcs switch` signs set junctions by service.
+before. It only drives trains where you put its signs.
 
 <!-- --8<-- [start:install] -->
 ## Requirements
@@ -33,9 +57,15 @@ server or TrainCarts release that breaks something is caught before it reaches y
 
 ## Installing
 
-1. Put `AdvancedTrainControlSystem-<version>.jar` in `plugins/`.
+1. Download `AdvancedTrainControlSystem-<version>.jar` from the
+   [releases](https://github.com/0x6Ason/AdvancedTrainControlSystem/releases) and put it in `plugins/`.
 2. Restart the server (do not hot-load it with PlugMan).
 3. Follow one of the set-up guides below.
+
+**Updating.** Replace the jar, removing the old one (the file name carries the version), and
+restart. `config.yml` and `messages.yml` gain any new options with their defaults and comments; the
+old files are kept beside them as `.bak`. Trains standing at stations or blocks when the plugin
+stops stay where they are and are taken over when it starts again.
 
 <!-- --8<-- [end:install] -->
 <!-- --8<-- [start:setup] -->
@@ -159,11 +189,12 @@ that never launched it or a derailment can leave it, is launched onwards. If it 
 a minute later it is taken out of the world, unless someone is aboard, and a fleet sends a new one.
 `trains.stuck-trains: restart` only launches such trains, `report` only names them in the console.
 
-**A loop line.** Build the stations with ordinary TrainCarts `station` signs so trains stop
-(ATCS never drives trains; it reads those signs as platform triggers), bind or import them, create
-the service with `/atcs service stops ... ` and `/atcs service circular <service> true`, and put
-trains on the track however you like. Every train is recognised after its first two stops. Every
-station of the loop needs a trigger, because inference follows the stop order exactly.
+**A loop line.** Put an `atcs station` sign at every platform (or bind or import the TrainCarts
+`station` signs you have), create the service with `/atcs service stops ...` and
+`/atcs service circular <service> true`, and give it a fleet, or put trains on the track however
+you like: every train is recognised after its first two stops. Every station of the loop needs a
+trigger, because inference follows the stop order exactly. `control.even-spacing: true` keeps the
+trains from bunching.
 
 **Following a train.** ATCS searches forward along the service from the last stop reached, so
 stations without triggers and trains that were unloaded for part of the trip are handled. Travel and
@@ -260,25 +291,34 @@ platform sign), and with `gap` until the headway has passed. `control.headway-se
 case, with a warning in the console, so a train ATCS lost sight of can never block a platform for
 good. `/train status` on a held train shows why it waits.
 
-`even` is for loop lines and any service with several trains: a train that arrives soon after
-the one in front left, with the next one far behind, waits at the platform for up to half the
-difference (never more than `control.even-max-hold-seconds`), so the gaps come out equal instead
-of the trains bunching. `control.even-spacing: true` turns it on for every station sign. `at`
-makes a timetable: the train leaves at the next listed minute after its dwell, and boards count
-down to it. A service's `timetable: [':00', ':30']` in `network.yml` does the same at its first
-stop. `/atcs train hold` and `release` keep a train at its next station sign by hand, `/atcs train
-skip` makes it run through a station once (riders are told), `/atcs train shortturn` turns a
-train back at a station as the service of its line running the other way (riders are told
-there; the train leaves backwards and boards show its new destination), `/atcs train depot`
-takes a train out of service and sends it to the depot (no service, through every station
-except one whose sign turns trains back, routed by the TrainCarts destination
-`control.depot-destination`), and `/atcs switch set` sends
-every train at a switch sign one way for a while. With `control.junction-priority: true` a train about
-to leave a platform whose next stretch of track runs into a junction waits for a train that is
-approaching it, unless it goes first: the late train first, then the line listed earlier in
-`control.priority`, then the nearer one; this needs recorded track, so that ATCS knows where the
-junctions are. The web editor's *Dispatch* section does all of this from a browser, with every
-train live and the recent events.
+**Even spacing.** `even` is for loop lines and any service with several trains: a train that
+arrives soon after the one in front left, with the next one far behind, waits at the platform for
+up to half the difference (never more than `control.even-max-hold-seconds`), so the gaps come out
+equal instead of the trains bunching. `control.even-spacing: true` turns it on for every station
+sign.
+
+**Timetables.** `at` makes a timetable: the train leaves at the next listed minute after its
+dwell, and boards count down to it. A service's `timetable: [':00', ':30']` in `network.yml` does
+the same at its first stop.
+
+**Junction priority.** With `control.junction-priority: true` a train about to leave a platform
+whose next stretch of track runs into a junction waits for a train that is approaching it, unless
+it goes first: the late train first, then the line listed earlier in `control.priority`, then the
+nearer one. This needs recorded track, so that ATCS knows where the junctions are.
+
+**Dispatching.** By hand, for when something goes wrong:
+
+- `/atcs train hold <train>` and `release` keep a train at its next station sign.
+- `/atcs train skip <train> <station>` makes it run through a station once; riders are told.
+- `/atcs train shortturn <train> <station>` turns it back there as the service of its line running
+  the other way: riders are told, the train leaves backwards and boards show its new destination.
+- `/atcs train depot <train>` takes it out of service and sends it to the depot: no service,
+  through every station except one whose sign turns trains back, routed by the TrainCarts
+  destination `control.depot-destination`.
+- `/atcs switch set` sends every train at a switch sign one way for a while.
+
+The web editor's *Dispatch* section does all of this from a browser, with every train live and the
+recent events. Holds, blocks and dispatcher orders survive a plugin reload.
 
 ### Switch signs
 
@@ -430,6 +470,9 @@ The wand also gives a station a footprint and binds signs in bulk:
 <!-- --8<-- [start:commands] -->
 ## Commands
 
+The most used commands; [the command reference](docs/reference/commands.md) has every one with
+its arguments, and `/atcs help` lists what you may use.
+
 | Command | Permission | |
 |---|---|---|
 | `/atcs departures <station> [platform]` | atcs.use | Next departures |
@@ -438,15 +481,16 @@ The wand also gives a station a footprint and binds signs in bulk:
 | `/atcs line list\|info` | atcs.use | Lines |
 | `/atcs line create\|rename\|color\|mapcolor\|badge\|addstop\|suspend\|resume\|remove` | atcs.manage | Edit lines; `addstop` adds a stop to every service running between two stations; `mapcolor` recolours a line on the diagram only |
 | `/atcs service info` | atcs.use | A service and what has been learned about it |
-| `/atcs service create\|stops\|addstop\|removestop\|record\|spawn\|unspawn\|fleet\|hours\|offpeak\|reverse\|rename\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services; `hours` and `offpeak` stable fleet trains by the time of day |
-| `/atcs train info [train]` | atcs.use | The train you ride or look at |
-| `/atcs train assign\|unassign\|auto\|hold\|release\|skip`, `/atcs trains` | atcs.manage | Assignments; `hold` keeps a train at its next station sign until `release`; `skip` runs through a station once |
+| `/atcs service create\|stops\|addstop\|removestop\|record\|spawn\|unspawn\|fleet\|hours\|offpeak\|reverse\|rename\|short\|circular\|continues\|match\|remove\|resetpaths` | atcs.manage | Edit services; `fleet` keeps trains running, `hours` and `offpeak` stable them by the time of day, `short` is the name boards use when the full one does not fit |
+| `/atcs train info [train]` | atcs.use | The train you ride or look at, and how long it has stood |
+| `/atcs train assign\|unassign\|auto\|hold\|release\|skip\|shortturn\|depot`, `/atcs trains` | atcs.manage | Assignments and dispatching (see [Station signs](#station-signs)) |
 | `/atcs switch list\|set\|clear` | atcs.manage | Switch signs in loaded chunks, and a direction set by hand for a while |
+| `/atcs output add\|list\|remove` | atcs.manage | Redstone lamps and levers that follow the trains, without signs |
 | `/atcs transfer list` | atcs.use | Walking transfers |
 | `/atcs transfer add\|remove` | atcs.manage | Edit walking transfers |
-| `/atcs board create\|add\|unbind\|remove\|list` | atcs.manage | Departure boards |
+| `/atcs board create\|add\|mirror\|unbind\|remove\|list` | atcs.manage | Departure boards |
 | `/atcs wand [pos1\|pos2\|clear\|info]` | atcs.manage | The selection wand |
-| `/atcs display roadmap\|logo\|board\|map\|status\|hologram\|list\|remove\|redraw` | atcs.manage | Pictures in the selected item frames and hologram boards |
+| `/atcs display roadmap\|logo\|board\|map\|status\|hologram\|face\|export\|list\|remove\|redraw` | atcs.manage | Pictures in the selected item frames and hologram boards |
 | `/atcs map` | atcs.use | A hand-held map of the railway |
 | `/atcs import scan\|stations\|services\|write\|apply\|reset` | atcs.manage | Set-up from the world |
 | `/atcs fare check\|info` | atcs.use | The fare between two stations and how it was worked out |
@@ -502,6 +546,10 @@ All in `plugins/AdvancedTrainControlSystem/`:
 | `data/timings.yml`, `data/track-paths.yml`, `data/trips.yml`, `data/eta-samples.yml` | Learned travel times, recorded track, observed trips and scored estimates; safe to delete |
 | `data/map-layout.yml` | The website diagram's saved cells, so the layout stays put; safe to delete |
 | `data/events.log` | Every arrival, departure, hold and service change, one JSON line each, rotated at `logging.max-megabytes` |
+| `data/dispatch-state.yml` | Which train is in each block and the dispatcher's holds, written when ATCS stops and read once when it starts |
+| `history/` | The last 25 versions of `network.yml`, for `/atcs undo` |
+| `logos/` | Your own pictures for stations and lines (`<station>.png`, `line-<id>.png`) |
+| `exports/` | Pictures saved by `/atcs display export` |
 
 `network.yml` is never overwritten behind your back: if it has an error ATCS keeps using the valid
 parts but refuses edits until it is fixed, and if you edited it without `/atcs reload`, in-game edits
@@ -760,6 +808,10 @@ with the command that removes each.
   speed and shown with a `~`; a stretch another service runs uses that service's times.
 - **A board says "Delayed".** The train has been on its way longer than trains usually take on
   that stretch, by more than the usual spread. It is on its way; the countdown would mislead.
+- **A train stands still and never leaves.** `/atcs train info <train>` says how long it has stood
+  and what TrainCarts has queued for it. A train on a service with nothing queued is launched after
+  `trains.stuck-seconds`, and taken away if that does not get it moving (`trains.stuck-trains`);
+  the console names each one.
 - **Old announce signs.** Once ATCS announces your stations you can remove TrainCarts `announce` signs
   that say the same thing.
 
@@ -771,8 +823,20 @@ with the command that removes each.
 ./gradlew build
 ```
 
-The plugin is `build/libs/AdvancedTrainControlSystem-<version>.jar`.
+The plugin is `build/libs/AdvancedTrainControlSystem-<version>.jar`. JDK 21 is needed; the tests
+run without a server.
 <!-- --8<-- [end:building] -->
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is organised,
-[docs/ROADMAP.md](docs/ROADMAP.md) for what comes next, and [CONTRIBUTING.md](CONTRIBUTING.md)
-before sending a change.
+
+## More
+
+- [Architecture](docs/ARCHITECTURE.md): how the code is organised.
+- [Building and testing](docs/developers/building.md): CI, the compatibility matrix, the
+  generated reference pages and the docs site.
+- [Roadmap](docs/ROADMAP.md): ideas for what comes next.
+- [Contributing](CONTRIBUTING.md): reporting a bug, suggesting a feature, sending a change.
+- [Changelog](CHANGELOG.md).
+
+## Licence
+
+ATCS is released under the [MIT licence](LICENSE). The bundled Inter and Barlow Condensed fonts are
+under the SIL Open Font License; their licences are next to them in `src/main/resources/fonts/`.

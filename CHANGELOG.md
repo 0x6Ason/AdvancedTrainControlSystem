@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-10-19)
 
 A complete redesign. ATCS is now a passenger-information and network plugin that works on any
-TrainCarts server, configured with files and in-game commands.
+TrainCarts server, configured with files and in-game commands. It is open source from this
+release, under the MIT licence.
 
 ### Added
 

@@ -18,6 +18,14 @@ versions are Gradle properties (`-PpaperApi`, `-PtrainCarts`, `-PbkCommonLib`, `
 --strict`, so a broken link or a page missing from the navigation fails the run; it publishes to
 GitHub Pages only when the repository variable `PUBLISH_DOCS` is `true`.
 
+## Releases
+
+Pushing a tag such as `v0.2.0` runs the *Release* workflow (`.github/workflows/release.yml`): it
+builds and tests the plugin from the tag and publishes a GitHub release with the jar attached and
+the version's section of `CHANGELOG.md` as the notes. The tag must match `version` in
+`build.gradle.kts`, and the changelog needs a `## 0.2.0 (date)` section, or the workflow stops
+before publishing anything.
+
 ## A big railway in the tests
 
 `BigNetworkTest` builds a railway of 300 stations, 24 services and 150 running trains and times

@@ -1,7 +1,8 @@
 # Architecture
 
 ATCS is a single Paper plugin with no runtime dependencies of its own. TrainCarts (and BKCommonLib)
-are required at runtime; BlueMap and SignLink are optional and only touched when installed.
+are required at runtime; BlueMap, SignLink, WorldEdit and PlaceholderAPI are optional and only
+touched when installed.
 
 ## Principles
 
@@ -10,9 +11,10 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
   `atcs station` and `atcs switch` signs: there ATCS decides per train whether it stops and which
   way it goes, and carries that out through TrainCarts' own `Station` helper and action queue (the
   same centring, waiting and launching a `station` sign does) rather than by moving carts itself.
-  It never edits signs it did not create a board on. The only chunks it holds itself are those of
-  spawn signs and fleet spawn points; running trains hold their own through TrainCarts'
-  keep-chunks-loaded.
+  It never edits signs it did not create a board on. The chunks it holds itself are those of
+  spawn signs and fleet spawn points, and those of stored trains on a service that keep their
+  chunks loaded (fleet trains always), so such a train comes back after a restart; running trains
+  hold their own through TrainCarts' keep-chunks-loaded.
 - **Pure core, thin adapters.** Everything that decides something (network model, journeys, timing,
   departures, importing, route suggestions) is plain Java without Bukkit runtime calls, and is unit
   tested. Bukkit and TrainCarts code only translates events and draws output.
@@ -27,7 +29,7 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
 |---|---|
 | `network` | Immutable model (`Network`, `Station`, `Platform`, `Line`, `Service`, `Stop`, `Board`, `Display`, `Box`), YAML codec, and `NetworkStore` which owns `network.yml` |
 | `operation` | The railway logic: `JourneyTracker` (where each train is on its service), `ServiceResolver` (which service a train runs), `TravelTimes` and `EtaCalculator` (learned times and estimates), `Departures`, `TrackPaths` (recorded track for maps, recorded again when trains stray from it), `RailGraph` (the track merged into one graph: platforms, junctions, stretches with lengths), `TripLog` and `RouteSuggester` (service suggestions), `AtcsSign` (sign text) |
-| `control` | What `atcs station` and `atcs switch` signs decide: `StationControl` (stop or run through, headway and section holds), `StopOptions` and `SwitchRules` (sign text) |
+| `control` | What the control signs decide: `StationControl` (stop or run through; headway, section, even-spacing, timetable and dispatcher holds), `JunctionControl` (who goes first at a junction), `BlockControl` (virtual block signals), `StopOptions` and `SwitchRules` (sign text), `StationSignConversion` |
 | `importer` | Drafting stations from signs (`StationImporter`), the loaded-chunk `SignScanner`, the proposal file and merging it into the network |
 | `runtime` | `RailwayRuntime` ties everything together on the server thread: platform signals in, events out to displays, boards and maps; periodic tasks; persistence of learned data. `TrainHandle`/`TrainSource` hide TrainCarts from it |
 | `traincarts` | The only package that imports TrainCarts: event listener, the `atcs` sign action, and the `TrainHandle` implementation |
@@ -36,8 +38,13 @@ are required at runtime; BlueMap and SignLink are optional and only touched when
 | `display` | Logos, and the displays in the world: `DisplayRenderer` draws roadmaps, boards, maps and status panels as pictures, `DisplayService` puts them on map items in item frames and keeps hologram boards on text display entities |
 | `selection` | The wand: each player's two corners, or WorldEdit's selection when it has one |
 | `map` | `MapLayer` and `MapGeometry` (what to draw), `BlueMapLayer` (how) |
+| `web` | The static website: `WebModel` (the network and live JSON) and `WebSite` (writing the files) |
+| `editor` | The web editor's backend: `EditorServer` (HTTP, one-time links, sessions), `EditorApi`, `Documents` |
+| `fare` | Fares: pairs, zones and the formula (`FareCalculator`), `fares.yml` and the generated matrix |
+| `api` | What other plugins may use: `FareApi`, `FareQuote`, `FareQuoteEvent` |
+| `placeholder` | PlaceholderAPI placeholders, loaded only when PlaceholderAPI is installed |
 | `command` | The `/atcs` command tree |
-| `config` | `config.yml` and `messages.yml` |
+| `config` | `config.yml` and `messages.yml`, and the upgrader that adds new options to older files |
 
 ## Flow of a train through a station
 
@@ -61,15 +68,24 @@ the same place already reported it and the journey's phase decides. For a stoppi
 builds a TrainCarts `Station.StationConfig` from its options and queues what TrainCarts' own
 station sign queues: centre, levers up, dwell. Between dwell and launch it may queue a `HoldAction`,
 a TrainCarts wait action that asks `StationControl.holdReason` twice a second (headway since the
-last departure of the line from this platform; a train that left before and is still `IN_TRANSIT`
-from this platform) and gives up after `control.max-hold-seconds`. The hold lives in TrainCarts'
-queue, beyond the plugin's own lifetime, so it also ends the moment the runtime stops (a reload)
-or its check throws, and the train leaves on the launch queued behind it. The other way round,
-`TrainCartsTrains.relaunchStranded` (at start, and every fleet tick for trains standing over
-thirty seconds) finds trains on a service that stand at an `atcs station` or block sign with
-an empty action queue, or with a hold left by an earlier ATCS at its head, clears the queue and
-fires the sign's enter for them again; a train TrainCarts loads again on top of the sign
-(`GROUP_RELOAD`) is treated the same. An `atcs switch` sign asks
+last departure of the line from this platform, a train ahead still `IN_TRANSIT`, even spacing, a
+timetable, a junction, a dispatcher) and gives up after `control.max-hold-seconds`. An `atcs block`
+entry sign queues the same kind of hold while its block is occupied.
+
+The hold lives in TrainCarts' queue, beyond the plugin's own lifetime. When the runtime stops (a
+reload) it stops asking and keeps the train until its time limit, for a train let go then could
+run into an occupied block; a check that throws is reported once and does the same. The runtime
+writes the block occupancy and dispatcher holds to `data/dispatch-state.yml` on stop and reads
+them back once on start. Then `TrainCartsTrains.relaunchStranded` (at start, and every fleet tick
+for trains standing over thirty seconds) finds trains on a service that stand at an `atcs station`
+or block sign with an empty action queue, or with a hold left by an earlier ATCS at its head,
+clears the queue and fires the sign's enter for them again, so the new runtime holds them; a train
+TrainCarts loads again on top of the sign (`GROUP_RELOAD`) is treated the same.
+
+Anywhere else, a train on a service that has stood for `trains.stuck-seconds` with nothing queued
+and no TrainCarts status saying it waits (`TrainStatus.Waiting`: a train ahead, a mutex zone, a
+speed limit of nothing) is launched; one still standing near the same spot a stuck time later is
+removed when nobody is aboard (`RailwayRuntime.restartStuckTrains`). An `atcs switch` sign asks
 `SwitchRules.choose` with the train's service and the next station on it, and sets the junction
 through `SignActionEvent.findJunction`/`setRailsTo`.
 
@@ -101,6 +117,11 @@ through `SignActionEvent.findJunction`/`setRailsTo`.
 | `data/timings.yml` | `TravelTimes.save` | Every few minutes if changed, and on shutdown |
 | `data/track-paths.yml` | `TrackPaths.save` | Same |
 | `data/trips.yml` | `TripLog.save` | Same; feeds `/atcs import services` across restarts |
+| `data/eta-samples.yml` | `EtaSamples.save` | Same; estimates scored against real arrivals |
+| `data/map-layout.yml` | The web editor | When a layout is saved from the editor |
+| `data/events.log` | `EventLog` | Appended as things happen, on its own thread; rotated by size |
+| `data/dispatch-state.yml` | `RailwayRuntime` | On stop; read once and deleted on start |
+| `history/` | `NetworkStore` | A copy of `network.yml` before each command edit, the last 25 |
 | `import-proposal.yml` | `ImportService` | On `/atcs import write` |
 
 Learned data is keyed by service and discarded automatically when a service's stops change (each
@@ -110,9 +131,11 @@ service has a fingerprint of its stop list).
 
 `./gradlew test` runs the unit tests: the journey tracker scenarios, timing and departures, the YAML
 format, the station importer against signs captured from a real server (`src/test/resources/fixtures`),
-and the route suggester. Anything touching Bukkit at runtime is kept out of these classes so they need
-no server. Behaviour on a real server is checked by running a staging copy with TrainCarts and
-watching `/atcs debug` output.
+the route suggester, fares, the displays and the editor's API. Anything touching Bukkit at runtime is
+kept out of these classes so they need no server. `RuntimeStressTest` wires the whole runtime with a
+fake plugin, scheduler and trains and drives a loop with every control feature on; `BigNetworkTest`
+times a railway of 300 stations against a budget. Behaviour on a real server is checked on a staging
+copy of a railway with TrainCarts, watching `/atcs debug` and `data/events.log`.
 
 ## Compatibility
 

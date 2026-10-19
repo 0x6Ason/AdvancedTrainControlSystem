@@ -4,4 +4,8 @@
 
 | Permission | Default | Grants |
 |---|---|---|
-| `atcs` | op |  |
+| `atcs.use` | everyone | Look up stations, lines, trains and departures. |
+| `atcs.passenger` | everyone | See passenger information (boss bar, arrival titles, announcements) while riding. |
+| `atcs.manage` | operators | Edit the network, boards and train assignments; import, reload and status. |
+| `atcs.sign.build` | operators | Build ATCS TrainCarts signs (atcs station, switch, block, speed, stop, service, clear, depot, indicator). |
+| `atcs.admin` | operators | Everything in ATCS. Includes `atcs.use`, `atcs.passenger`, `atcs.manage`, `atcs.sign.build`. |

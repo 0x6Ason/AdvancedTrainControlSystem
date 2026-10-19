@@ -4,6 +4,7 @@ main: dev.advancedtrains.atcs.AtcsPlugin
 api-version: '1.21.4'
 description: Passenger information, departure boards and network maps for TrainCarts railways.
 authors: [jason]
+website: https://github.com/0x6Ason/AdvancedTrainControlSystem
 depend: [BKCommonLib, Train_Carts]
 softdepend: [BlueMap, SignLink, PlaceholderAPI, WorldEdit]
 
@@ -24,7 +25,7 @@ permissions:
     description: Edit the network, boards and train assignments; import, reload and status.
     default: op
   atcs.sign.build:
-    description: Build ATCS TrainCarts signs (atcs stop, station, switch, service, clear, indicator).
+    description: Build ATCS TrainCarts signs (atcs station, switch, block, speed, stop, service, clear, depot, indicator).
     default: op
   atcs.admin:
     description: Everything in ATCS.

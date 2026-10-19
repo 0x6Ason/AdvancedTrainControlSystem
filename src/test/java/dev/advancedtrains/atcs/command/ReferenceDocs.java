@@ -150,8 +150,14 @@ public final class ReferenceDocs {
     // ---------------------------------------------------------------- permissions
 
     static String permissions() throws IOException {
-        YamlConfiguration plugin = YamlConfiguration.loadConfiguration(new StringReader(
-                Files.readString(Path.of("src/main/resources/plugin.yml"), StandardCharsets.UTF_8)));
+        // Permission names contain dots, which are YAML paths to Bukkit unless told otherwise.
+        YamlConfiguration plugin = new YamlConfiguration();
+        plugin.options().pathSeparator('/');
+        try {
+            plugin.loadFromString(Files.readString(Path.of("src/main/resources/plugin.yml"), StandardCharsets.UTF_8));
+        } catch (org.bukkit.configuration.InvalidConfigurationException exception) {
+            throw new IOException("plugin.yml is not valid YAML", exception);
+        }
         StringBuilder text = new StringBuilder(GENERATED);
         text.append("# Permissions\n\n| Permission | Default | Grants |\n|---|---|---|\n");
         ConfigurationSection permissions = plugin.getConfigurationSection("permissions");
@@ -166,8 +172,14 @@ public final class ReferenceDocs {
                 if (children != null) {
                     grants += " Includes " + String.join(", ", children.getKeys(false).stream().map(child -> "`" + child + "`").toList()) + ".";
                 }
-                text.append("| `").append(name).append("` | ").append(permission.getString("default", "op"))
-                        .append(" | ").append(grants).append(" |\n");
+                String given = switch (permission.getString("default", "op")) {
+                    case "true" -> "everyone";
+                    case "false" -> "nobody";
+                    case "not op" -> "everyone but operators";
+                    default -> "operators";
+                };
+                text.append("| `").append(name).append("` | ").append(given)
+                        .append(" | ").append(grants.strip()).append(" |\n");
             }
         }
         return text.toString();

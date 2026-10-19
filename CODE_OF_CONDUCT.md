@@ -11,5 +11,6 @@ have a good time. The rules are short.
 - Keep other people's servers and players out of it: no coordinates, player names, IP addresses
   or private logs in public issues unless they are yours to share.
 
-Something wrong? Write to the maintainer through the repository's contact in the README. Reports
-are read by one person and kept private.
+Something wrong? Contact the maintainer, [@0x6Ason](https://github.com/0x6Ason), without the
+details in public, and you will be given a private way to send them. Reports are read by one
+person and kept private.

@@ -14,8 +14,8 @@ junctions are set by service.
 - **Operators** describe the network once, in `network.yml` or with commands, and get the rest
   from the trains that already run. [Set-up](operators/setup.md), [signs](operators/signs.md),
   [the website and maps](operators/website.md).
-- **Developers** find the design in [Architecture](ARCHITECTURE.md) and the plan in the
-  [Roadmap](ROADMAP.md).
+- **Developers** find the design in [Architecture](ARCHITECTURE.md) and ideas for what comes
+  next in the [Roadmap](ROADMAP.md). ATCS is open source under the MIT licence.
 
 ## Install
 

@@ -1,12 +1,11 @@
 # Contributing
 
-Thank you for looking at ATCS. The repository is private while the system is being finished and
-no licence has been chosen yet, so for now contributions are by invitation; everything below
-applies all the same, and will when the project opens up.
+Thank you for looking at ATCS. Bug reports, ideas and pull requests are all welcome. ATCS is
+released under the [MIT licence](LICENSE), and what you contribute is released under it too.
 
-Read first: [the roadmap](docs/ROADMAP.md) for what is planned and in what order,
+Read first: [the roadmap](docs/ROADMAP.md) for the ideas already on the list,
 [Architecture](docs/ARCHITECTURE.md) for how the code is organised, and [Building and
-testing](docs/developers/building.md) for the build, the tests and the staging server.
+testing](docs/developers/building.md) for the build and the tests.
 
 <!-- --8<-- [start:guide] -->
 ## Before you start
@@ -15,9 +14,10 @@ testing](docs/developers/building.md) for the build, the tests and the staging s
   versions, what you did, what you expected and what happened. The *Bug report* template asks for
   exactly that. A `data/events.log` excerpt around the time helps for anything about trains.
 - **Features**: open an issue first and say what you are trying to do on your railway, not only
-  what you want added. The roadmap says what is planned and in what order; something already on
-  it is a good sign.
-- **Questions**: Discussions, once the repository is public; issues until then.
+  what you want added. Something already on the roadmap is a good sign.
+- **Questions**: GitHub Discussions.
+- **Security problems** (the web editor is a network service): report them privately, as
+  [SECURITY.md](https://github.com/0x6Ason/AdvancedTrainControlSystem/blob/main/SECURITY.md) says, not in a public issue.
 
 ## Building and testing
 
