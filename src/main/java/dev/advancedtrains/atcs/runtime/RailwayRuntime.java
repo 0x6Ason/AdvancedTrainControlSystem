@@ -166,6 +166,14 @@ public final class RailwayRuntime {
     private static final Duration STANDING_AFTER = Duration.ofSeconds(2);
     /** A train on a service standing this long at an ATCS sign with nothing to move it is sent on. */
     private static final Duration STRANDED_AFTER = Duration.ofSeconds(30);
+    /** A train on a service standing this long, held by no dispatcher, is reported as stuck. */
+    private static final Duration LONG_STAND = Duration.ofMinutes(5);
+    /** How many long-standing trains one report names. */
+    private static final int LONG_STANDS_NAMED = 5;
+    /** The stand last reported per train (when it began), so each one is logged once. */
+    private final Map<String, Instant> longStandsReported = new HashMap<>();
+    /** True while a fleet spawns a train, whose chunks are kept loaded from its first tick. */
+    private boolean spawningForFleet;
     /** True between {@link #start} and {@link #stop}; holds in TrainCarts' queues end when it is false. */
     private volatile boolean running;
     private static final Duration STATE_FRESH = Duration.ofSeconds(5);
@@ -468,16 +476,15 @@ public final class RailwayRuntime {
     private void fleetTick() {
         Network network = store.network();
         refreshHeldChunks(network);
-        if (settings.trains().keepChunksLoaded()) {
-            for (TrainHandle train : trains.loadedTrains()) {
-                if (!train.keepsChunksLoaded()) {
-                    train.keepChunksLoaded(true);
-                }
+        for (TrainHandle train : trains.loadedTrains()) {
+            if (!train.keepsChunksLoaded() && keepsChunksLoaded(train.info(), network)) {
+                train.keepChunksLoaded(true);
             }
         }
-        for (String name : trains.relaunchStranded(this::hasService, train -> standingAtLeast(train, STRANDED_AFTER))) {
-            relaunched(name, "stood at its sign with nothing to move it");
+        for (TrainSource.Relaunch relaunch : trains.relaunchStranded(this::hasService, train -> standingAtLeast(train, STRANDED_AFTER))) {
+            relaunched(relaunch.train(), "stood with nothing to move it; " + relaunch.how().describe());
         }
+        reportLongStands(network);
         if (spawner == null) {
             return;
         }
@@ -489,7 +496,13 @@ public final class RailwayRuntime {
         for (Service service : fleets.due(network, counts, now, java.time.LocalTime.now(java.time.ZoneId.systemDefault()))) {
             Fleet fleet = Objects.requireNonNull(service.fleet());
             fleets.attempted(service.key(), now);
-            TrainSpawner.Result result = spawner.spawn(fleet.spawn(), fleet.direction(), fleet.train());
+            TrainSpawner.Result result;
+            spawningForFleet = true;
+            try {
+                result = spawner.spawn(fleet.spawn(), fleet.direction(), fleet.train());
+            } finally {
+                spawningForFleet = false;
+            }
             if (!result.succeeded()) {
                 if (!result.problem().equals(lastSpawnProblem.put(service.key(), result.problem()))) {
                     logger.warning("Could not spawn a train for " + service.key() + ": " + result.problem());
@@ -554,18 +567,62 @@ public final class RailwayRuntime {
                 }
             }
         }
-        if (settings.trains().keepChunksLoaded()) {
-            Set<String> loaded = new HashSet<>();
-            for (TrainHandle train : trains.loadedTrains()) {
-                loaded.add(train.name());
-            }
-            for (TrainInfo info : trains.allTrains()) {
-                if (!loaded.contains(info.name()) && ServiceResolver.resolve(info, network).isPresent()) {
-                    positions.addAll(trains.storedChunks(info.name()));
-                }
+        Set<String> loaded = new HashSet<>();
+        for (TrainHandle train : trains.loadedTrains()) {
+            loaded.add(train.name());
+        }
+        for (TrainInfo info : trains.allTrains()) {
+            if (!loaded.contains(info.name()) && keepsChunksLoaded(info, network)) {
+                positions.addAll(trains.storedChunks(info.name()));
             }
         }
         chunkKeeper.keep(positions);
+    }
+
+    /**
+     * Whether a train on a service keeps its chunks loaded: every one with keep-chunks-loaded on,
+     * and a train of a fleet always. A fleet counts every train of its service, loaded or not, so
+     * a fleet train frozen in chunks nobody holds would keep a replacement from ever being sent.
+     */
+    private boolean keepsChunksLoaded(TrainInfo info, Network network) {
+        Optional<ServiceKey> service = ServiceResolver.resolve(info, network);
+        if (service.isEmpty()) {
+            return false;
+        }
+        return settings.trains().keepChunksLoaded()
+                || network.service(service.get()).map(found -> found.fleet() != null).orElse(false);
+    }
+
+    /**
+     * Logs, once per stand, a train on a service that has stood still for a long while although no
+     * dispatcher holds it, with what TrainCarts has queued for it: such a train is stuck, and the
+     * trains behind it with it. A few are named each time; the rest are counted.
+     */
+    private void reportLongStands(Network network) {
+        Instant now = clock.instant();
+        List<String> named = new ArrayList<>();
+        int more = 0;
+        for (TrainHandle train : trains.loadedTrains()) {
+            TrainState state = trainStates.get(train.name());
+            Instant since = state == null ? null : state.standingSince();
+            if (since == null || Duration.between(since, now).compareTo(LONG_STAND) < 0 || since.equals(longStandsReported.get(train.name()))
+                    || control.manualHold(train.name()).isPresent() || ServiceResolver.resolve(train.info(), network).isEmpty()) {
+                continue;
+            }
+            longStandsReported.put(train.name(), since);
+            if (named.size() < LONG_STANDS_NAMED) {
+                named.add(train.name() + " at " + Math.round(state.x()) + " " + Math.round(state.y()) + " " + Math.round(state.z())
+                        + " (" + train.activity() + ")");
+            } else {
+                more++;
+            }
+        }
+        longStandsReported.keySet().retainAll(trainStates.keySet());
+        if (!named.isEmpty()) {
+            logger.warning("Standing still for " + LONG_STAND.toMinutes() + " minutes or more, with no dispatcher holding them: "
+                    + String.join("; ", named) + (more > 0 ? "; and " + more + " more" : "")
+                    + ". Trains behind them may be stuck too; /atcs train info <train> shows more");
+        }
     }
 
     /** Whether the train runs a service of the network, by its tags, match rules or route. */
@@ -580,18 +637,25 @@ public final class RailwayRuntime {
                 && Duration.between(state.standingSince(), clock.instant()).compareTo(duration) >= 0;
     }
 
-    /** A standing train was given its sign again and stopped afresh, so it will be sent on. */
+    /** A standing train was sent on again: {@code why} says what it was and what was done. */
     public void relaunched(String trainName, String why) {
-        logger.info(trainName + " " + why + "; stopped afresh at its sign to be sent on");
+        logger.info(trainName + " " + why);
     }
 
     /** Sends every stranded train on, whatever its standing time: used when ATCS starts. */
     public int relaunchStranded() {
-        List<String> names = trains.relaunchStranded(this::hasService, name -> true);
-        for (String name : names) {
-            relaunched(name, "stood at its sign with nothing to move it when ATCS started");
+        List<TrainSource.Relaunch> relaunches = trains.relaunchStranded(this::hasService, name -> true);
+        for (TrainSource.Relaunch relaunch : relaunches) {
+            relaunched(relaunch.train(), "stood with nothing to move it when ATCS started; " + relaunch.how().describe());
         }
-        return names.size();
+        return relaunches.size();
+    }
+
+    /** How long the train has stood still, as the position samples see it; empty while it moves. */
+    public Optional<Duration> standingFor(String trainName) {
+        TrainState state = trainStates.get(trainName);
+        return state == null || state.standingSince() == null ? Optional.empty()
+                : Optional.of(Duration.between(state.standingSince(), clock.instant()));
     }
 
     /** True between start and stop. A hold in TrainCarts' queue ends as soon as this is false. */
@@ -1259,7 +1323,7 @@ public final class RailwayRuntime {
      * holds, and TrainCarts logs "unloaded unexpectedly" when they go.
      */
     public void trainCreating(TrainHandle train) {
-        if (settings.trains().keepChunksLoaded() && !train.keepsChunksLoaded()) {
+        if ((settings.trains().keepChunksLoaded() || spawningForFleet) && !train.keepsChunksLoaded()) {
             train.keepChunksLoaded(true);
         }
     }

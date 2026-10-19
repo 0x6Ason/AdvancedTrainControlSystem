@@ -194,8 +194,14 @@ TrainCarts server, configured with files and in-game commands.
 - Trains standing at a station survive a plugin reload or a restart: an ATCS hold ends the
   moment the plugin stops (or its check fails), so the train leaves on the launch queued behind
   it; when ATCS starts, and every few seconds after, a train on a service that stands at an
-  `atcs station` or block sign with nothing to move it is stopped afresh and sent on; a train
-  loaded again on top of its sign is stopped afresh too. With `trains.keep-chunks-loaded` on,
+  `atcs station` or block sign with nothing to move it is stopped afresh and sent on, or launched
+  onwards when its sign now has nothing for it; a hold left by the old plugin on a train that is
+  no longer seen on its sign is dropped; a train loaded again on top of its sign is stopped afresh
+  too. No check inside a hold can keep it from ending. A train on a service that stands still for
+  five minutes with no dispatcher holding it is logged with what holds it, and
+  `/atcs train info` shows how long a standing train has stood and what TrainCarts has queued for
+  it. Fleet trains keep their chunks loaded whatever `trains.keep-chunks-loaded` says, so a fleet
+  never counts a train frozen out of sight. With `trains.keep-chunks-loaded` on,
   the chunks of stored trains that are not loaded are held, so a train that stood still when
   the server stopped comes back after a restart with TrainCarts'
   `keepChunksLoadedOnlyWhenMoving` instead of waiting for a player. `/atcs service info` counts

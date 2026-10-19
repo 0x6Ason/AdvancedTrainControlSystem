@@ -133,7 +133,9 @@ trains:
   # around. Each train then holds only the chunks around itself, which is far cheaper than
   # force-loading the railway. ATCS also holds the chunks of trains on a service that are not
   # loaded, so a train that stood at a station when the server stopped comes back after a
-  # restart even with TrainCarts' keepChunksLoadedOnlyWhenMoving.
+  # restart even with TrainCarts' keepChunksLoadedOnlyWhenMoving. Fleet trains do all this even
+  # when it is off: a fleet counts every train of its service, so one frozen where nobody is
+  # would keep the fleet from ever sending a replacement.
   keep-chunks-loaded: false
 
 spawning:

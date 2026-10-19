@@ -159,6 +159,9 @@ final class TrainCommands {
             sender.sendMessage(Chat.field("Tags", String.join(", ", info.tags())));
         }
         sender.sendMessage(Chat.field("Riders", Integer.toString(train.riders().size())));
+        support.runtime.standingFor(train.name()).filter(standing -> standing.toSeconds() >= 2).ifPresent(standing ->
+                sender.sendMessage(Chat.field("Standing", String.format(Locale.ROOT, "%dm %02ds: %s",
+                        standing.toMinutes(), standing.toSecondsPart(), train.activity()))));
     }
 
     private static void list(Support support, CommandContext context) {

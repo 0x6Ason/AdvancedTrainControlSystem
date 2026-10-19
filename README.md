@@ -147,8 +147,10 @@ you named yourself are never renamed. The format is in `config.yml`.
 
 **Chunks and memory.** Set `trains.keep-chunks-loaded: true` and ATCS switches TrainCarts'
 keep-chunks-loaded on for every train, so trains keep running with nobody around while each
-holds only the chunks around itself. With `spawning.keep-spawn-chunks-loaded` (default on) ATCS
-also holds the chunk of every spawn sign and fleet spawn point. Together these replace
+holds only the chunks around itself. Fleet trains always do this, whatever the setting, so a
+fleet never counts a train that froze where nobody was. With
+`spawning.keep-spawn-chunks-loaded` (default on) ATCS also holds the chunk of every spawn sign
+and fleet spawn point. Together these replace
 force-loading the railway: `/forceload remove all` and the trains keep running.
 
 **A loop line.** Build the stations with ordinary TrainCarts `station` signs so trains stop

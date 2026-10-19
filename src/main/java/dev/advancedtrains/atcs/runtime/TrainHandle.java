@@ -53,4 +53,9 @@ public interface TrainHandle {
 
     /** Switches TrainCarts' keep-chunks-loaded on or off for the train. */
     void keepChunksLoaded(boolean keep);
+
+    /** What moves or keeps the train right now, in a few words, for people looking into a stuck train. */
+    default String activity() {
+        return "";
+    }
 }

@@ -1,5 +1,6 @@
 package dev.advancedtrains.atcs.traincarts;
 
+import com.bergerkiller.bukkit.tc.actions.Action;
 import com.bergerkiller.bukkit.tc.controller.MinecartGroup;
 import com.bergerkiller.bukkit.tc.controller.MinecartMember;
 import com.bergerkiller.bukkit.tc.properties.TrainProperties;
@@ -14,6 +15,7 @@ import org.bukkit.entity.Player;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 
@@ -133,6 +135,24 @@ final class TrainCartsTrain implements TrainHandle {
     @Override
     public void keepChunksLoaded(boolean keep) {
         group.getProperties().parseSet("keepchunksloaded", Boolean.toString(keep));
+    }
+
+    @Override
+    public String activity() {
+        Collection<Action> queued = group.getActions().getScheduledActions();
+        Action current = group.getActions().getCurrentAction();
+        if (current == null) {
+            return "nothing queued to move it";
+        }
+        String what;
+        if (current instanceof HoldAction hold) {
+            what = "ATCS holds it: " + hold.reason();
+        } else if (TrainCartsTrains.staleHold(current)) {
+            what = "a hold left by an earlier run of ATCS";
+        } else {
+            what = "TrainCarts " + current.getClass().getSimpleName() + " for " + current.elapsedTicks() / 20 + "s";
+        }
+        return queued.size() > 1 ? what + ", then " + (queued.size() - 1) + " more action(s)" : what;
     }
 
     private static void removeAtcsTags(TrainProperties properties) {

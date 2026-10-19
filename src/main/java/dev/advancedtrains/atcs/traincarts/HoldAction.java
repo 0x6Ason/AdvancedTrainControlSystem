@@ -16,9 +16,10 @@ import java.util.function.Supplier;
  * let go when there is none, or after the maximum hold time so a stale journey can never block a
  * platform for good.
  *
- * <p>The hold also ends the moment ATCS stops (the plugin is disabled or reloaded) and when the
- * reason check itself fails: the action lives in TrainCarts' queue, beyond ATCS' own lifetime, and
- * a hold that nobody can release any more would freeze the train where it stands.
+ * <p>The hold also ends the moment ATCS stops (the plugin is disabled or reloaded) and when any of
+ * its checks fails: the action lives in TrainCarts' queue, beyond ATCS' own lifetime, and a hold
+ * that nobody can release any more would freeze the train where it stands. A check that throws
+ * every tick would do the same, since TrainCarts would run the hold again the next tick.
  */
 final class HoldAction extends GroupAction implements WaitAction {
     private static final int CHECK_TICKS = 10;
@@ -50,22 +51,26 @@ final class HoldAction extends GroupAction implements WaitAction {
 
     @Override
     public boolean update() {
+        try {
+            return check();
+        } catch (RuntimeException | LinkageError error) {
+            try {
+                failure.accept(error);
+            } catch (RuntimeException | LinkageError ignored) {
+                // The plugin that made this hold may be half unloaded; letting go is what matters.
+            }
+            return true;
+        }
+    }
+
+    /** True when the train may go. */
+    private boolean check() {
         if (!alive.getAsBoolean()) {
             return true;
         }
         int ticks = elapsedTicks();
         if (ticks % CHECK_TICKS == 0) {
-            Optional<String> why;
-            try {
-                why = reason.get();
-            } catch (RuntimeException | LinkageError error) {
-                try {
-                    failure.accept(error);
-                } catch (RuntimeException | LinkageError ignored) {
-                    // The plugin that made this hold may be half unloaded; letting go is what matters.
-                }
-                return true;
-            }
+            Optional<String> why = reason.get();
             if (why.isEmpty()) {
                 return true;
             }
@@ -76,6 +81,11 @@ final class HoldAction extends GroupAction implements WaitAction {
             return true;
         }
         return false;
+    }
+
+    /** Why the train stands, as last checked. */
+    String reason() {
+        return current;
     }
 
     @Override

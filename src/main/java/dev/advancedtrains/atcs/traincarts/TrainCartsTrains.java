@@ -133,15 +133,19 @@ public final class TrainCartsTrains implements TrainSource, TrainSpawner {
      * Sends standing trains on their way again that have nothing to move them: the queue of
      * TrainCarts actions is empty, or its head is a hold left by an earlier run of ATCS (a plugin
      * reload keeps the old action in TrainCarts' queue). The {@code atcs} station or block sign the
-     * train stands on is given the train again, which stops it afresh and launches it.
+     * train stands on is given the train again, which stops it afresh and launches it; when the
+     * sign has nothing for it (ATCS now has it run through, or the sign is switched off), the train
+     * is launched onwards instead, for a train left standing with an empty queue never moves again.
+     * A stale hold on a train no longer seen on its sign is dropped, so the launch queued behind it
+     * runs.
      */
     @Override
-    public List<String> relaunchStranded(Predicate<TrainHandle> wanted, Predicate<String> standingLongEnough) {
+    public List<Relaunch> relaunchStranded(Predicate<TrainHandle> wanted, Predicate<String> standingLongEnough) {
         SignAction action = signAction;
         if (action == null) {
             return List.of();
         }
-        List<String> relaunched = new ArrayList<>();
+        List<Relaunch> relaunched = new ArrayList<>();
         for (MinecartGroup group : MinecartGroupStore.getGroups().cloneAsIterable()) {
             if (!usable(group) || group.isMoving() || !stranded(group)) {
                 continue;
@@ -149,20 +153,23 @@ public final class TrainCartsTrains implements TrainSource, TrainSpawner {
             // A hold of an ATCS that is gone never ends by itself; an empty queue may be a train
             // between two actions, so that one must have stood a while.
             boolean staleHold = group.getActions().hasAction();
-            // By the sign's text, not its action: a sign a train already stood on before a reload
-            // still carries the action of the ATCS that is gone.
-            List<SignTracker.ActiveSign> signs = new ArrayList<>();
-            for (SignTracker.ActiveSign sign : group.getSignTracker().getActiveTrackedSigns().cloneAsIterable()) {
-                SignActionEvent probe = sign.getSign().createEvent(SignActionType.NONE);
-                if (probe.isType("atcs") && AtcsSignAction.stopsTrains(AtcsSignAction.parse(probe))) {
-                    signs.add(sign);
-                }
-            }
-            if (signs.isEmpty()) {
+            List<SignTracker.ActiveSign> signs = stopSigns(group);
+            if (signs.isEmpty() && !staleHold) {
                 continue;
             }
             TrainCartsTrain train = new TrainCartsTrain(group);
             if (!wanted.test(train) || (!staleHold && !standingLongEnough.test(train.name()))) {
+                continue;
+            }
+            if (signs.isEmpty()) {
+                while (stranded(group) && group.getActions().hasAction()) {
+                    group.getActions().removeAction();
+                }
+                boolean queued = group.getActions().hasAction();
+                if (!queued) {
+                    sendOn(group);
+                }
+                relaunched.add(new Relaunch(train.name(), queued ? Relaunch.How.HOLD_DROPPED : Relaunch.How.SENT_ON));
                 continue;
             }
             group.getActions().clear();
@@ -174,9 +181,38 @@ public final class TrainCartsTrains implements TrainSource, TrainSpawner {
                 enter.setGroup(group);
                 SignAction.executeOne(action, enter);
             }
-            relaunched.add(train.name());
+            if (!usable(group)) {
+                continue;
+            }
+            boolean restopped = group.getActions().hasAction() || group.isMoving();
+            if (!restopped) {
+                sendOn(group);
+            }
+            relaunched.add(new Relaunch(train.name(), restopped ? Relaunch.How.STOPPED_AFRESH : Relaunch.How.SENT_ON));
         }
         return relaunched;
+    }
+
+    /**
+     * The {@code atcs} station and block-entry signs the train is on, by the sign's text rather than
+     * its action: a sign a train already stood on before a reload still carries the action of the
+     * ATCS that is gone.
+     */
+    private static List<SignTracker.ActiveSign> stopSigns(MinecartGroup group) {
+        List<SignTracker.ActiveSign> signs = new ArrayList<>();
+        for (SignTracker.ActiveSign sign : group.getSignTracker().getActiveTrackedSigns().cloneAsIterable()) {
+            SignActionEvent probe = sign.getSign().createEvent(SignActionType.NONE);
+            if (probe.isType("atcs") && AtcsSignAction.stopsTrains(AtcsSignAction.parse(probe))) {
+                signs.add(sign);
+            }
+        }
+        return signs;
+    }
+
+    /** Sets a standing train going again the way it faces, at its speed limit, as a spawn does. */
+    private static void sendOn(MinecartGroup group) {
+        group.getActions().clear();
+        group.setForwardForce(group.getProperties().getSpeedLimit());
     }
 
     /** No action moves the train, or the one at the head is a hold of an ATCS that is gone. */
@@ -185,7 +221,12 @@ public final class TrainCartsTrains implements TrainSource, TrainSpawner {
         if (current == null) {
             return true;
         }
-        return !(current instanceof HoldAction) && current.getClass().getName().equals(HoldAction.class.getName());
+        return staleHold(current);
+    }
+
+    /** A hold made by an earlier run of ATCS, whose classes were loaded by a loader that is gone. */
+    static boolean staleHold(Action action) {
+        return !(action instanceof HoldAction) && action.getClass().getName().equals(HoldAction.class.getName());
     }
 
     @Override
