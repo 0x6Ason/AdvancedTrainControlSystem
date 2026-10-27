@@ -13,6 +13,7 @@ import dev.advancedtrains.atcs.operation.RouteMeasure;
 import dev.advancedtrains.atcs.operation.RoutePlanner;
 import dev.advancedtrains.atcs.operation.TravelTimes;
 import org.bukkit.plugin.Plugin;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -29,6 +30,7 @@ public final class FareService implements FareApi {
     private final NetworkStore networks;
     private final Supplier<TravelTimes> times;
     private final RouteMeasure measure;
+    private @Nullable FareRides rides;
 
     public FareService(Plugin plugin, FareStore store, NetworkStore networks, Supplier<TravelTimes> times, RouteMeasure measure) {
         this.plugin = plugin;
@@ -40,6 +42,15 @@ public final class FareService implements FareApi {
 
     public FareStore store() {
         return store;
+    }
+
+    /** Automatic fares, or {@code null} when their ledger could not be read. */
+    public @Nullable FareRides rides() {
+        return rides;
+    }
+
+    public void setRides(@Nullable FareRides rides) {
+        this.rides = rides;
     }
 
     /** A calculator over the current table and network. */

@@ -9,6 +9,7 @@ import com.bergerkiller.bukkit.tc.events.GroupRemoveEvent;
 import com.bergerkiller.bukkit.tc.events.GroupUnloadEvent;
 import com.bergerkiller.bukkit.tc.events.MemberBlockChangeEvent;
 import com.bergerkiller.bukkit.tc.events.SignActionEvent;
+import com.bergerkiller.bukkit.tc.events.seat.MemberBeforeSeatEnterEvent;
 import com.bergerkiller.bukkit.tc.events.seat.MemberSeatEnterEvent;
 import com.bergerkiller.bukkit.tc.events.seat.MemberSeatExitEvent;
 import com.bergerkiller.bukkit.tc.signactions.SignActionType;
@@ -129,6 +130,17 @@ public final class TrainCartsListener implements Listener {
         String name = event.getGroup().getProperties().getTrainName();
         unloaded.add(name);
         runtime.trainUnloaded(name);
+    }
+
+    /** A player climbing onto a paid train they cannot pay for is kept off it. */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBeforeSeatEnter(MemberBeforeSeatEnterEvent event) {
+        if (event.isPlayer() && event.isPlayerInitiated() && !event.wasSeatChange() && event.getEntity() instanceof Player player) {
+            MinecartGroup group = event.getGroup();
+            if (group != null && !runtime.mayBoard(new TrainCartsTrain(group), player)) {
+                event.setCancelled(true);
+            }
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

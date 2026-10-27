@@ -210,6 +210,12 @@ Fares between stations: explicit pairs, zones, and a formula over the route.
 | `/atcs fare zonefare <zone> <zone> <fare\|none>` | `atcs.manage` | The fare between two zones (a zone with itself too) |
 | `/atcs fare formula <flat\|per-stop\|per-change\|round-to\|minimum> <value>` | `atcs.manage` | Set a part of the formula; distance bands are edited in fares.yml |
 | `/atcs fare currency <symbol>` | `atcs.manage` | The symbol shown with fares, for example $ |
+| `/atcs fare billing [on\|off]` | `atcs.manage` | Charge passengers on the rides they take, through Vault, without gates |
+| `/atcs fare free <line> <on\|off>` | `atcs.manage` | Make a line free to ride; it costs nothing as part of any journey |
+| `/atcs fare minimum <fare>` | `atcs.manage` | The least a paid journey costs, even one that ends where it began |
+| `/atcs fare transfer <seconds> [discount\|percent%\|none]` | `atcs.manage` | How long a change of trains may take, and what changing to another paid line takes off |
+| `/atcs fare receipts [player]` | `atcs.use` | Recent fares and the journey in progress; staff can name a player |
+| `/atcs fare resolve <receipt> <paid\|waive\|retry>` | `atcs.manage` | Settle a receipt by hand after checking the player's balance: paid, forgiven, or collect again |
 
 ## /atcs timing
 

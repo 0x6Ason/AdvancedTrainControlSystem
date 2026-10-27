@@ -1533,12 +1533,24 @@ public final class RailwayRuntime {
         display.remove(name);
     }
 
+    /** Whether the player may sit down on the train: automatic fares may refuse a paid ride. */
+    public boolean mayBoard(TrainHandle train, Player player) {
+        FareRides rides = fareRides;
+        return rides == null || rides.mayBoard(train, player);
+    }
+
     public void riderBoarded(TrainHandle train, Player player) {
         display.boarded(player, view(train.name()).orElse(null), store.network());
+        if (fareRides != null) {
+            fareRides.boarded(train, player);
+        }
     }
 
     public void riderLeft(Player player) {
         display.removePlayer(player);
+        if (fareRides != null) {
+            fareRides.left(player);
+        }
     }
 
     /** Whether head positions of this train are wanted for track-path recording. */
@@ -1741,6 +1753,13 @@ public final class RailwayRuntime {
         webDirty = true;
     }
 
+    private @Nullable FareRides fareRides;
+
+    /** Automatic fares, when the plugin set them up. */
+    public void setFareRides(@Nullable FareRides rides) {
+        fareRides = rides;
+    }
+
     /** Fares were edited: the website's network data is written again. */
     public void fareTableChanged() {
         webDirty = true;
@@ -1789,6 +1808,9 @@ public final class RailwayRuntime {
             times.record(event, network);
             trips.record(event);
             eventLog.journey(event);
+            if (fareRides != null) {
+                fareRides.journeyEvent(train.name(), event, network);
+            }
             if (event instanceof JourneyEvent.Arrived arrived) {
                 samples.arrived(train.name(), arrived.service(), arrived.stopIndex(), arrived.at());
             } else if (event instanceof JourneyEvent.ServiceChanged) {

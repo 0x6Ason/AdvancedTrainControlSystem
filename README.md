@@ -493,8 +493,9 @@ its arguments, and `/atcs help` lists what you may use.
 | `/atcs display roadmap\|logo\|board\|map\|status\|hologram\|face\|export\|list\|remove\|redraw` | atcs.manage | Pictures in the selected item frames and hologram boards |
 | `/atcs map` | atcs.use | A hand-held map of the railway |
 | `/atcs import scan\|stations\|services\|write\|apply\|reset` | atcs.manage | Set-up from the world |
-| `/atcs fare check\|info` | atcs.use | The fare between two stations and how it was worked out |
+| `/atcs fare check\|info\|receipts` | atcs.use | The fare between two stations and how it was worked out; your recent fares |
 | `/atcs fare generate\|apply\|set\|zone\|zonefare\|formula\|currency` | atcs.manage | Edit fares |
+| `/atcs fare billing\|free\|minimum\|transfer\|resolve` | atcs.manage | Automatic fares, charged on the ride (see [Automatic fares](#automatic-fares)) |
 | `/atcs timing report\|reset` | atcs.manage | How good the arrival estimates are, measured against real arrivals |
 | `/atcs editor` | atcs.manage | A one-time link to the web editor (`integrations.editor`) |
 | `/atcs lint` | atcs.manage | Check the network for what will not work or not show, with what to do about it |
@@ -540,8 +541,9 @@ All in `plugins/AdvancedTrainControlSystem/`:
 | `config.yml` | Behaviour: what passengers see, sounds, boards, displays, BlueMap, SignLink, website, importer |
 | `messages.yml` | Every passenger text and the board and hologram layouts, in [MiniMessage](https://docs.advntr.dev/minimessage/format.html) |
 | `network.yml` | Stations, lines, services, boards, displays and diagram adjustments. Edit in game or by hand, then `/atcs reload` |
-| `fares.yml` | Fares: pairs, zones and the formula. Edit in game or by hand, then `/atcs reload` |
+| `fares.yml` | Fares: pairs, zones, the formula and automatic fares. Edit in game or by hand, then `/atcs reload` |
 | `fare-matrix.yml` | The draft `/atcs fare generate` writes and `/atcs fare apply` loads |
+| `fare-ledger.json` | Journeys in progress and the receipts of automatic fares. Account data: back it up, never delete it |
 | `import-proposal.yml` | Written by `/atcs import write` for review |
 | `data/timings.yml`, `data/track-paths.yml`, `data/trips.yml`, `data/eta-samples.yml` | Learned travel times, recorded track, observed trips and scored estimates; safe to delete |
 | `data/map-layout.yml` | The website diagram's saved cells, so the layout stays put; safe to delete |
@@ -704,6 +706,54 @@ fares.quote("main", "golden-beach").ifPresent(quote -> charge(player, quote.fare
 
 Every quote through the API passes a `FareQuoteEvent`, in which another plugin may change the fare
 (a discount, a daily cap) and say why.
+
+### Automatic fares
+
+ATCS can charge passengers itself, on the ride, without gates or cards. It needs
+[Vault](https://www.spigotmc.org/resources/vault.34315/) and an economy plugin such as EssentialsX.
+
+```
+/atcs fare billing on
+/atcs fare free nerdy on
+/atcs fare minimum 2
+/atcs fare transfer 180 50%
+/atcs fare billing
+```
+
+A journey begins when a player sits down on a train running a service and follows the stops that
+train really reaches, so a detour or a missed stop is priced as ridden. Getting off starts the
+transfer window (180 seconds by default): boarding another train within it, at the same station
+or one a walking transfer away, continues the same journey. Once the window closes, the journey is
+priced with the layers above and the money is taken. The passenger is told the fare so far when
+they get off, and what they paid at the end.
+
+- **Free lines** cost nothing on any journey (`/atcs fare free <line> on`), and nobody is ever kept
+  off them, not even someone who owes a fare.
+- **Transfers**: getting back on the same line is one ride. Changing to another paid line takes the
+  transfer discount off that ride: a percentage (`50%`), a fixed amount (`0.5`) or `none`. A free
+  line in between does not lose it.
+- **Minimum**: the least a paid journey costs, even boarding and leaving at the same station.
+  Coming back to the station the journey began from starts a new journey, so a return trip is two.
+- **Paying**: a player who cannot afford the minimum is kept off paid trains, and so is one who
+  still owes a fare that could not be taken; it is collected when they next board with the money.
+- **Prices** are fixed when a journey begins; a change to `fares.yml` applies to journeys that begin
+  after it.
+
+Every journey gets a receipt number. `/atcs fare receipts` shows a player their recent fares and
+the journey in progress; staff add a player's name, and see every unpaid receipt from the console.
+If the economy did not say whether a payment went through (a crash at the wrong moment, an
+economy error), ATCS never tries it again by itself: the receipt is marked *to check*, the
+passenger is kept off paid trains, and the server log says so. Look at their balance, then
+`/atcs fare resolve <receipt> paid` if the money was taken, `retry` if it was not, or `waive` to
+forgive it.
+
+Automatic fares are off while `fares.yml` has an error, while there is no economy, and while
+`fare-ledger.json` cannot be read or written: nobody is refused then, and journeys in progress end
+without a charge. Keep `fare-ledger.json` with your backups; ATCS never replaces one it cannot read.
+
+If gates of another plugin (EssenCard, say) still charge as well, passengers pay twice: turn
+automatic fares on when the gates come out. `/atcs fare billing` and the server log warn while
+EssenCard is installed.
 <!-- --8<-- [end:fares] -->
 
 <!-- --8<-- [start:website] -->

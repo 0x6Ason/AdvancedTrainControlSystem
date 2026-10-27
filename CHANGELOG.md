@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- Automatic fares: passengers are charged through Vault for the journey they actually rode, when
+  it ends, without gates or cards (`/atcs fare billing on`). Free lines, a transfer window with a
+  discount for changing to another paid line, and a journey minimum, also for leaving at the
+  station you boarded. Passengers who cannot pay are kept off paid trains; receipts, and payments
+  the economy could not confirm, are settled with `/atcs fare receipts` and `/atcs fare resolve`.
+  Journeys and receipts are kept in `fare-ledger.json`. Vault is a soft dependency.
+
 ### Fixed
 
 - Circular-line arrival estimates no longer accumulate phantom laps of waiting time. Each train's

@@ -960,6 +960,53 @@
 
   // ---- Fares -----------------------------------------------------------------------------------
 
+  function fareLineIds() {
+    return keys(lines()).sort(function (a, b) { return lineView(a).name.localeCompare(lineView(b).name); });
+  }
+
+  function fareLineStations(lineId) {
+    var ids = [];
+    keys(services(lineId)).forEach(function (id) {
+      (services(lineId)[id].stops || []).forEach(function (text) {
+        var stop = parseStop(text);
+        if (!stop.pass && stations()[stop.station] && ids.indexOf(stop.station) < 0) ids.push(stop.station);
+      });
+    });
+    return ids;
+  }
+
+  function billingView(f, cur) {
+    var billing = f.billing || {};
+    var free = Array.isArray(billing['free-lines']) ? billing['free-lines'] : [];
+    var lineIds = fareLineIds();
+    // Keep unknown ids visible and removable; changing another line must not discard them.
+    free.forEach(function (id) { if (typeof id === 'string' && lineIds.indexOf(id) < 0) lineIds.push(id); });
+    return '<div class="group-head"><span>Automatic payment</span></div>'
+      + '<div class="notice warn" id="billing-warning"><div class="main"><b>Before enabling automatic payment</b>'
+      + 'Requires Vault and a Vault-compatible economy provider. Disable EssenCard and any gate-based fare collection first to avoid charging riders twice.</div></div>'
+      + '<div class="field"><label class="check"><input type="checkbox" data-doc="fares" data-path="' + path(['billing', 'enabled'])
+      + '" data-kind="boolean" aria-describedby="billing-warning"' + (billing.enabled === true ? ' checked' : '') + '> Enable automatic payment</label>'
+      + '<small class="hint">Charge riders for their train journeys without gates. Off by default; these settings do not enable payment until checked.</small></div>'
+      + '<div class="grid">'
+      + field('Minimum journey fare (' + cur + ')', textInput(['billing', 'minimum'], numberText(billing.minimum), { doc: 'fares', kind: 'number', inputmode: 'decimal', placeholder: '0' }),
+        { hint: 'At least this much, including journeys ending at the same station and fares set by a pair or zone. Free-only journeys are exempt.' })
+      + field('Transfer window, seconds', textInput(['billing', 'transfer-window-seconds'], numberText(billing['transfer-window-seconds']), { doc: 'fares', kind: 'number', inputmode: 'numeric', placeholder: '180' }),
+        { hint: 'Whole seconds, 0–3600. Default 180 (3 minutes). Set 0 to finalize immediately, without a transfer window.' })
+      + field('Transfer discount (' + cur + ')', textInput(['billing', 'transfer-discount'], numberText(billing['transfer-discount']), { doc: 'fares', kind: 'number', inputmode: 'decimal', placeholder: '0' }),
+        { hint: 'Fixed currency discount for a qualifying interchange; 0 or more.' })
+      + field('Transfer discount (%)', textInput(['billing', 'transfer-discount-percent'], numberText(billing['transfer-discount-percent']), { doc: 'fares', kind: 'number', inputmode: 'decimal', placeholder: '0' }),
+        { hint: 'Percentage discount for a qualifying interchange; 0–100.' }) + '</div>'
+      + '<p class="hint">After a rider leaves the train, the journey finalizes when the transfer window expires. Only a change of line at the same station or via a declared walking connection qualifies for a transfer discount. Reboarding the same line is not a discounted interchange.</p>'
+      + '<div class="group-head"><span>Free services</span></div>'
+      + '<p class="hint">Checked lines are free. A journey using only free lines pays nothing, including no minimum fare; paid parts of a mixed journey still use the fare rules.</p>'
+      + (lineIds.length ? '<table class="table"><thead><tr><th>Line</th><th>Free service</th></tr></thead><tbody>' + lineIds.map(function (id) {
+        var known = Object.prototype.hasOwnProperty.call(lines(), id), name = known ? lineView(id).name : id;
+        return '<tr><td class="name">' + esc(name) + '<div class="hint">' + esc(id) + (known ? '' : ' (not in the network)') + '</div></td>'
+          + '<td class="narrow"><label class="check"><input type="checkbox" data-act-change="fare-free-line" data-id="' + esc(id) + '"'
+          + (free.indexOf(id) >= 0 ? ' checked' : '') + ' aria-label="Free service: ' + esc(name) + '"> Free</label></td></tr>';
+      }).join('') + '</tbody></table>' : '<p class="empty-state">Add a line in Lines before choosing free services.</p>');
+  }
+
   function faresView() {
     var f = state.faresDoc;
     if (!f) return '<h2 class="title">Fares</h2><p class="empty-state"><b>Fares are not available</b>The plugin did not load fares.yml.</p>';
@@ -970,6 +1017,7 @@
       + '<div data-preview="errors:fares|">' + errorsBoxFor('fares|') + '</div>'
       + (state.fares.loadErrors && state.fares.loadErrors.length ? '<div class="notice bad"><div class="main"><b>fares.yml has errors on disk</b>' + esc(state.fares.loadErrors.join(' · ')) + '</div></div>' : '')
       + '<div class="grid three">' + field('Currency', textInput(['currency'], f.currency, { doc: 'fares', placeholder: '$' })) + '</div>'
+      + billingView(f, cur)
       + '<div class="group-head"><span>3. Formula</span></div><div class="grid three">'
       + [['flat', 'Every trip'], ['per-stop', 'Per stop'], ['per-change', 'Per change'], ['round-to', 'Round to'], ['minimum', 'At least']].map(function (k) {
         return field(k[1] + ' (' + cur + ')', '<input type="text" inputmode="decimal" data-doc="fares" data-path="' + path(['formula', k[0]]) + '" data-kind="number" value="' + esc(numberText(formula[k[0]])) + '" placeholder="0">');
@@ -982,8 +1030,22 @@
       }).join('') + '</tbody></table><button type="button" class="button small secondary" data-act="add-band">Add a band</button>'
       + '<small class="hint">The first band whose distance fits applies; leave the distance empty on the last one for any distance.</small></div>';
 
-    var zones = f.zones || {};
-    html += '<div class="group-head"><span>2. Zones</span></div><table class="table"><thead><tr><th>Station</th><th>Zone</th></tr></thead><tbody>'
+    var zones = f.zones || {}, zoneNames = [];
+    keys(zones).forEach(function (id) {
+      var name = String(zones[id] == null ? '' : zones[id]);
+      if (name && zoneNames.indexOf(name) < 0) zoneNames.push(name);
+    });
+    var lineIds = fareLineIds();
+    html += '<div class="group-head"><span>2. Zones</span></div>'
+      + '<div class="grid">'
+      + field('Assign stations on line', '<select id="fare-zone-line"><option value="">Choose a line</option>' + lineIds.map(function (id) {
+        return '<option value="' + esc(id) + '">' + esc(lineView(id).name) + ' (' + esc(id) + ')</option>';
+      }).join('') + '</select>')
+      + field('To zone', '<input type="text" id="fare-zone-target" list="fare-zone-names" placeholder="Existing or new zone" autocomplete="off" spellcheck="false" data-enter="assign-line-zone">'
+        + '<datalist id="fare-zone-names">' + zoneNames.sort().map(function (name) { return '<option value="' + esc(name) + '"></option>'; }).join('') + '</datalist>') + '</div>'
+      + '<div class="field"><button type="button" class="button small secondary" data-act="assign-line-zone"' + (lineIds.length ? '' : ' disabled') + '>Assign stations to zone</button>'
+      + '<small class="hint">Assigns every station served by any service on the selected line; passing stops are skipped. A station shared across lines has one zone, so its assignment changes for every line. Review before applying.</small></div>'
+      + '<table class="table"><thead><tr><th>Station</th><th>Zone</th></tr></thead><tbody>'
       + keys(stations()).sort(function (a, b) { return stationName(a).localeCompare(stationName(b)); }).map(function (id) {
         return '<tr><td class="name">' + esc(stationName(id)) + '</td><td class="narrow"><input type="text" class="input" data-doc="fares" data-path="' + path(['zones', id]) + '" data-kind="optional" value="' + esc(zones[id] == null ? '' : zones[id]) + '" placeholder="none"></td></tr>';
       }).join('') + '</tbody></table>';
@@ -1440,6 +1502,7 @@
       case 'list': { var items = String(raw).split(/[,\s]+/).map(function (s) { return s.trim(); }).filter(Boolean); return items.length ? items : undefined; }
       case 'color': { var c = String(raw).trim(); if (/^[0-9a-f]{6}$/i.test(c)) c = '#' + c; return /^#[0-9a-f]{6}$/i.test(c) ? c.toUpperCase() : c; }
       case 'bool': return raw ? true : undefined;
+      case 'boolean': return !!raw;
       default: return String(raw);
     }
   }
@@ -2148,6 +2211,25 @@
 
     'add-band': function () { edit(function () { var f = state.faresDoc; if (!f.formula) f.formula = {}; if (!f.formula['distance-bands']) f.formula['distance-bands'] = []; f.formula['distance-bands'].push({ fare: 0 }); }, { render: true, noMap: true }); },
     'remove-band': function (node) { var i = +data(node, 'index'); edit(function () { state.faresDoc.formula['distance-bands'].splice(i, 1); }, { render: true, noMap: true }); },
+    'assign-line-zone': function () {
+      var lineId = $('fare-zone-line').value, zone = ($('fare-zone-target').value || '').trim().toLowerCase();
+      if (!Object.prototype.hasOwnProperty.call(lines(), lineId) || !zone) { toast('Choose a line and enter the zone to assign', 'bad'); return; }
+      var ids = fareLineStations(lineId), zones = state.faresDoc.zones || {};
+      if (!ids.length) { toast('This line has no station calls to assign. Add stops to its services first.', 'bad'); return; }
+      var changedIds = ids.filter(function (id) { return zones[id] !== zone; });
+      if (!changedIds.length) { toast('Every station on this line is already in zone ' + zone + '.'); return; }
+      var replaced = changedIds.filter(function (id) { return zones[id] != null && zones[id] !== ''; });
+      modal({ title: 'Assign line stations to zone ' + zone + '?', narrow: true,
+        body: '<p>Set ' + plural(ids.length, 'station') + ' served by <b>' + esc(lineView(lineId).name) + '</b> to zone <b>' + esc(zone) + '</b>. '
+          + plural(changedIds.length, 'assignment') + ' will change' + (replaced.length ? ', replacing ' + plural(replaced.length, 'existing zone assignment') : '') + '.</p>'
+          + '<p>Shared stations have one zone across all lines. This changes their zone for other lines too. No pair fares or zone prices are changed.</p>',
+        buttons: [{ label: 'Cancel', kind: 'secondary' }, { label: 'Assign stations', kind: 'primary', action: function () {
+          edit(function () {
+            ids.forEach(function (id) { if (stations()[id]) setPath(state.faresDoc, ['zones', id], zone); });
+          }, { render: true, noMap: true });
+          toast('Assigned ' + plural(ids.length, 'station') + ' to zone ' + zone + '. Save to apply in game.', '', { label: 'Undo', run: function () { localUndo(false); } });
+        } }] });
+    },
     'add-zone-fare': function () {
       var a = ($('zone-a').value || '').trim().toLowerCase(), b = ($('zone-b').value || '').trim().toLowerCase(), fare = Number(($('zone-fare').value || '').replace(',', '.'));
       if (!a || !b || isNaN(fare)) { toast('Give both zones and a fare', 'bad'); return; }
@@ -2279,6 +2361,15 @@
       if (!heading) return;
       node.value = '';
       order({ action: 'switch', sign: sign, heading: heading, minutes: 10 }, 'Set ' + heading + ' at ' + sign + ' for 10 minutes');
+    },
+    'fare-free-line': function (node) {
+      var id = data(node, 'id');
+      edit(function () {
+        var current = getPath(state.faresDoc, ['billing', 'free-lines']);
+        var free = (Array.isArray(current) ? current : []).filter(function (lineId) { return lineId !== id; });
+        if (node.checked) free.push(id);
+        setPath(state.faresDoc, ['billing', 'free-lines'], free);
+      }, { noMap: true });
     },
     'pair-keep': function (node) {
       var k = data(node, 'key');

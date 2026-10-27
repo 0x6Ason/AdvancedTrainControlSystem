@@ -84,6 +84,20 @@ board:
     - "<dark_gray>departures</dark_gray>"
     - ""
 
+# Automatic fares (/atcs fare billing). <fare> is an amount with its currency, <from> and <to> are
+# station names, <seconds> is the transfer window and <receipt> the number staff settle it by.
+fare:
+  refused-balance: "<red>You need at least</red> <white><fare></white> <red>to ride this train.</red>"
+  refused-debt: "<red>You still owe</red> <white><fare></white> <red>for an earlier journey. Top up your balance to ride again.</red>"
+  refused-review: "<red>A payment of</red> <white><fare></white> <red>needs checking by staff before you can ride again (receipt <receipt>).</red>"
+  journey-pending: "<gray>Fare so far</gray> <white><fare></white><gray>. Board another train within <seconds>s to continue your journey.</gray>"
+  transfer: "<gray>Transfer: your journey from</gray> <white><from></white> <gray>continues.</gray>"
+  paid: "<gray>Charged</gray> <white><fare></white> <gray>for</gray> <white><from></white> <gray>to</gray> <white><to></white><gray>.</gray>"
+  # A journey that cost nothing, for example on a free line.
+  free: ""
+  declined: "<red>Could not charge</red> <white><fare></white> <red>for <from> to <to>; it is collected when you next board.</red>"
+  uncertain: "<red>The payment of</red> <white><fare></white> <red>for <from> to <to> could not be confirmed; staff will check it (receipt <receipt>).</red>"
+
 # Formats used for <eta>: under a minute and from one minute.
 time:
   seconds: "<seconds>s"

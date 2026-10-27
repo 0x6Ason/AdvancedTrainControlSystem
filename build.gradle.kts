@@ -31,6 +31,10 @@ repositories {
     maven("https://repo.extendedclip.com/releases/") {
         name = "ExtendedClip"
     }
+    maven("https://jitpack.io") {
+        name = "JitPack"
+        content { includeModule("com.github.MilkBowl", "VaultAPI") }
+    }
     maven("https://maven.enginehub.org/repo/") {
         name = "EngineHub"
     }
@@ -48,6 +52,7 @@ dependencies {
     compileOnly("com.bergerkiller.bukkit:SignLink:$signLinkVersion") { isTransitive = false }
     compileOnly("de.bluecolored:bluemap-api:2.7.3")
     compileOnly("me.clip:placeholderapi:2.11.6")
+    compileOnly("com.github.MilkBowl:VaultAPI:1.7") { isTransitive = false }
     compileOnly("com.sk89q.worldedit:worldedit-core:7.3.9") { isTransitive = false }
     compileOnly("com.sk89q.worldedit:worldedit-bukkit:7.3.9") { isTransitive = false }
 

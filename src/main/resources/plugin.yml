@@ -6,7 +6,7 @@ description: Passenger information, departure boards and network maps for TrainC
 authors: [jason]
 website: https://github.com/0x6Ason/AdvancedTrainControlSystem
 depend: [BKCommonLib, Train_Carts]
-softdepend: [BlueMap, SignLink, PlaceholderAPI, WorldEdit]
+softdepend: [BlueMap, SignLink, PlaceholderAPI, WorldEdit, Vault]
 
 commands:
   atcs:

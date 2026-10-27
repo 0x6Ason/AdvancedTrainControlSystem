@@ -1,25 +1,35 @@
 package dev.advancedtrains.atcs.command;
 
+import dev.advancedtrains.atcs.fare.BillingLedger;
 import dev.advancedtrains.atcs.fare.FareCalculator;
 import dev.advancedtrains.atcs.fare.FareMatrix;
 import dev.advancedtrains.atcs.fare.FareTable;
+import dev.advancedtrains.atcs.fare.RideBilling;
 import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.Station;
+import dev.advancedtrains.atcs.runtime.FareRides;
 import dev.advancedtrains.atcs.util.Files2;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.entity.Player;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.UnaryOperator;
 
@@ -30,6 +40,8 @@ import static dev.advancedtrains.atcs.command.Support.USE;
 
 /** {@code /atcs fare ...} */
 final class FareCommands {
+    private static final int RECEIPTS_SHOWN = 10;
+
     private FareCommands() {
     }
 
@@ -57,7 +69,248 @@ final class FareCommands {
                 leaf("currency", MANAGE, "<symbol>", "The symbol shown with fares, for example $", context -> {
                     String symbol = context.arg(0);
                     edit(support, context, table -> table.withCurrency(symbol), "Fares are now shown as " + symbol);
-                }));
+                }),
+                leaf("billing", MANAGE, "[on|off]", "Charge passengers on the rides they take, through Vault, without gates",
+                        context -> billing(support, context), (context, index) -> index == 0 ? List.of("on", "off") : List.of()),
+                leaf("free", MANAGE, "<line> <on|off>", "Make a line free to ride; it costs nothing as part of any journey",
+                        context -> free(support, context),
+                        (context, index) -> index == 0 ? support.lineIds() : index == 1 ? List.of("on", "off") : List.of()),
+                leaf("minimum", MANAGE, "<fare>", "The least a paid journey costs, even one that ends where it began", context -> {
+                    double value = fare(context.arg(0));
+                    editBilling(support, context, b -> new FareTable.Billing(b.enabled(), b.freeLines(), value,
+                            b.transferWindowSeconds(), b.transferDiscount(), b.transferDiscountPercent()),
+                            "A paid journey now costs at least " + support.fares.store().table().format(value));
+                }),
+                leaf("transfer", MANAGE, "<seconds> [discount|percent%|none]",
+                        "How long a change of trains may take, and what changing to another paid line takes off",
+                        context -> transfer(support, context),
+                        (context, index) -> index == 0 ? List.of("180") : index == 1 ? List.of("none", "50%") : List.of()),
+                leaf("receipts", USE, "[player]", "Recent fares and the journey in progress; staff can name a player",
+                        context -> receipts(support, context)),
+                leaf("resolve", MANAGE, "<receipt> <paid|waive|retry>",
+                        "Settle a receipt by hand after checking the player's balance: paid, forgiven, or collect again",
+                        context -> resolve(support, context), (context, index) -> index == 0
+                                ? outstandingReceipts(support) : index == 1 ? List.of("paid", "waive", "retry") : List.of()));
+    }
+
+    private static void billing(Support support, CommandContext context) throws CommandError {
+        if (context.size() > 0) {
+            boolean on = onOff(context.arg(0));
+            editBilling(support, context, b -> new FareTable.Billing(on, b.freeLines(), b.minimum(),
+                    b.transferWindowSeconds(), b.transferDiscount(), b.transferDiscountPercent()),
+                    on ? "Automatic fares are on: passengers are charged when their journey ends" : "Automatic fares are off");
+            if (on) {
+                FareRides.gatePlugins(context.sender().getServer()).forEach(plugin -> Chat.warn(context.sender(), plugin
+                        + " is installed: passengers who also pass its gates are charged twice. Remove the gates."));
+            }
+            return;
+        }
+        FareTable table = support.fares.store().table();
+        FareTable.Billing billing = table.billing();
+        FareRides rides = support.fares.rides();
+        CommandSender sender = context.sender();
+        sender.sendMessage(Chat.header("Automatic fares"));
+        sender.sendMessage(Chat.field("Billing", billing.enabled() ? "on" : "off"));
+        String economy = rides == null ? null : rides.payment().economyName();
+        String stopped = rides == null ? "the fare ledger could not be read; see the server log"
+                : !rides.billing().healthy() ? "the fare ledger could not be written; fix it and restart the server"
+                : !billing.enabled() ? null
+                : !support.fares.store().loadErrors().isEmpty() ? "fares.yml has errors; see /atcs fare info"
+                : economy == null ? "no economy: install Vault and an economy plugin such as EssentialsX" : null;
+        if (stopped != null) {
+            sender.sendMessage(Component.text("Not charging: " + stopped, NamedTextColor.RED));
+        }
+        sender.sendMessage(Chat.field("Economy", economy == null ? "none" : economy));
+        sender.sendMessage(Chat.field("Free lines", billing.freeLines().isEmpty() ? "none" : String.join(", ", billing.freeLines())));
+        sender.sendMessage(Chat.field("Minimum", table.format(Math.max(billing.minimum(), table.formula().minimum()))));
+        sender.sendMessage(Chat.field("Transfers", "within " + billing.transferWindowSeconds() + "s, " + discount(table)));
+        if (rides != null) {
+            List<BillingLedger.Ride> open = rides.billing().rides();
+            List<BillingLedger.Charge> outstanding = rides.billing().charges().stream().filter(BillingLedger.Charge::outstanding).toList();
+            long review = outstanding.stream().filter(charge -> charge.status() != BillingLedger.Status.DUE).count();
+            sender.sendMessage(Chat.field("Journeys", open.size() + " in progress, "
+                    + open.stream().filter(ride -> ride.train() != null).count() + " on a train"));
+            sender.sendMessage(Chat.field("Unpaid", outstanding.size() + " receipt(s)" + (review > 0 ? ", " + review + " to check" : "")));
+            if (review > 0) {
+                sender.sendMessage(Component.text()
+                        .append(Component.text("Payments could not be confirmed. ", NamedTextColor.GOLD))
+                        .append(Chat.run("Show them", "/atcs fare receipts")).build());
+            }
+        }
+        if (billing.enabled()) {
+            FareRides.gatePlugins(sender.getServer()).forEach(plugin -> Chat.warn(sender, plugin
+                    + " is installed: passengers who also pass its gates are charged twice. Remove the gates."));
+        }
+    }
+
+    private static String discount(FareTable table) {
+        FareTable.Billing billing = table.billing();
+        List<String> parts = new ArrayList<>();
+        if (billing.transferDiscountPercent() > 0) {
+            parts.add(BigDecimal.valueOf(billing.transferDiscountPercent()).stripTrailingZeros().toPlainString() + "%");
+        }
+        if (billing.transferDiscount() > 0) {
+            parts.add(table.format(billing.transferDiscount()));
+        }
+        return parts.isEmpty() ? "no discount" : String.join(" and ", parts) + " off the next paid line";
+    }
+
+    private static void free(Support support, CommandContext context) throws CommandError {
+        boolean on = onOff(context.arg(1));
+        String line = on ? support.line(context.arg(0)).id() : Support.id("line", context.arg(0));
+        editBilling(support, context, b -> {
+            Set<String> lines = new LinkedHashSet<>(b.freeLines());
+            if (on) {
+                lines.add(line);
+            } else {
+                lines.remove(line);
+            }
+            return new FareTable.Billing(b.enabled(), lines, b.minimum(), b.transferWindowSeconds(),
+                    b.transferDiscount(), b.transferDiscountPercent());
+        }, on ? "Line " + line + " is free to ride" : "Line " + line + " is charged like the others");
+    }
+
+    private static void transfer(Support support, CommandContext context) throws CommandError {
+        int seconds;
+        try {
+            seconds = Integer.parseInt(context.arg(0));
+        } catch (NumberFormatException exception) {
+            throw new CommandError("'" + context.arg(0) + "' is not a number of seconds");
+        }
+        if (seconds < 0 || seconds > 3600) {
+            throw new CommandError("The transfer window must be between 0 and 3600 seconds");
+        }
+        FareTable.Billing current = support.fares.store().table().billing();
+        double fixed = current.transferDiscount();
+        double percent = current.transferDiscountPercent();
+        if (context.size() > 1) {
+            String value = context.arg(1);
+            if (value.equalsIgnoreCase("none")) {
+                fixed = 0;
+                percent = 0;
+            } else if (value.endsWith("%")) {
+                percent = fare(value.substring(0, value.length() - 1));
+                fixed = 0;
+                if (percent > 100) {
+                    throw new CommandError("A discount cannot be more than 100%");
+                }
+            } else {
+                fixed = fare(value);
+                percent = 0;
+            }
+        }
+        double newFixed = fixed;
+        double newPercent = percent;
+        editBilling(support, context, b -> new FareTable.Billing(b.enabled(), b.freeLines(), b.minimum(), seconds, newFixed, newPercent),
+                "Changes of train within " + seconds + "s continue the journey");
+        Chat.info(context.sender(), "Changing to another paid line: " + discount(support.fares.store().table()));
+    }
+
+    private static void receipts(Support support, CommandContext context) throws CommandError {
+        RideBilling billing = rides(support).billing();
+        CommandSender sender = context.sender();
+        List<BillingLedger.Charge> shown;
+        if (context.size() > 0) {
+            if (!sender.hasPermission(MANAGE)) {
+                throw new CommandError("You can only see your own fares");
+            }
+            String name = context.arg(0);
+            shown = billing.charges().stream().filter(charge -> charge.name().equalsIgnoreCase(name)).toList();
+            sender.sendMessage(Chat.header("Fares of " + name));
+        } else if (sender instanceof Player player) {
+            shown = billing.charges().stream().filter(charge -> charge.player().equals(player.getUniqueId())).toList();
+            sender.sendMessage(Chat.header("Your fares"));
+            billing.ride(player.getUniqueId()).ifPresent(ride -> sender.sendMessage(Chat.field("Journey",
+                    support.network().stationName(ride.origin()) + " to " + support.network().stationName(ride.destination())
+                            + ", " + billing.tariff(ride).format(billing.fareSoFar(ride).fare()) + " so far")));
+        } else {
+            shown = billing.charges().stream().filter(BillingLedger.Charge::outstanding).toList();
+            sender.sendMessage(Chat.header("Unpaid receipts"));
+        }
+        if (shown.isEmpty()) {
+            sender.sendMessage(Component.text("No receipts", NamedTextColor.GRAY));
+            return;
+        }
+        DateTimeFormatter time = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault());
+        Network network = support.network();
+        for (BillingLedger.Charge charge : shown.subList(Math.max(0, shown.size() - RECEIPTS_SHOWN), shown.size())) {
+            NamedTextColor color = switch (charge.status()) {
+                case PAID, WAIVED -> NamedTextColor.GRAY;
+                case DUE -> NamedTextColor.GOLD;
+                case PROCESSING, UNCERTAIN -> NamedTextColor.RED;
+            };
+            sender.sendMessage(Component.text(charge.id() + "  " + time.format(Instant.ofEpochMilli(charge.at())) + "  "
+                    + (context.size() == 0 && sender instanceof Player ? "" : charge.name() + "  ")
+                    + network.stationName(charge.from()) + " to " + network.stationName(charge.to()) + "  "
+                    + FareTable.EMPTY.withCurrency(charge.currency()).format(charge.amount()) + "  "
+                    + status(charge.status()), color));
+        }
+        if (shown.size() > RECEIPTS_SHOWN) {
+            sender.sendMessage(Component.text("and " + (shown.size() - RECEIPTS_SHOWN) + " older", NamedTextColor.GRAY));
+        }
+    }
+
+    private static String status(BillingLedger.Status status) {
+        return switch (status) {
+            case DUE -> "unpaid";
+            case PROCESSING, UNCERTAIN -> "to check";
+            case PAID -> "paid";
+            case WAIVED -> "waived";
+        };
+    }
+
+    private static void resolve(Support support, CommandContext context) throws CommandError {
+        RideBilling billing = rides(support).billing();
+        String id = context.arg(0).toLowerCase(Locale.ROOT);
+        BillingLedger.Status status = switch (context.arg(1).toLowerCase(Locale.ROOT)) {
+            case "paid" -> BillingLedger.Status.PAID;
+            case "waive" -> BillingLedger.Status.WAIVED;
+            case "retry" -> BillingLedger.Status.DUE;
+            default -> throw new CommandError("Give paid (the money was taken), waive (forgive it) or retry (it was not taken)");
+        };
+        long now = System.currentTimeMillis();
+        BillingLedger.Charge charge;
+        try {
+            charge = billing.resolve(id, status, now);
+            if (status == BillingLedger.Status.DUE) {
+                billing.retry(charge.player(), now);
+                charge = billing.charge(id).orElse(charge);
+            }
+        } catch (IllegalArgumentException | IOException exception) {
+            throw new CommandError(exception.getMessage());
+        }
+        Chat.success(context.sender(), "Receipt " + id + " of " + charge.name() + " is " + status(charge.status()));
+    }
+
+    private static List<String> outstandingReceipts(Support support) {
+        FareRides rides = support.fares.rides();
+        return rides == null ? List.of() : rides.billing().charges().stream()
+                .filter(BillingLedger.Charge::outstanding).map(BillingLedger.Charge::id).toList();
+    }
+
+    private static FareRides rides(Support support) throws CommandError {
+        FareRides rides = support.fares.rides();
+        if (rides == null) {
+            throw new CommandError("The fare ledger could not be read, so automatic fares are off; see the server log");
+        }
+        return rides;
+    }
+
+    private static boolean onOff(String text) throws CommandError {
+        return switch (text.toLowerCase(Locale.ROOT)) {
+            case "on", "true", "yes" -> true;
+            case "off", "false", "no" -> false;
+            default -> throw new CommandError("Give on or off");
+        };
+    }
+
+    private static void editBilling(Support support, CommandContext context, UnaryOperator<FareTable.Billing> change,
+                                    String done) throws CommandError {
+        try {
+            edit(support, context, table -> table.withBilling(change.apply(table.billing())), done);
+        } catch (IllegalArgumentException exception) {
+            throw new CommandError(exception.getMessage());
+        }
     }
 
     private static List<String> zoneNames(Support support) {
@@ -100,6 +353,7 @@ final class FareCommands {
         sender.sendMessage(Chat.field("Zones", table.zones().isEmpty() ? "none" : table.zones().size() + " stations in "
                 + new TreeSet<>(table.zones().values()).size() + " zones, " + table.zoneFares().size() + " zone fares"));
         sender.sendMessage(Chat.field("Explicit pairs", table.pairs().size() + " (" + table.keptPairs() + " set by hand)"));
+        sender.sendMessage(Chat.field("Automatic fares", (table.billing().enabled() ? "on" : "off") + "; see /atcs fare billing"));
         Path draft = support.fares.store().file().resolveSibling(FareMatrix.DRAFT_FILE);
         sender.sendMessage(Chat.field("Draft", Files.exists(draft) ? draft.getFileName() + " exists; edit it and run /atcs fare apply" : "none; /atcs fare generate writes one"));
         if (!support.fares.store().loadErrors().isEmpty()) {

@@ -27,7 +27,12 @@ import java.util.Map;
 import dev.advancedtrains.atcs.network.Station;
 import dev.advancedtrains.atcs.operation.RailGraph;
 import dev.advancedtrains.atcs.selection.SelectionService;
+import dev.advancedtrains.atcs.fare.BillingLedger;
+import dev.advancedtrains.atcs.fare.FarePayment;
 import dev.advancedtrains.atcs.fare.FareStore;
+import dev.advancedtrains.atcs.fare.FareTable;
+import dev.advancedtrains.atcs.fare.VaultPayment;
+import dev.advancedtrains.atcs.runtime.FareRides;
 import dev.advancedtrains.atcs.runtime.FareService;
 import dev.advancedtrains.atcs.placeholder.AtcsPlaceholders;
 import dev.advancedtrains.atcs.traincarts.AtcsSignAction;
@@ -103,6 +108,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
             fareService = new FareService(this, fares, store, runtime::times, runtime.measure());
             getServer().getServicesManager().register(FareApi.class, fareService, this, ServicePriority.Normal);
             runtime.setFareSummary(fareService::summary);
+            startFareRides(trains);
             if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null) {
                 registerPlaceholders(trains);
             }
@@ -146,6 +152,9 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
     @Override
     public void onDisable() {
         stopEditor();
+        if (fareService != null && fareService.rides() != null) {
+            fareService.rides().stop();
+        }
         if (runtime != null) {
             // Held trains stay where they are until the next ATCS takes them over (or their hold's time
             // limit); blocks and dispatcher holds are written down for it.
@@ -157,6 +166,57 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         }
         if (importer != null) {
             importer.close();
+        }
+    }
+
+    /**
+     * Automatic fares, charged through Vault on the rides themselves. A ledger that cannot be read
+     * leaves them off rather than starting afresh and forgetting what passengers owe.
+     */
+    private void startFareRides(TrainCartsTrains trains) {
+        FarePayment payment = getServer().getPluginManager().getPlugin("Vault") != null ? vaultPayment() : FarePayment.NONE;
+        try {
+            FareRides rides = new FareRides(this, new BillingLedger(dataPath().resolve("fare-ledger.json")),
+                    this::billingTable, payment, trains, runtime::journey, store::network, runtime.measure(),
+                    () -> messages, Clock.systemUTC());
+            fareService.setRides(rides);
+            runtime.setFareRides(rides);
+            rides.start();
+            warnDoubleCharging();
+        } catch (IOException exception) {
+            getLogger().log(Level.SEVERE, "Automatic fares are off: " + exception.getMessage(), exception);
+        }
+    }
+
+    /** Only called when Vault is present, so its classes are never loaded otherwise. */
+    private FarePayment vaultPayment() {
+        try {
+            return new VaultPayment(getServer());
+        } catch (LinkageError error) {
+            getLogger().log(Level.WARNING, "This Vault version is not supported; automatic fares are off", error);
+            return FarePayment.NONE;
+        }
+    }
+
+    /** The fares new journeys begin with; billing stays off while fares.yml has errors. */
+    private FareTable billingTable() {
+        FareTable table = fares.table();
+        if (fares.loadErrors().isEmpty() || !table.billing().enabled()) {
+            return table;
+        }
+        FareTable.Billing billing = table.billing();
+        return table.withBilling(new FareTable.Billing(false, billing.freeLines(), billing.minimum(),
+                billing.transferWindowSeconds(), billing.transferDiscount(), billing.transferDiscountPercent()));
+    }
+
+    /** Ticket-gate plugins charge at the gate as well; with both, passengers would pay twice. */
+    private void warnDoubleCharging() {
+        if (!fares.table().billing().enabled()) {
+            return;
+        }
+        for (String plugin : FareRides.gatePlugins(getServer())) {
+            getLogger().warning("Automatic fares are on and " + plugin + " is installed: passengers who also"
+                    + " pass its gates are charged twice. Remove the gates, or set fares.yml billing.enabled to false.");
         }
     }
 
@@ -195,6 +255,10 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
         } catch (IOException exception) {
             problems.add("Could not read fares.yml: " + exception.getMessage());
         }
+        if (!fares.loadErrors().isEmpty() && fares.table().billing().enabled()) {
+            problems.add("Automatic fares are paused until fares.yml is fixed");
+        }
+        warnDoubleCharging();
         runtime.reconfigure(settings, messages, createMap(), createSignLink(), createWeb());
         runtime.setFareSummary(fareService::summary);
         importer.configure(settings.importer().settings(), settings.importer().chunksPerTick());

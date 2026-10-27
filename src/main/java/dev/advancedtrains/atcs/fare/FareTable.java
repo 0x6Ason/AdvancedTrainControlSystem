@@ -6,11 +6,13 @@ import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The fares of a railway, as configured in {@code fares.yml}: three layers, the highest that
@@ -29,10 +31,44 @@ import java.util.Optional;
  * @param pairs    station pair key ({@link #pairKey}) to fare
  */
 public record FareTable(String currency, Formula formula, Map<String, String> zones, Map<String, Double> zoneFares,
-                        Map<String, Pair> pairs) {
+                        Map<String, Pair> pairs, Billing billing) {
+
+    /** Automatic billing is opt-in; pricing rules also apply to fare previews when billing is disabled. */
+    public record Billing(boolean enabled, Set<String> freeLines, double minimum, int transferWindowSeconds,
+                          double transferDiscount, double transferDiscountPercent) {
+        public static final Billing DEFAULT = new Billing(false, Set.of(), 0, 180, 0, 0);
+
+        public Billing {
+            Set<String> normalized = new LinkedHashSet<>();
+            for (String line : freeLines) {
+                normalized.add(Ids.normalize("line", line));
+            }
+            freeLines = Collections.unmodifiableSet(normalized);
+            Checks.nonnegative("billing.minimum", minimum);
+            Checks.nonnegative("billing.transfer-discount", transferDiscount);
+            Checks.nonnegative("billing.transfer-discount-percent", transferDiscountPercent);
+            if (transferDiscountPercent > 100) {
+                throw new IllegalArgumentException("billing.transfer-discount-percent: must be between 0 and 100");
+            }
+            if (transferWindowSeconds < 0 || transferWindowSeconds > 3600) {
+                throw new IllegalArgumentException("billing.transfer-window-seconds: must be between 0 and 3600");
+            }
+        }
+
+        public boolean hasPricingRules() {
+            return !freeLines.isEmpty() || minimum > 0 || transferDiscount > 0 || transferDiscountPercent > 0;
+        }
+    }
 
     /** A distance band: the fare part for a track distance up to {@code upTo} blocks (0 or less: any distance). */
     public record Band(double upTo, double fare) {
+        public Band {
+            if (!Double.isFinite(upTo)) {
+                throw new IllegalArgumentException("distance band up-to: must be finite");
+            }
+            Checks.nonnegative("distance band fare", fare);
+        }
+
         public boolean unbounded() {
             return upTo <= 0;
         }
@@ -50,6 +86,11 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
         public static final Formula NONE = new Formula(0, 0, 0, List.of(), 0, 0);
 
         public Formula {
+            Checks.nonnegative("formula.flat", flat);
+            Checks.nonnegative("formula.per-stop", perStop);
+            Checks.nonnegative("formula.per-change", perChange);
+            Checks.nonnegative("formula.round-to", roundTo);
+            Checks.nonnegative("formula.minimum", minimum);
             bands = List.copyOf(bands);
         }
 
@@ -72,12 +113,18 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
             return bands.isEmpty() ? 0 : bands.get(bands.size() - 1).fare();
         }
 
+        /** Rounds without imposing a floor, so an observed journey can apply its minimum just once. */
+        public double round(double fare) {
+            Checks.nonnegative("calculated fare", fare);
+            double steps = roundTo > 0 ? fare / roundTo : 0;
+            // Beyond this range a double has no sub-step precision; Math.round would saturate a long.
+            double result = roundTo > 0 && steps < Long.MAX_VALUE ? Math.round(steps) * roundTo : fare;
+            Checks.nonnegative("rounded fare", result);
+            return result;
+        }
+
         public double finish(double fare) {
-            double result = fare;
-            if (roundTo > 0) {
-                result = Math.round(result / roundTo) * roundTo;
-            }
-            return Math.max(result, minimum);
+            return Math.max(round(fare), minimum);
         }
     }
 
@@ -85,16 +132,44 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
      * @param keep set by hand: {@code /atcs fare generate} never replaces it with the formula's value
      */
     public record Pair(double fare, boolean keep) {
+        public Pair {
+            Checks.nonnegative("pair fare", fare);
+        }
     }
 
     public static final FareTable EMPTY = new FareTable("$", Formula.NONE, Map.of(), Map.of(), Map.of());
 
+    /** Source-compatible constructor for tables written before automatic billing existed. */
+    public FareTable(String currency, Formula formula, Map<String, String> zones, Map<String, Double> zoneFares,
+                     Map<String, Pair> pairs) {
+        this(currency, formula, zones, zoneFares, pairs, Billing.DEFAULT);
+    }
+
     public FareTable {
         currency = Objects.requireNonNullElse(currency, "$").strip();
         Objects.requireNonNull(formula, "formula");
+        Objects.requireNonNull(billing, "billing");
         zones = Collections.unmodifiableMap(new LinkedHashMap<>(zones));
         zoneFares = Collections.unmodifiableMap(new LinkedHashMap<>(zoneFares));
         pairs = Collections.unmodifiableMap(new LinkedHashMap<>(pairs));
+        zoneFares.forEach((key, fare) -> Checks.nonnegative("zone-fares." + key, fare));
+        pairs.values().forEach(pair -> Objects.requireNonNull(pair, "pair"));
+    }
+
+    static void nonnegative(String field, double value) {
+        Checks.nonnegative(field, value);
+    }
+
+    /**
+     * Kept apart so the nested records can validate without initialising {@link FareTable}, whose
+     * {@link #EMPTY} needs {@link Formula#NONE} to exist first.
+     */
+    private static final class Checks {
+        static void nonnegative(String field, double value) {
+            if (!Double.isFinite(value) || value < 0) {
+                throw new IllegalArgumentException(field + ": must be finite and nonnegative");
+            }
+        }
     }
 
     /** The key under which a fare between two stations is kept, whatever order they are given in. */
@@ -130,7 +205,7 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
 
     /** Whether anything is configured that would make a journey cost something. */
     public boolean configured() {
-        return formula.charges() || !zoneFares.isEmpty() || !pairs.isEmpty();
+        return formula.charges() || !zoneFares.isEmpty() || !pairs.isEmpty() || billing.minimum() > 0;
     }
 
     public long keptPairs() {
@@ -138,11 +213,15 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
     }
 
     public FareTable withCurrency(String newCurrency) {
-        return new FareTable(newCurrency, formula, zones, zoneFares, pairs);
+        return new FareTable(newCurrency, formula, zones, zoneFares, pairs, billing);
     }
 
     public FareTable withFormula(Formula newFormula) {
-        return new FareTable(currency, newFormula, zones, zoneFares, pairs);
+        return new FareTable(currency, newFormula, zones, zoneFares, pairs, billing);
+    }
+
+    public FareTable withBilling(Billing newBilling) {
+        return new FareTable(currency, formula, zones, zoneFares, pairs, newBilling);
     }
 
     public FareTable withZone(String stationId, @Nullable String zone) {
@@ -152,7 +231,7 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
         } else {
             updated.put(stationId, zone.strip().toLowerCase(Locale.ROOT));
         }
-        return new FareTable(currency, formula, updated, zoneFares, pairs);
+        return new FareTable(currency, formula, updated, zoneFares, pairs, billing);
     }
 
     public FareTable withZoneFare(String zoneA, String zoneB, @Nullable Double fare) {
@@ -162,7 +241,7 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
         } else {
             updated.put(zoneKey(zoneA, zoneB), fare);
         }
-        return new FareTable(currency, formula, zones, updated, pairs);
+        return new FareTable(currency, formula, zones, updated, pairs, billing);
     }
 
     public FareTable withPair(String first, String second, @Nullable Pair pair) {
@@ -172,12 +251,12 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
         } else {
             updated.put(pairKey(first, second), pair);
         }
-        return new FareTable(currency, formula, zones, zoneFares, updated);
+        return new FareTable(currency, formula, zones, zoneFares, updated, billing);
     }
 
     /** Replaces every pair at once, keeping the ones marked as set by hand unless the new map has them too. */
     public FareTable withPairs(Map<String, Pair> newPairs) {
-        return new FareTable(currency, formula, zones, zoneFares, newPairs);
+        return new FareTable(currency, formula, zones, zoneFares, newPairs, billing);
     }
 
     /** Pairs of station ids in a key, for messages. */
