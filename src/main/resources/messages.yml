@@ -91,6 +91,8 @@ fare:
   refused-debt: "<red>You still owe</red> <white><fare></white> <red>for an earlier journey. Top up your balance to ride again.</red>"
   refused-review: "<red>A payment of</red> <white><fare></white> <red>needs checking by staff before you can ride again (receipt <receipt>).</red>"
   journey-pending: "<gray>Fare so far</gray> <white><fare></white><gray>. Board another train within <seconds>s to continue your journey.</gray>"
+  # Follows journey-pending: a button that ends the journey and charges it now instead of waiting.
+  end-trip: "<click:run_command:'/atcs fare endtrip'><hover:show_text:'<gray>Pay now; your next train starts a new journey</gray>'><aqua>[End trip]</aqua></hover></click>"
   transfer: "<gray>Transfer: your journey from</gray> <white><from></white> <gray>continues.</gray>"
   paid: "<gray>Charged</gray> <white><fare></white> <gray>for</gray> <white><from></white> <gray>to</gray> <white><to></white><gray>.</gray>"
   # A journey that cost nothing, for example on a free line.

@@ -215,6 +215,7 @@ Fares between stations: explicit pairs, zones, and a formula over the route.
 | `/atcs fare minimum <fare>` | `atcs.manage` | The least a paid journey costs, even one that ends where it began |
 | `/atcs fare transfer <seconds> [discount\|percent%\|none]` | `atcs.manage` | How long a change of trains may take, and what changing to another paid line takes off |
 | `/atcs fare receipts [player]` | `atcs.use` | Recent fares and the journey in progress; staff can name a player |
+| `/atcs fare endtrip [player]` | `atcs.use` | End your journey now and pay, instead of when the transfer window closes |
 | `/atcs fare resolve <receipt> <paid\|waive\|retry>` | `atcs.manage` | Settle a receipt by hand after checking the player's balance: paid, forgiven, or collect again |
 
 ## /atcs timing

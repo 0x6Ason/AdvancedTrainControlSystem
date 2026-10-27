@@ -11,6 +11,7 @@ import dev.advancedtrains.atcs.network.Service;
 import dev.advancedtrains.atcs.operation.JourneyEvent;
 import dev.advancedtrains.atcs.operation.JourneySnapshot;
 import dev.advancedtrains.atcs.operation.RouteMeasure;
+import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Server;
@@ -148,11 +149,18 @@ public final class FareRides {
             int window = billing.tariff(ride).billing().transferWindowSeconds();
             try {
                 FareCalculator.Quote quote = billing.fareSoFar(ride);
-                if (quote.fare() > 0 && window > 0) {
-                    send(player, "fare.journey-pending", Placeholder.unparsed("fare", billing.tariff(ride).format(quote.fare())),
+                Messages current = messages.get();
+                if (quote.fare() > 0 && window > 0 && current.has("fare.journey-pending")) {
+                    TagResolver[] resolvers = {Placeholder.unparsed("fare", billing.tariff(ride).format(quote.fare())),
                             Placeholder.unparsed("seconds", Integer.toString(window)),
                             Placeholder.unparsed("from", networks.get().stationName(ride.origin())),
-                            Placeholder.unparsed("to", networks.get().stationName(ride.destination())));
+                            Placeholder.unparsed("to", networks.get().stationName(ride.destination()))};
+                    Component text = current.render("fare.journey-pending", resolvers);
+                    // A separate message, so files written before it get the button too.
+                    if (current.has("fare.end-trip")) {
+                        text = text.appendSpace().append(current.render("fare.end-trip", resolvers));
+                    }
+                    player.sendMessage(text);
                 }
             } catch (RuntimeException exception) {
                 logger.log(Level.WARNING, "Automatic fares: could not price " + player.getName() + "'s journey so far", exception);

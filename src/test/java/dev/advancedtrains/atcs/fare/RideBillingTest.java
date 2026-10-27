@@ -115,6 +115,24 @@ class RideBillingTest {
     }
 
     @Test
+    void aRiderCanEndTheirJourneyBeforeTheWindowCloses() throws IOException {
+        wallet.balances.put(ALICE, 10.0);
+        RideBilling billing = billing(0);
+        ride(billing, "t1", east, 0, 0, 1, 2);
+        assertTrue(billing.end(ALICE, 5_000).isEmpty(), "not while still on the train");
+        billing.leave(ALICE, 10_000);
+        BillingLedger.Charge charge = billing.end(ALICE, 12_000).orElseThrow();
+        assertEquals(BillingLedger.Status.PAID, charge.status());
+        assertEquals(List.of(4.0), wallet.withdrawals, "charged at once");
+        assertEquals(List.of(charge), receipts);
+        assertTrue(billing.ride(ALICE).isEmpty());
+        assertEquals(RideBilling.Boarding.STARTED, billing.board(ALICE, "Alice", "t2", east, 2, "s3", 20_000),
+                "the next train begins a new journey");
+        billing.tick(10_000 + WINDOW, ride -> true);
+        assertEquals(1, wallet.withdrawals.size());
+    }
+
+    @Test
     void endingWhereYouBoardedStillCostsTheMinimum() throws IOException {
         wallet.balances.put(ALICE, 10.0);
         RideBilling billing = billing(0);

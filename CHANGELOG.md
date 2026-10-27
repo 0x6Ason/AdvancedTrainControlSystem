@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- Passengers can end a journey and pay at once instead of waiting for the transfer window to
+  close: an **[End trip]** button follows the fare shown when they get off (message
+  `fare.end-trip`), or `/atcs fare endtrip`. Staff can end a player's journey by name.
+
 ## 0.2.1 (2026-10-27)
 
 ### Added

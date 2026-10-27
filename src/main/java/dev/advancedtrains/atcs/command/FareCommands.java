@@ -87,6 +87,8 @@ final class FareCommands {
                         (context, index) -> index == 0 ? List.of("180") : index == 1 ? List.of("none", "50%") : List.of()),
                 leaf("receipts", USE, "[player]", "Recent fares and the journey in progress; staff can name a player",
                         context -> receipts(support, context)),
+                leaf("endtrip", USE, "[player]", "End your journey now and pay, instead of when the transfer window closes",
+                        context -> endTrip(support, context)),
                 leaf("resolve", MANAGE, "<receipt> <paid|waive|retry>",
                         "Settle a receipt by hand after checking the player's balance: paid, forgiven, or collect again",
                         context -> resolve(support, context), (context, index) -> index == 0
@@ -247,6 +249,45 @@ final class FareCommands {
         }
         if (shown.size() > RECEIPTS_SHOWN) {
             sender.sendMessage(Component.text("and " + (shown.size() - RECEIPTS_SHOWN) + " older", NamedTextColor.GRAY));
+        }
+    }
+
+    private static void endTrip(Support support, CommandContext context) throws CommandError {
+        RideBilling billing = rides(support).billing();
+        CommandSender sender = context.sender();
+        BillingLedger.Ride ride;
+        if (context.size() > 0) {
+            if (!sender.hasPermission(MANAGE)) {
+                throw new CommandError("You can only end your own journey");
+            }
+            String name = context.arg(0);
+            ride = billing.rides().stream().filter(open -> open.name().equalsIgnoreCase(name)).findFirst()
+                    .orElseThrow(() -> new CommandError(name + " has no journey in progress"));
+        } else if (sender instanceof Player player) {
+            ride = billing.ride(player.getUniqueId()).orElseThrow(() -> new CommandError("You have no journey in progress"));
+        } else {
+            throw new CommandError("Name the player whose journey to end");
+        }
+        boolean own = sender instanceof Player self && self.getUniqueId().equals(ride.player());
+        if (ride.train() != null) {
+            throw new CommandError(own ? "You are still on the train; end your journey once you get off"
+                    : ride.name() + " is still on a train");
+        }
+        BillingLedger.Charge charge;
+        try {
+            charge = billing.end(ride.player(), System.currentTimeMillis())
+                    .orElseThrow(() -> new CommandError("Automatic fares are off"));
+        } catch (IOException exception) {
+            throw new CommandError(exception.getMessage());
+        }
+        // The rider is told what they paid by the receipt message; free journeys have none by default.
+        if (!own) {
+            Network network = support.network();
+            Chat.success(sender, "Ended the journey of " + ride.name() + ": " + network.stationName(charge.from()) + " to "
+                    + network.stationName(charge.to()) + ", " + FareTable.EMPTY.withCurrency(charge.currency()).format(charge.amount())
+                    + " " + status(charge.status()));
+        } else if (charge.amount() == 0) {
+            Chat.success(sender, "Journey ended; it was free");
         }
     }
 

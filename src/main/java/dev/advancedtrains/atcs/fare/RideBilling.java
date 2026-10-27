@@ -30,8 +30,8 @@ import static dev.advancedtrains.atcs.fare.BillingLedger.Status;
 /**
  * Charges passengers for the rides they take, without gates: a journey starts when a player boards a
  * train running a service, follows the stops the train reaches, and is charged once the player has
- * been off trains for the transfer window. Boarding another train within the window, at the same
- * station or one connected by a transfer, continues the journey.
+ * been off trains for the transfer window, or at once when they end it themselves. Boarding another
+ * train within the window, at the same station or one connected by a transfer, continues the journey.
  *
  * <p>Billing is active only while the ledger is healthy, billing is enabled and an economy is
  * available. Otherwise nobody is refused or tracked, and journeys in progress end without a charge.
@@ -339,11 +339,26 @@ public final class RideBilling {
         }
     }
 
-    /** Charges a journey now. Its bill is on disk before the debit, so it can never be charged twice. */
-    void finish(UUID player, long now) throws IOException {
+    /**
+     * Ends a journey between trains now, as the rider asked, instead of when the window closes, and
+     * charges it. Empty when billing is inactive or the player has no journey or is still on its train.
+     */
+    public Optional<Charge> end(UUID player, long now) throws IOException {
+        Ride ride = state.rides().get(player);
+        if (!active() || ride == null || ride.train() != null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(finish(player, now));
+    }
+
+    /**
+     * Charges a journey now. Its bill is on disk before the debit, so it can never be charged twice.
+     * Returns the receipt as it stands after collecting, or {@code null} when there was no journey.
+     */
+    @Nullable Charge finish(UUID player, long now) throws IOException {
         Ride ride = state.rides().remove(player);
         if (ride == null) {
-            return;
+            return null;
         }
         FareTable tariff = tariff(ride);
         pruneTariffs();
@@ -352,16 +367,19 @@ public final class RideBilling {
         double amount = BigDecimal.valueOf(quoted).setScale(2, RoundingMode.HALF_UP).doubleValue();
         Charge charge = new Charge(ride.id(), player, ride.name(), ride.origin(), ride.destination(), tariff.currency(),
                 amount, amount > 0 ? Status.DUE : Status.PAID, now);
-        if (amount <= 0 || state.charges().containsKey(charge.id())) {
-            if (amount <= 0) {
-                receipts.accept(charge);
-            }
-            return;
+        if (amount <= 0) {
+            receipts.accept(charge);
+            return charge;
+        }
+        if (state.charges().containsKey(charge.id())) {
+            return state.charges().get(charge.id());
         }
         state.charges().put(charge.id(), charge);
         pruneReceipts();
         save(true);
-        receipts.accept(collect(charge.id(), now));
+        Charge result = collect(charge.id(), now);
+        receipts.accept(result);
+        return result;
     }
 
     /** Collects what a player owes when the economy says they can pay; receipts only for what was paid. */

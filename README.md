@@ -725,7 +725,9 @@ train really reaches, so a detour or a missed stop is priced as ridden. Getting 
 transfer window (180 seconds by default): boarding another train within it, at the same station
 or one a walking transfer away, continues the same journey. Once the window closes, the journey is
 priced with the layers above and the money is taken. The passenger is told the fare so far when
-they get off, and what they paid at the end.
+they get off, and what they paid at the end. Passengers who are not changing trains click
+**[End trip]** in that message (or run `/atcs fare endtrip`) to pay at once; their next train
+then starts a new journey.
 
 - **Free lines** cost nothing on any journey (`/atcs fare free <line> on`), and nobody is ever kept
   off them, not even someone who owes a fare.
