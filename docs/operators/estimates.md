@@ -27,7 +27,10 @@ ATCS learns, it is not told. Nothing in `network.yml` says how long a stretch ta
   for ever.
 - **One train per platform, in order.** All trains of a service are estimated together: a train
   cannot arrive before the one ahead has left, so the trains of a bunched line come out in the
-  right order with a sensible gap between them.
+  right order with a sensible gap between them. On a circular service, each train's next visit to
+  each platform is considered once, in the order the trains approach that platform. A train's
+  future lap never holds back another train that is already closer, and the last-to-first stretch
+  uses the same queue rules as every other stretch.
 - **Stretches no train has been timed on** get a guess from the length of the recorded track, or
   the straight-line distance, at the railway's usual speed (`timing.assumed-speed` until enough is
   learned). Such estimates are marked `~` on boards and shown grey on the website.

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Circular-line arrival estimates no longer accumulate phantom laps of waiting time. Each train's
+  next visit to a stop is projected once, and platform queues follow the order of approach to that
+  stop, including across the last-to-first boundary. Boards and onboard displays share the fix.
+- Trains on the same segment are ordered by recorded track progress (or elapsed travel time when
+  no position is available), rather than by the order in which the trains were tracked.
+
 ## 0.2.0 (2026-10-19)
 
 A complete redesign. ATCS is now a passenger-information and network plugin that works on any

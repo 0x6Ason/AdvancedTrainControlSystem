@@ -28,7 +28,7 @@ public final class ConsistentEstimates implements Estimator {
     static final int LOOKAHEAD = 12;
 
     private final EtaCalculator plain;
-    /** Projected seconds until arrival, per train and absolute stop index, after the ordering pass. */
+    /** Projected seconds until the next arrival, per train and service stop index, after the ordering pass. */
     private final Map<String, Map<Integer, Double>> projected = new HashMap<>();
 
     public ConsistentEstimates(EtaCalculator plain) {
@@ -55,56 +55,51 @@ public final class ConsistentEstimates implements Estimator {
     }
 
     private void project(Service service, List<JourneySnapshot> journeys, Instant now) {
-        // Each train's own projection: seconds to each of its next stops, and the dwell there.
-        record Train(JourneySnapshot journey, double position, List<Integer> stops, Map<Integer, Double> arrival) {
+        record Visit(JourneySnapshot journey, int stop, double distance, double arrival) {
         }
-        List<Train> trains = new ArrayList<>();
+        List<Visit> visits = new ArrayList<>();
         for (JourneySnapshot journey : journeys) {
-            Map<Integer, Double> arrival = new HashMap<>();
-            List<Integer> stops = new ArrayList<>();
-            int index = journey.phase() == JourneyPhase.AT_STOP || journey.phase() == JourneyPhase.PASSING
-                    ? journey.lastIndex() : service.nextIndex(journey.lastIndex());
-            if (journey.phase() == JourneyPhase.AT_STOP && journey.lastIndex() >= 0) {
-                arrival.put(journey.lastIndex(), 0.0);
-                stops.add(journey.lastIndex());
-                index = service.nextIndex(journey.lastIndex());
-            } else if (journey.phase() == JourneyPhase.PASSING) {
-                index = service.nextIndex(journey.lastIndex());
+            int last = journey.lastIndex();
+            if (last < 0 || last >= service.size()) {
+                continue;
             }
-            for (int step = 0; step < LOOKAHEAD && index >= 0; step++) {
+            boolean atCurrent = (journey.phase() == JourneyPhase.AT_STOP || journey.phase() == JourneyPhase.PASSING)
+                    && journey.platform() != null && service.stop(last).stationId().equals(journey.platform().stationId());
+            int index = atCurrent ? last : service.nextIndex(last);
+            // In-transit trains are strictly between stops, even when path progress rounds to 0 or 1.
+            double distance = atCurrent ? 0 : Math.max(0.000001,
+                    1 - Math.max(0.000001, plain.segmentProgress(journey, service, now)));
+            int count = Math.min(service.size(), LOOKAHEAD + (atCurrent ? 1 : 0));
+            for (int step = 0; step < count && index >= 0; step++) {
                 OptionalDouble seconds = plain.secondsUntil(journey, service, index, now);
                 if (seconds.isEmpty()) {
                     break;
                 }
-                arrival.put(index, seconds.getAsDouble());
-                stops.add(index);
+                visits.add(new Visit(journey, index, distance + step, seconds.getAsDouble()));
                 index = service.nextIndex(index);
             }
-            trains.add(new Train(journey, position(journey, service, now), stops, arrival));
         }
-        trains.sort(Comparator.comparingDouble(Train::position).reversed());
-        // From the front of the line backwards: each train keeps clear of the one in front.
-        for (int behind = 1; behind < trains.size(); behind++) {
-            Train ahead = trains.get(behind - 1);
-            Train train = trains.get(behind);
-            double shift = 0;
-            for (int stop : train.stops()) {
-                Double mine = train.arrival().get(stop);
-                Double theirs = ahead.arrival().get(stop);
-                if (mine == null) {
-                    continue;
-                }
-                mine += shift;
-                if (theirs != null && mine < theirs + aheadDwell(ahead.journey(), service, stop, now) + SEPARATION_SECONDS) {
-                    double pushed = theirs + aheadDwell(ahead.journey(), service, stop, now) + SEPARATION_SECONDS;
-                    shift += pushed - mine;
-                    mine = pushed;
-                }
-                train.arrival().put(stop, mine);
+        // Each stop is visited at most once per train. Distance forward from the train orders both
+        // its own visits and the trains approaching each platform, including across a loop's seam.
+        // Thus a future lap cannot delay a nearer visit, and delays only flow forwards, never round
+        // a cycle back into the same arrival. The time is just a tie-breaker, not the running order.
+        visits.sort(Comparator.comparingDouble(Visit::distance).thenComparingDouble(Visit::arrival)
+                .thenComparing(visit -> visit.journey().trainId()));
+        Map<String, Double> shifts = new HashMap<>();
+        Map<Integer, Double> clearAt = new HashMap<>();
+        for (Visit visit : visits) {
+            String train = visit.journey().trainId();
+            double shift = shifts.getOrDefault(train, 0.0);
+            double arrival = visit.arrival() + shift;
+            // An observed arrival is a fact, even if two trains currently occupy the same platform.
+            if (visit.distance() > 0) {
+                double pushed = Math.max(arrival, clearAt.getOrDefault(visit.stop(), 0.0));
+                shifts.put(train, shift + pushed - arrival);
+                arrival = pushed;
             }
-        }
-        for (Train train : trains) {
-            projected.put(train.journey().trainId(), train.arrival());
+            projected.computeIfAbsent(train, ignored -> new HashMap<>()).put(visit.stop(), arrival);
+            double clear = arrival + aheadDwell(visit.journey(), service, visit.stop(), now) + SEPARATION_SECONDS;
+            clearAt.merge(visit.stop(), clear, Math::max);
         }
     }
 
@@ -114,15 +109,6 @@ public final class ConsistentEstimates implements Estimator {
             return plain.remainingAtStop(ahead, service, stop, now);
         }
         return plain.dwell(service, stop);
-    }
-
-    /** Where the train is along the service, in stops, for ordering: index plus the share of the segment done. */
-    static double position(JourneySnapshot journey, Service service, Instant now) {
-        return switch (journey.phase()) {
-            case AT_STOP, PASSING -> journey.lastIndex();
-            case IN_TRANSIT -> journey.lastIndex() + 0.5;
-            default -> -1;
-        };
     }
 
     @Override

@@ -196,6 +196,19 @@ public final class EtaCalculator implements Estimator {
         return Optional.of(new Estimate(byClock, segment.get().approximate(), late));
     }
 
+    /** Running order within a segment: recorded position first, elapsed travel time as a fallback. */
+    double segmentProgress(JourneySnapshot journey, Service service, Instant now) {
+        OptionalDouble progress = context.segmentProgress(journey.trainId(), service, journey.lastIndex());
+        if (progress.isPresent()) {
+            return Math.max(0, Math.min(1, progress.getAsDouble()));
+        }
+        Optional<Estimate> usual = segment(service, journey.lastIndex());
+        if (journey.segmentStart() != null && usual.isPresent() && usual.get().seconds() > 0) {
+            return Math.max(0, Math.min(1, elapsed(journey.segmentStart(), now) / usual.get().seconds()));
+        }
+        return 0.5;
+    }
+
     /** Whether {@code gone} seconds on the segment is past the time trains are usually there by. */
     private boolean isLate(Service service, int fromIndex, double usual, double gone) {
         OptionalDouble spread = times.segmentSpread(service, fromIndex);
