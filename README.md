@@ -493,8 +493,8 @@ its arguments, and `/atcs help` lists what you may use.
 | `/atcs display roadmap\|logo\|board\|map\|status\|hologram\|face\|export\|list\|remove\|redraw` | atcs.manage | Pictures in the selected item frames and hologram boards |
 | `/atcs map` | atcs.use | A hand-held map of the railway |
 | `/atcs import scan\|stations\|services\|write\|apply\|reset` | atcs.manage | Set-up from the world |
-| `/atcs fare check\|info\|receipts` | atcs.use | The fare between two stations and how it was worked out; your recent fares |
-| `/atcs fare generate\|apply\|set\|zone\|zonefare\|formula\|currency` | atcs.manage | Edit fares |
+| `/atcs fare check\|info\|receipts\|receipt` | atcs.use | The fare between two stations and how it was worked out; your recent fares and what one was made of |
+| `/atcs fare generate\|apply\|set\|zone\|zonefare\|formula\|currency\|pricing\|calculation` | atcs.manage | Edit fares and how they are combined |
 | `/atcs fare billing\|free\|minimum\|transfer\|resolve` | atcs.manage | Automatic fares, charged on the ride (see [Automatic fares](#automatic-fares)) |
 | `/atcs timing report\|reset` | atcs.manage | How good the arrival estimates are, measured against real arrivals |
 | `/atcs editor` | atcs.manage | A one-time link to the web editor (`integrations.editor`) |
@@ -669,15 +669,38 @@ the lines at the other end: *Change here for Line A, Line 1 (walk to Main St.).*
 ## Fares
 
 ATCS knows the network, so it can say what a journey should cost: the route between two stations,
-its stops and changes, and the track distance from the recorded paths. Fares live in `fares.yml`
-in three layers; the highest that applies wins:
+its stops and changes, and the track distance from the recorded paths. Fares live in `fares.yml`,
+built from three kinds of price:
 
-1. **Pairs**: an explicit fare between two stations, in either direction (`main|golden-beach: 12`).
-2. **Zones**: each station in a zone (`zones: {main: 1, golden-beach: 2}`) and a fare per pair of
-   zones (`zone-fares: {1-2: 8, 1-1: 4}`).
-3. **Formula**: `flat` + `per-stop` for each stop travelled past + `per-change` for each change of
-   train + a `distance-bands` part over the track distance, rounded to `round-to` and never under
-   `minimum`.
+- **Pairs**: an explicit fare between two stations, in either direction (`main|golden-beach: 12`).
+- **Zones**: each station in a zone (`zones: {main: 1, golden-beach: 2}`) and a fare per pair of
+  zones (`zone-fares: {1-2: 8, 1-1: 4}`).
+- **Formula**: `flat` + `per-stop` for each stop travelled past + `per-change` for each change of
+  train + a `distance-bands` part over the track distance, rounded to `round-to` and never under
+  `minimum`.
+
+`/atcs fare pricing <rule>` decides how they make a fare:
+
+| Rule | Fare |
+|---|---|
+| `legacy` | The first that applies: the pair, else the zones, else the formula (the default for files from 0.2.2 and before) |
+| `cumulative` | Everything added up along the route actually ridden: the flat part once, every stop, every change between paid lines, the distance, and the zone and pair price of every hop |
+| `highest` | The highest of the formula, the zone prices along the route and the pair prices along it |
+| `lowest` | The lowest of those; one not set for the route does not count, a price of zero does |
+| `custom` | Your own calculation, set with `/atcs fare calculation <expression>` |
+
+A calculation names the parts of a fare, `base`, `stops`, `changes`, `distance`, `zones`, `pairs`
+and `formula` (the first four added up), and combines them with `+ - * /`, numbers, brackets,
+`sum(...)`, `min(...)` and `max(...)`. `base + max(stops, zones) + changes` charges the flat part,
+the dearer of stops or zones, and changes; `min(10, formula + zones)` caps a fare at 10. A part with
+no price for the route is left out of `min` and `max` instead of counting as free. The minimum and
+rounding of the formula still apply to the result. The web editor builds a calculation from rows
+and groups and previews a journey of one or more rides, laps of a circle line included, against the
+draft before it is saved.
+
+Outside `legacy`, a journey that comes back past where it began (A → B → C → A) stays one journey,
+and every hop of it is priced. The fare a passenger is told when they get off lists what it is made
+of; `/atcs fare receipt <receipt>` shows the whole calculation and route.
 
 ```
 /atcs fare formula flat 2
@@ -688,10 +711,11 @@ in three layers; the highest that applies wins:
 /atcs fare check main golden-beach
 ```
 
-`check` prints the fare and the reasoning: which layer answered, the route it assumed, the stops,
-changes and distance. That is how a wrong price is understood instead of guessed at.
+`check` prints the fare and the reasoning: which price answered or how they were combined, the
+route it assumed, the stops, changes and distance. That is how a wrong price is understood instead
+of guessed at.
 
-For a whole network, `/atcs fare generate` writes every pair of stations with its fare to
+With `legacy` pricing, for a whole network, `/atcs fare generate` writes every pair of stations with its fare to
 `fare-matrix.yml`; correct the ones that are wrong by hand and run `/atcs fare apply`. Every pair
 then becomes explicit, and the ones you changed are marked `keep: true` so a later `generate`
 never touches them, while the rest follow the formula and zones again.
@@ -734,8 +758,9 @@ then starts a new journey.
 - **Transfers**: getting back on the same line is one ride. Changing to another paid line takes the
   transfer discount off that ride: a percentage (`50%`), a fixed amount (`0.5`) or `none`. A free
   line in between does not lose it.
-- **Minimum**: the least a paid journey costs, even boarding and leaving at the same station.
-  Coming back to the station the journey began from starts a new journey, so a return trip is two.
+- **Minimum**: the least a paid journey costs, even boarding and leaving at the same station. With
+  `legacy` pricing, coming back to the station the journey began from starts a new journey, so a
+  return trip is two; with the other rules it is one journey priced over the whole route.
 - **Paying**: a player who cannot afford the minimum is kept off paid trains, and so is one who
   still owes a fare that could not be taken; it is collected when they next board with the money.
 - **Prices** are fixed when a journey begins; a change to `fares.yml` applies to journeys that begin

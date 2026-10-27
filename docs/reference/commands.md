@@ -202,7 +202,9 @@ Fares between stations: explicit pairs, zones, and a formula over the route.
 | Command | Permission | |
 |---|---|---|
 | `/atcs fare check <from> <to>` | `atcs.use` | The fare between two stations and how it was worked out |
-| `/atcs fare info` | `atcs.use` | Currency, formula, zones and explicit pairs |
+| `/atcs fare info` | `atcs.use` | Currency, pricing rule, formula, zones and station pairs |
+| `/atcs fare pricing <legacy\|cumulative\|highest\|lowest\|custom> [confirm]` | `atcs.manage` | Choose how fare components combine for new journeys |
+| `/atcs fare calculation <expression>` | `atcs.manage` | Set a custom fare rule, for example max(formula, zones) + pairs |
 | `/atcs fare generate` | `atcs.manage` | Write the fare of every pair of stations as a draft (fare-matrix.yml) to correct by hand |
 | `/atcs fare apply [confirm]` | `atcs.manage` | Load the corrected draft into fares.yml; your changes are kept from then on |
 | `/atcs fare set <from> <to> <fare\|auto>` | `atcs.manage` | Set the fare between two stations by hand, or let zones and formula decide again |
@@ -215,6 +217,7 @@ Fares between stations: explicit pairs, zones, and a formula over the route.
 | `/atcs fare minimum <fare>` | `atcs.manage` | The least a paid journey costs, even one that ends where it began |
 | `/atcs fare transfer <seconds> [discount\|percent%\|none]` | `atcs.manage` | How long a change of trains may take, and what changing to another paid line takes off |
 | `/atcs fare receipts [player]` | `atcs.use` | Recent fares and the journey in progress; staff can name a player |
+| `/atcs fare receipt <receipt> [page]` | `atcs.use` | The saved price breakdown and actual route; staff can inspect any receipt |
 | `/atcs fare endtrip [player]` | `atcs.use` | End your journey now and pay, instead of when the transfer window closes |
 | `/atcs fare resolve <receipt> <paid\|waive\|retry>` | `atcs.manage` | Settle a receipt by hand after checking the player's balance: paid, forgiven, or collect again |
 

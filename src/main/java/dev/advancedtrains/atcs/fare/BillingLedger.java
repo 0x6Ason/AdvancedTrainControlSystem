@@ -20,7 +20,7 @@ import java.util.UUID;
  * data, not a cache: a file that cannot be read stops automatic fares instead of being replaced.
  */
 public final class BillingLedger {
-    public static final int FORMAT_VERSION = 1;
+    public static final int FORMAT_VERSION = 2;
 
     /** DUE: not paid, safe to collect. PROCESSING: being collected. UNCERTAIN: needs checking by hand. */
     public enum Status { DUE, PROCESSING, PAID, UNCERTAIN, WAIVED }
@@ -49,9 +49,18 @@ public final class BillingLedger {
     }
 
     public record Charge(String id, UUID player, String name, String from, String to, String currency,
-                         double amount, Status status, long at) {
+                         double amount, Status status, long at, List<String> details) {
+        public Charge {
+            details = List.copyOf(details == null ? List.of() : details);
+        }
+
+        public Charge(String id, UUID player, String name, String from, String to, String currency,
+                      double amount, Status status, long at) {
+            this(id, player, name, from, to, currency, amount, status, at, List.of());
+        }
+
         public Charge withStatus(Status next, long now) {
-            return new Charge(id, player, name, from, to, currency, amount, next, now);
+            return new Charge(id, player, name, from, to, currency, amount, next, now, details);
         }
 
         public boolean outstanding() {
@@ -84,7 +93,7 @@ public final class BillingLedger {
         }
         try {
             State state = JSON.fromJson(Files.readString(file), State.class);
-            if (state == null || state.version() != FORMAT_VERSION) {
+            if (state == null || state.version() < 1 || state.version() > FORMAT_VERSION) {
                 throw new IllegalArgumentException("unknown ledger format");
             }
             state.rides().forEach((player, ride) -> {
@@ -99,7 +108,7 @@ public final class BillingLedger {
                     throw new IllegalArgumentException("invalid charge " + id);
                 }
             });
-            return state;
+            return new State(FORMAT_VERSION, state.tariffs(), state.rides(), state.charges());
         } catch (RuntimeException exception) {
             throw new IOException("Cannot read " + file.getFileName() + " (" + exception.getMessage()
                     + "); automatic fares are stopped and the file was left as it is", exception);

@@ -30,7 +30,16 @@ public final class RoutePlanner {
      * @param stops    calling stops travelled past, the one alighted at included
      * @param blocks   track distance when known, else 0 (see {@link Route#distanceKnown})
      */
-    public record Leg(@Nullable ServiceKey service, String from, String to, int stops, double seconds, double blocks) {
+    public record Leg(@Nullable ServiceKey service, String from, String to, int stops, double seconds, double blocks,
+                      List<String> path) {
+        public Leg(@Nullable ServiceKey service, String from, String to, int stops, double seconds, double blocks) {
+            this(service, from, to, stops, seconds, blocks, List.of(from, to));
+        }
+
+        public Leg {
+            path = List.copyOf(path);
+        }
+
         public boolean walk() {
             return service == null;
         }
@@ -122,11 +131,14 @@ public final class RoutePlanner {
                     double seconds = 0;
                     double blocks = 0;
                     boolean measured = true;
+                    List<String> path = new ArrayList<>();
+                    path.add(state.station());
                     for (int cursor = index; cursor != next; cursor = service.nextIndex(cursor)) {
                         seconds += times.segmentSeconds(service, cursor).orElse(defaultSegmentSeconds);
                         if (cursor != index) {
                             seconds += times.dwellSeconds(service, cursor).orElse(0);
                         }
+                        path.add(service.stop(service.nextIndex(cursor)).stationId());
                         OptionalDouble length = measure.segmentBlocks(service, cursor);
                         if (length.isPresent()) {
                             blocks += length.getAsDouble();
@@ -141,7 +153,7 @@ public final class RoutePlanner {
                     double total = cost + penalty + seconds;
                     if (total < best.getOrDefault(to, Double.MAX_VALUE)) {
                         best.put(to, total);
-                        steps.put(to, new Step(state, new Leg(service.key(), state.station(), to.station(), 1, seconds, measured ? blocks : -1)));
+                        steps.put(to, new Step(state, new Leg(service.key(), state.station(), to.station(), 1, seconds, measured ? blocks : -1, path)));
                         open.add(Map.entry(to, total));
                     }
                 }
@@ -191,10 +203,12 @@ public final class RoutePlanner {
             double hopBlocks = unmeasured ? 0 : hop.blocks();
             if (!legs.isEmpty() && !hop.walk() && hop.service() != null && hop.service().equals(legs.get(legs.size() - 1).service())) {
                 Leg last = legs.remove(legs.size() - 1);
+                List<String> path = new ArrayList<>(last.path());
+                path.addAll(hop.path().subList(1, hop.path().size()));
                 legs.add(new Leg(last.service(), last.from(), hop.to(), last.stops() + hop.stops(),
-                        last.seconds() + hop.seconds(), last.blocks() + hopBlocks));
+                        last.seconds() + hop.seconds(), last.blocks() + hopBlocks, path));
             } else {
-                legs.add(new Leg(hop.service(), hop.from(), hop.to(), hop.stops(), hop.seconds(), hopBlocks));
+                legs.add(new Leg(hop.service(), hop.from(), hop.to(), hop.stops(), hop.seconds(), hopBlocks, hop.path()));
             }
             stops += hop.stops();
             blocks += hopBlocks;

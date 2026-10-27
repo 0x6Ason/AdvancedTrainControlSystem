@@ -204,7 +204,8 @@ public final class RideBilling {
         if (ride.train() != null || now >= ride.expiresAt()) {
             return false;
         }
-        if (station.equals(ride.origin()) && ride.legs().stream().anyMatch(FareCalculator.RideLeg::moved)) {
+        if (tariff(ride).pricing() == FareTable.Pricing.LEGACY && station.equals(ride.origin())
+                && ride.legs().stream().anyMatch(FareCalculator.RideLeg::moved)) {
             return false;
         }
         return ride.destination().equals(station) || networks.get().transfer(ride.destination(), station).isPresent();
@@ -230,6 +231,7 @@ public final class RideBilling {
             int stops = 0;
             double blocks = 0;
             boolean reached = false;
+            List<String> visited = new ArrayList<>();
             int cursor = ride.lastIndex();
             for (int step = 0; step < service.size() && cursor >= 0 && cursor < service.size(); step++) {
                 double distance = measure.segmentBlocks(service, cursor).orElse(0);
@@ -240,6 +242,7 @@ public final class RideBilling {
                 if (cursor < 0) {
                     break;
                 }
+                visited.add(service.stop(cursor).stationId());
                 if (service.stop(cursor).stops()) {
                     stops++;
                 }
@@ -253,9 +256,15 @@ public final class RideBilling {
                 // never a distance that was not seen.
                 stops = station.equals(last.to()) || !service.stop(index).stops() ? 0 : 1;
                 blocks = 0;
+                visited.clear();
+                if (!station.equals(last.to())) {
+                    visited.add(station);
+                }
             }
+            List<String> path = new ArrayList<>(last.path());
+            path.addAll(visited);
             legs.add(new FareCalculator.RideLeg(last.line(), last.from(), station,
-                    Math.addExact(last.stops(), stops), last.blocks() + blocks));
+                    Math.addExact(last.stops(), stops), last.blocks() + blocks, path));
             state.rides().put(ride.player(), new Ride(ride.id(), ride.player(), ride.name(), ride.train(),
                     ride.service(), index, at, ride.startedAt(), 0, ride.tariff(), legs));
             dirty = true;
@@ -356,17 +365,19 @@ public final class RideBilling {
      * Returns the receipt as it stands after collecting, or {@code null} when there was no journey.
      */
     @Nullable Charge finish(UUID player, long now) throws IOException {
-        Ride ride = state.rides().remove(player);
+        Ride ride = state.rides().get(player);
         if (ride == null) {
             return null;
         }
         FareTable tariff = tariff(ride);
+        FareCalculator.Quote quote = calculator(tariff).quoteRide(ride.legs());
+        double amount = BigDecimal.valueOf(quote.fare()).setScale(2, RoundingMode.HALF_UP).doubleValue();
+        Charge charge = new Charge(ride.id(), player, ride.name(), ride.origin(), ride.destination(), tariff.currency(),
+                amount, amount > 0 ? Status.DUE : Status.PAID, now,
+                tariff.pricing() == FareTable.Pricing.LEGACY ? List.of() : quote.reasoning());
+        state.rides().remove(player);
         pruneTariffs();
         dirty = true;
-        double quoted = calculator(tariff).quoteRide(ride.legs()).fare();
-        double amount = BigDecimal.valueOf(quoted).setScale(2, RoundingMode.HALF_UP).doubleValue();
-        Charge charge = new Charge(ride.id(), player, ride.name(), ride.origin(), ride.destination(), tariff.currency(),
-                amount, amount > 0 ? Status.DUE : Status.PAID, now);
         if (amount <= 0) {
             receipts.accept(charge);
             return charge;

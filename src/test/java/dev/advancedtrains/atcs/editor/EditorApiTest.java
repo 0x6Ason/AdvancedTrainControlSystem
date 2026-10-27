@@ -195,6 +195,45 @@ class EditorApiTest {
     }
 
     @Test
+    void farePreviewsPriceTheDraftWithoutSavingIt() throws Exception {
+        Files.writeString(folder.resolve("fares.yml"), """
+                currency: $
+                pricing: cumulative
+                formula:
+                  flat: 3
+                  per-stop: 1.5
+                zones:
+                  main: '1'
+                  nerdy: '2'
+                zone-fares:
+                  1-2: 1.5
+                """, StandardCharsets.UTF_8);
+        dev.advancedtrains.atcs.fare.FareStore fares = new dev.advancedtrains.atcs.fare.FareStore(folder.resolve("fares.yml"));
+        assertTrue(fares.load().isEmpty());
+        EditorApi withFares = new EditorApi(store, fares, network -> List.of(), () -> "{}", (stations, arrangement) -> { }, null);
+        JsonObject body = new JsonObject();
+        body.add("document", withFares.fares().getAsJsonObject("document"));
+        body.add("network", withFares.network().getAsJsonObject("document"));
+        body.add("rides", Documents.parseObject("{\"r\": [{\"service\": \"a/north\", \"fromIndex\": 0, \"toIndex\": 1, \"laps\": 0}]}")
+                .getAsJsonArray("r"));
+        JsonObject preview = withFares.previewFares(body);
+        assertEquals(6, preview.get("fare").getAsDouble(), "base 3 + a stop 1.5 + crossing into zone 2 1.5: " + preview);
+        assertEquals("$6", preview.get("formatted").getAsString());
+        assertFalse(preview.get("distanceKnown").getAsBoolean(), "nothing learned about the track");
+
+        body.getAsJsonObject("document").addProperty("pricing", "legacy");
+        assertEquals(1.5, withFares.previewFares(body).get("fare").getAsDouble(), "the draft, not the saved file, is priced");
+        assertEquals(dev.advancedtrains.atcs.fare.FareTable.Pricing.CUMULATIVE, fares.table().pricing(), "nothing is saved");
+
+        body.getAsJsonArray("rides").get(0).getAsJsonObject().addProperty("toIndex", 5);
+        EditorApi.ApiException outside = assertThrows(EditorApi.ApiException.class, () -> withFares.previewFares(body));
+        assertEquals(400, outside.status());
+        body.getAsJsonArray("rides").get(0).getAsJsonObject().addProperty("toIndex", 1);
+        body.getAsJsonObject("document").addProperty("calculation", "base / stops");
+        assertEquals(400, assertThrows(EditorApi.ApiException.class, () -> withFares.previewFares(body)).status());
+    }
+
+    @Test
     void theDispatcherIsAskedAndTold() throws Exception {
         assertThrows(EditorApi.ApiException.class, () -> api.dispatchState(), "no dispatcher yet");
         List<String> orders = new java.util.ArrayList<>();

@@ -12,6 +12,7 @@ import dev.advancedtrains.atcs.operation.JourneyEvent;
 import dev.advancedtrains.atcs.operation.JourneySnapshot;
 import dev.advancedtrains.atcs.operation.RouteMeasure;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Server;
@@ -210,6 +211,14 @@ public final class FareRides {
                 Placeholder.unparsed("from", network.stationName(charge.from())),
                 Placeholder.unparsed("to", network.stationName(charge.to())),
                 Placeholder.unparsed("receipt", charge.id()));
+        // Free journeys are not kept, so there is no receipt to itemize.
+        if (charge.amount() > 0 && !charge.details().isEmpty()) {
+            charge.details().stream().limit(10).forEach(detail ->
+                    send(player, "fare.detail", Placeholder.unparsed("detail", detail)));
+            send(player, "fare.details", Placeholder.unparsed("receipt", charge.id()),
+                    Placeholder.component("link", Component.text("[Receipt " + charge.id() + "]")
+                            .clickEvent(ClickEvent.runCommand("/atcs fare receipt " + charge.id()))));
+        }
     }
 
     private Optional<Service> service(String train) {

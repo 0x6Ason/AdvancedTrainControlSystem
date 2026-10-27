@@ -317,6 +317,32 @@
 .table td.narrow { width: 110px; }
 .table td.tiny { width: 40px; text-align: right; }
 
+/* Fare combinations and journey trials use the same compact, ruled forms as service editing. */
+.fare-group, .fare-ride { min-width: 0; margin: 12px 0; padding: 10px; border: 2px solid var(--rule); }
+.fare-group legend, .fare-ride legend { padding: 0 5px; font-size: 13px; font-weight: 700; }
+.fare-builder-row { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
+.fare-builder-row > .field { flex: 1; min-width: 0; margin: 0; }
+.fare-builder-row > .x { margin-bottom: 5px; }
+.fare-components { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 6px 8px; }
+.fare-component { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.fare-component > select { flex: 1; min-width: 0; padding: 7px 28px 7px 8px; font-size: 13px; }
+.fare-components > .fare-group { grid-column: 1 / -1; margin: 4px 0; padding: 6px 0 6px 8px; border-width: 0 0 0 2px; border-color: var(--rule-soft); }
+.fare-group .x:disabled { opacity: .4; cursor: default; background: var(--paper); color: var(--text); border-color: var(--rule); }
+.fare-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.fare-actions .button { white-space: normal; }
+.fare-advanced { margin: 12px 0; }
+.fare-advanced > summary { font-size: 14px; font-weight: 700; cursor: pointer; margin-bottom: 10px; }
+.fare-advanced textarea { display: block; resize: vertical; min-height: 84px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fare-custom .hint code { overflow-wrap: anywhere; }
+.fare-ride-stops { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 0 10px; }
+.fare-ride > .field { display: block; margin-bottom: 0; }
+.fare-ride input[type="number"] { display: block; max-width: 100px; }
+.fare-ride input:disabled { opacity: .5; }
+.fare-preview-result { margin: 12px 0; padding: 10px 0; border-top: 2px solid var(--rule); }
+.fare-preview-result ol { margin: 8px 0 0; padding-left: 22px; font-size: 13px; }
+#fare-preview-result { overflow-wrap: anywhere; }
+.fare-group button:focus-visible, .fare-actions button:focus-visible, .fare-ride button:focus-visible, .fare-advanced > summary:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+
 /* ---- Findings -------------------------------------------------------------------------------- */
 
 .findings { list-style: none; margin: 0 0 6px; padding: 0; }

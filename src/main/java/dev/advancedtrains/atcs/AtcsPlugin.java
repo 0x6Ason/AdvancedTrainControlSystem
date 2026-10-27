@@ -324,6 +324,7 @@ public final class AtcsPlugin extends JavaPlugin implements Support.PluginContro
                         (a, b) -> fareService.calculator().planner().route(a, b).isPresent())),
                 () -> runtime.liveJson(Clock.systemUTC().instant()),
                 runtime::saveLayout, configs, this::editorContext, this::carryLearnedData);
+        api.setMeasure((service, index) -> runtime.measure().segmentBlocks(service, index));
         api.setDispatcher(new EditorApi.Dispatcher() {
             @Override
             public com.google.gson.JsonObject state() {

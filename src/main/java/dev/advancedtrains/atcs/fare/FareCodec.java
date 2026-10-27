@@ -16,7 +16,7 @@ import java.util.Set;
 
 /** Reads and writes {@code fares.yml}, a file meant to be edited by hand. */
 public final class FareCodec {
-    public static final int FORMAT_VERSION = 1;
+    public static final int FORMAT_VERSION = 2;
 
     public record ReadResult(FareTable table, List<String> errors) {
         public ReadResult {
@@ -42,6 +42,19 @@ public final class FareCodec {
         List<String> errors = new ArrayList<>();
         if (root.isSet("format")) {
             integer(root, "format", FORMAT_VERSION, 1, FORMAT_VERSION, errors);
+        }
+        FareTable.Pricing pricing = FareTable.Pricing.LEGACY;
+        try {
+            pricing = FareTable.Pricing.valueOf(text(root.get("pricing"), "pricing", "legacy", errors).toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            errors.add("pricing: expected legacy, cumulative, highest, lowest or custom");
+        }
+        String calculation = text(root.get("calculation"), "calculation", FareExpression.ADDITIVE, errors);
+        try {
+            FareExpression.compile(calculation);
+        } catch (IllegalArgumentException exception) {
+            errors.add(exception.getMessage());
+            calculation = FareExpression.ADDITIVE;
         }
         String currency = text(root.get("currency"), "currency", "$", errors);
         FareTable.Formula formula = formula(section(root, "formula", errors), errors);
@@ -112,7 +125,7 @@ public final class FareCodec {
             billing = new FareTable.Billing(false, billing.freeLines(), billing.minimum(), billing.transferWindowSeconds(),
                     billing.transferDiscount(), billing.transferDiscountPercent());
         }
-        return new ReadResult(new FareTable(currency, formula, zones, zoneFares, pairs, billing), errors);
+        return new ReadResult(new FareTable(currency, formula, zones, zoneFares, pairs, billing, pricing, calculation), errors);
     }
 
     private static FareTable.Billing billing(@Nullable ConfigurationSection section, List<String> errors) {
@@ -265,20 +278,29 @@ public final class FareCodec {
     public String write(FareTable table) {
         YamlConfiguration root = new YamlConfiguration();
         root.options().setHeader(List.of(
-                "Fares between stations. The highest layer that applies wins:",
-                "  1. pairs: an explicit fare between two stations, in either direction",
-                "  2. zone-fares: a fare between two zones, with each station in a zone under zones:",
-                "  3. formula: flat + per-stop + per-change + a distance band over the track distance",
+                "Fare rules. pricing: legacy | cumulative | highest | lowest | custom.",
+                "  legacy: pair overrides zone overrides formula (existing files keep this mode).",
+                "  Other modes use the whole observed path, including loops and repeated crossings.",
+                "  cumulative: base once + stops + changes + distance + zones + pairs.",
+                "  highest/lowest: max/min(formula, zones, pairs), ignoring unavailable alternatives.",
+                "  custom: calculation combines money components with + - * /, sum(...), min(...), max(...).",
+                "  Divide only by positive constants. A configured zero is an applicable price.",
+                "  formula = base + stops + changes + distance. Zone/pair amounts add per station hop.",
+                "  Free lines are excluded. Transfer discounts apply to the next paid line's contribution;",
+                "  rounding and the higher of formula.minimum and billing.minimum apply to the total.",
+                "  Do not reuse a generated total-fare matrix as per-hop supplements.",
                 "billing: automatic fares, charged through Vault when a journey ends (/atcs fare billing).",
                 "  Rides on free-lines cost nothing. Changing to another paid line within",
                 "  transfer-window-seconds takes transfer-discount-percent, then transfer-discount, off",
                 "  that ride. minimum is the least a paid journey costs, even one ending where it began.",
-                "/atcs fare check <from> <to> shows the fare and which layer gave it.",
-                "/atcs fare generate writes every pair as a draft (fare-matrix.yml) to correct by hand;",
+                "/atcs fare check <from> <to> shows the fare and how it was worked out.",
+                "With legacy pricing, /atcs fare generate writes every pair as a draft (fare-matrix.yml) to correct by hand;",
                 "/atcs fare apply loads the draft. Pairs with keep: true were set by hand and are never",
                 "replaced by a later generate. Apply changes with /atcs reload."));
         root.set("format", FORMAT_VERSION);
         root.set("currency", table.currency());
+        root.set("pricing", table.pricing().name().toLowerCase(Locale.ROOT));
+        root.set("calculation", table.calculation());
         FareTable.Billing billing = table.billing();
         root.set("billing.enabled", billing.enabled());
         root.set("billing.free-lines", new ArrayList<>(billing.freeLines()));

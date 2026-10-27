@@ -31,7 +31,15 @@ import java.util.Set;
  * @param pairs    station pair key ({@link #pairKey}) to fare
  */
 public record FareTable(String currency, Formula formula, Map<String, String> zones, Map<String, Double> zoneFares,
-                        Map<String, Pair> pairs, Billing billing) {
+                        Map<String, Pair> pairs, Billing billing, Pricing pricing, String calculation) {
+
+    /** Legacy tables contain total fares; cumulative tables contain station-hop supplements. */
+    public enum Pricing { LEGACY, CUMULATIVE, HIGHEST, LOWEST, CUSTOM }
+
+    public FareTable(String currency, Formula formula, Map<String, String> zones, Map<String, Double> zoneFares,
+                     Map<String, Pair> pairs, Billing billing) {
+        this(currency, formula, zones, zoneFares, pairs, billing, Pricing.LEGACY, FareExpression.ADDITIVE);
+    }
 
     /** Automatic billing is opt-in; pricing rules also apply to fare previews when billing is disabled. */
     public record Billing(boolean enabled, Set<String> freeLines, double minimum, int transferWindowSeconds,
@@ -149,6 +157,10 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
         currency = Objects.requireNonNullElse(currency, "$").strip();
         Objects.requireNonNull(formula, "formula");
         Objects.requireNonNull(billing, "billing");
+        // Tariffs saved in older ledgers must retain their original pricing rules.
+        pricing = Objects.requireNonNullElse(pricing, Pricing.LEGACY);
+        calculation = Objects.requireNonNullElse(calculation, FareExpression.ADDITIVE);
+        FareExpression.compile(calculation);
         zones = Collections.unmodifiableMap(new LinkedHashMap<>(zones));
         zoneFares = Collections.unmodifiableMap(new LinkedHashMap<>(zoneFares));
         pairs = Collections.unmodifiableMap(new LinkedHashMap<>(pairs));
@@ -212,16 +224,33 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
         return pairs.values().stream().filter(Pair::keep).count();
     }
 
+    public FareTable withPricing(Pricing newPricing) {
+        return new FareTable(currency, formula, zones, zoneFares, pairs, billing, newPricing, calculation);
+    }
+
+    public FareTable withCalculation(String expression) {
+        return new FareTable(currency, formula, zones, zoneFares, pairs, billing, Pricing.CUSTOM, expression);
+    }
+
+    public String expression() {
+        return switch (pricing) {
+            case HIGHEST -> "max(formula, zones, pairs)";
+            case LOWEST -> "min(formula, zones, pairs)";
+            case CUSTOM -> calculation;
+            default -> FareExpression.ADDITIVE;
+        };
+    }
+
     public FareTable withCurrency(String newCurrency) {
-        return new FareTable(newCurrency, formula, zones, zoneFares, pairs, billing);
+        return new FareTable(newCurrency, formula, zones, zoneFares, pairs, billing, pricing, calculation);
     }
 
     public FareTable withFormula(Formula newFormula) {
-        return new FareTable(currency, newFormula, zones, zoneFares, pairs, billing);
+        return new FareTable(currency, newFormula, zones, zoneFares, pairs, billing, pricing, calculation);
     }
 
     public FareTable withBilling(Billing newBilling) {
-        return new FareTable(currency, formula, zones, zoneFares, pairs, newBilling);
+        return new FareTable(currency, formula, zones, zoneFares, pairs, newBilling, pricing, calculation);
     }
 
     public FareTable withZone(String stationId, @Nullable String zone) {
@@ -231,7 +260,7 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
         } else {
             updated.put(stationId, zone.strip().toLowerCase(Locale.ROOT));
         }
-        return new FareTable(currency, formula, updated, zoneFares, pairs, billing);
+        return new FareTable(currency, formula, updated, zoneFares, pairs, billing, pricing, calculation);
     }
 
     public FareTable withZoneFare(String zoneA, String zoneB, @Nullable Double fare) {
@@ -241,7 +270,7 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
         } else {
             updated.put(zoneKey(zoneA, zoneB), fare);
         }
-        return new FareTable(currency, formula, zones, updated, pairs, billing);
+        return new FareTable(currency, formula, zones, updated, pairs, billing, pricing, calculation);
     }
 
     public FareTable withPair(String first, String second, @Nullable Pair pair) {
@@ -251,12 +280,12 @@ public record FareTable(String currency, Formula formula, Map<String, String> zo
         } else {
             updated.put(pairKey(first, second), pair);
         }
-        return new FareTable(currency, formula, zones, zoneFares, updated, billing);
+        return new FareTable(currency, formula, zones, zoneFares, updated, billing, pricing, calculation);
     }
 
     /** Replaces every pair at once, keeping the ones marked as set by hand unless the new map has them too. */
     public FareTable withPairs(Map<String, Pair> newPairs) {
-        return new FareTable(currency, formula, zones, zoneFares, newPairs, billing);
+        return new FareTable(currency, formula, zones, zoneFares, newPairs, billing, pricing, calculation);
     }
 
     /** Pairs of station ids in a key, for messages. */

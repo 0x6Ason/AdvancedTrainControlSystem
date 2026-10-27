@@ -95,6 +95,10 @@ fare:
   end-trip: "<click:run_command:'/atcs fare endtrip'><hover:show_text:'<gray>Pay now; your next train starts a new journey</gray>'><aqua>[End trip]</aqua></hover></click>"
   transfer: "<gray>Transfer: your journey from</gray> <white><from></white> <gray>continues.</gray>"
   paid: "<gray>Charged</gray> <white><fare></white> <gray>for</gray> <white><from></white> <gray>to</gray> <white><to></white><gray>.</gray>"
+  # Itemized receipts for route-aware pricing. Up to ten lines, then a link to the saved full receipt.
+  # <detail> is a calculation line; <link> is the clickable receipt number.
+  detail: "<gray>  <detail></gray>"
+  details: "<aqua><link></aqua> <gray>Full calculation and route</gray>"
   # A journey that cost nothing, for example on a free line.
   free: ""
   declined: "<red>Could not charge</red> <white><fare></white> <red>for <from> to <to>; it is collected when you next board.</red>"

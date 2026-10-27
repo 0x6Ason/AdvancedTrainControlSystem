@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- Pricing rules for fares (`/atcs fare pricing`): `cumulative` adds the formula, the zone prices and
+  the pair prices of every hop of the route actually ridden; `highest` and `lowest` take one of
+  them; `custom` takes a calculation of your own (`/atcs fare calculation`, with `+ - * /`, `sum`,
+  `min` and `max`). `legacy`, the old pair, else zones, else formula, stays the default.
+- Outside `legacy`, a journey that returns past where it began stays one journey priced over the
+  whole route, and the fare shown on getting off lists what it is made of. `/atcs fare receipt`
+  shows a receipt's full calculation and route.
+- The web editor's fares page chooses the pricing rule, builds a custom calculation from rows and
+  groups, and previews a journey of one or more rides against the draft.
+
+### Changed
+
+- `fares.yml` is format 2 and `fare-ledger.json` version 2. Both are read from older versions;
+  a ledger written by this version cannot be read by 0.2.2 or before.
+
 ## 0.2.2 (2026-10-27)
 
 ### Added

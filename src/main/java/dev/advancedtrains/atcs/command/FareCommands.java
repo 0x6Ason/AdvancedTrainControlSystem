@@ -50,7 +50,23 @@ final class FareCommands {
         return group("fare", USE, "Fares between stations: explicit pairs, zones, and a formula over the route",
                 leaf("check", USE, "<from> <to>", "The fare between two stations and how it was worked out",
                         context -> check(support, context), stations),
-                leaf("info", USE, "", "Currency, formula, zones and explicit pairs", context -> info(support, context)),
+                leaf("info", USE, "", "Currency, pricing rule, formula, zones and station pairs", context -> info(support, context)),
+                leaf("pricing", MANAGE, "<legacy|cumulative|highest|lowest|custom> [confirm]", "Choose how fare components combine for new journeys",
+                        context -> pricing(support, context), (context, index) -> index == 0
+                                ? List.of("legacy", "cumulative", "highest", "lowest", "custom") : List.of("confirm")),
+                leaf("calculation", MANAGE, "<expression>", "Set a custom fare rule, for example max(formula, zones) + pairs",
+                        context -> {
+                            String expression = context.rest(0);
+                            FareTable current = support.fares.store().table();
+                            if (current.pricing() == FareTable.Pricing.LEGACY && !current.pairs().isEmpty()) {
+                                throw new CommandError("Review the existing pair fares, then /atcs fare pricing custom confirm before setting a calculation");
+                            }
+                            try {
+                                edit(support, context, table -> table.withCalculation(expression), "Custom fare rule: " + expression);
+                            } catch (IllegalArgumentException exception) {
+                                throw new CommandError(exception.getMessage());
+                            }
+                        }),
                 leaf("generate", MANAGE, "", "Write the fare of every pair of stations as a draft (fare-matrix.yml) to correct by hand",
                         context -> generate(support, context)),
                 leaf("apply", MANAGE, "[confirm]", "Load the corrected draft into fares.yml; your changes are kept from then on",
@@ -87,12 +103,60 @@ final class FareCommands {
                         (context, index) -> index == 0 ? List.of("180") : index == 1 ? List.of("none", "50%") : List.of()),
                 leaf("receipts", USE, "[player]", "Recent fares and the journey in progress; staff can name a player",
                         context -> receipts(support, context)),
+                leaf("receipt", USE, "<receipt> [page]", "The saved price breakdown and actual route; staff can inspect any receipt",
+                        context -> receipt(support, context)),
                 leaf("endtrip", USE, "[player]", "End your journey now and pay, instead of when the transfer window closes",
                         context -> endTrip(support, context)),
                 leaf("resolve", MANAGE, "<receipt> <paid|waive|retry>",
                         "Settle a receipt by hand after checking the player's balance: paid, forgiven, or collect again",
                         context -> resolve(support, context), (context, index) -> index == 0
                                 ? outstandingReceipts(support) : index == 1 ? List.of("paid", "waive", "retry") : List.of()));
+    }
+
+    private static void pricing(Support support, CommandContext context) throws CommandError {
+        FareTable.Pricing mode;
+        try {
+            mode = FareTable.Pricing.valueOf(context.arg(0).toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new CommandError("Give legacy, cumulative, highest, lowest or custom");
+        }
+        FareTable current = support.fares.store().table();
+        if (current.pricing() == FareTable.Pricing.LEGACY && mode != FareTable.Pricing.LEGACY && !current.pairs().isEmpty()
+                && !context.argOr(1, "").equalsIgnoreCase("confirm")) {
+            throw new CommandError("Existing station pairs will become per-hop supplements. Remove any generated total-fare matrix first, "
+                    + "or repeat with confirm if these are the supplements you want");
+        }
+        edit(support, context, table -> table.withPricing(mode), "Pricing is " + mode.name().toLowerCase(Locale.ROOT)
+                + " for new journeys; journeys in progress keep their original rule");
+    }
+
+    private static void receipt(Support support, CommandContext context) throws CommandError {
+        BillingLedger.Charge charge = rides(support).billing().charge(context.arg(0).toLowerCase(Locale.ROOT))
+                .orElseThrow(() -> new CommandError("No saved receipt with that number"));
+        CommandSender sender = context.sender();
+        if (!sender.hasPermission(MANAGE) && !(sender instanceof Player player && player.getUniqueId().equals(charge.player()))) {
+            throw new CommandError("You can only see your own fares");
+        }
+        int page;
+        try {
+            page = Integer.parseInt(context.argOr(1, "1"));
+        } catch (NumberFormatException exception) {
+            throw new CommandError("Give a page number");
+        }
+        int pages = Math.max(1, (charge.details().size() + 11) / 12);
+        if (page < 1 || page > pages) {
+            throw new CommandError("Give a page from 1 to " + pages);
+        }
+        sender.sendMessage(Chat.header("Receipt " + charge.id() + ": " + FareTable.EMPTY.withCurrency(charge.currency()).format(charge.amount())
+                + " " + status(charge.status()) + " (" + page + "/" + pages + ")"));
+        if (charge.details().isEmpty()) {
+            Chat.info(sender, "This older receipt has no saved breakdown");
+        }
+        charge.details().stream().skip((page - 1L) * 12).limit(12)
+                .forEach(line -> sender.sendMessage(Component.text(line, NamedTextColor.GRAY)));
+        if (page < pages) {
+            sender.sendMessage(Chat.run("Next page", "/atcs fare receipt " + charge.id() + " " + (page + 1)));
+        }
     }
 
     private static void billing(Support support, CommandContext context) throws CommandError {
@@ -373,6 +437,7 @@ final class FareCommands {
             case PAIR -> "explicit pair";
             case ZONE -> "zone fare";
             case FORMULA -> "formula";
+            case COMBINED -> table.pricing().name().toLowerCase(Locale.ROOT);
             case NONE -> "none";
         }));
         quote.get().reasoning().forEach(line -> sender.sendMessage(Component.text("  " + line, NamedTextColor.GRAY)));
@@ -387,6 +452,10 @@ final class FareCommands {
         CommandSender sender = context.sender();
         sender.sendMessage(Chat.header("Fares"));
         sender.sendMessage(Chat.field("Currency", table.currency()));
+        sender.sendMessage(Chat.field("Pricing", table.pricing().name().toLowerCase(Locale.ROOT)));
+        if (table.pricing() != FareTable.Pricing.LEGACY) {
+            sender.sendMessage(Chat.field("Calculation", table.expression()));
+        }
         FareTable.Formula formula = table.formula();
         sender.sendMessage(Chat.field("Formula", "flat " + table.format(formula.flat()) + ", per stop " + table.format(formula.perStop())
                 + ", per change " + table.format(formula.perChange()) + ", " + formula.bands().size() + " distance band(s), rounded to "
@@ -403,6 +472,7 @@ final class FareCommands {
     }
 
     private static void generate(Support support, CommandContext context) throws CommandError {
+        requireLegacyMatrix(support);
         Network network = support.network();
         if (network.stations().size() < 2) {
             throw new CommandError("The network needs at least two stations");
@@ -419,7 +489,15 @@ final class FareCommands {
                 + calculator.table().keptPairs() + " set by hand kept). Correct the wrong ones, then run /atcs fare apply.");
     }
 
+    private static void requireLegacyMatrix(Support support) throws CommandError {
+        if (support.fares.store().table().pricing() != FareTable.Pricing.LEGACY) {
+            throw new CommandError("Total-fare matrices are for legacy pricing only. Use the editor's journey preview or /atcs fare check; "
+                    + "/atcs fare set adds a station-hop supplement in this mode");
+        }
+    }
+
     private static void apply(Support support, CommandContext context) throws CommandError {
+        requireLegacyMatrix(support);
         Path file = support.fares.store().file().resolveSibling(FareMatrix.DRAFT_FILE);
         if (!Files.exists(file)) {
             throw new CommandError("There is no " + file.getFileName() + "; run /atcs fare generate first");

@@ -3,6 +3,7 @@ package dev.advancedtrains.atcs.editor;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import dev.advancedtrains.atcs.fare.FareCalculator;
 import dev.advancedtrains.atcs.fare.FareCodec;
 import dev.advancedtrains.atcs.fare.FareStore;
 import dev.advancedtrains.atcs.fare.FareTable;
@@ -10,6 +11,11 @@ import dev.advancedtrains.atcs.network.Network;
 import dev.advancedtrains.atcs.network.NetworkCodec;
 import dev.advancedtrains.atcs.network.NetworkLint;
 import dev.advancedtrains.atcs.network.NetworkStore;
+import dev.advancedtrains.atcs.network.Service;
+import dev.advancedtrains.atcs.network.ServiceKey;
+import dev.advancedtrains.atcs.operation.RouteMeasure;
+import dev.advancedtrains.atcs.operation.RoutePlanner;
+import dev.advancedtrains.atcs.operation.TravelTimes;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.jspecify.annotations.Nullable;
@@ -25,6 +31,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalDouble;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -92,10 +99,16 @@ public final class EditorApi {
     private final Function<Network, JsonObject> context;
     private final BiConsumer<Network, Network> saved;
     private @Nullable Dispatcher dispatcher;
+    private RouteMeasure measure = RouteMeasure.UNKNOWN;
 
     /** Adds the dispatcher once the runtime exists. */
     public void setDispatcher(@Nullable Dispatcher newDispatcher) {
         dispatcher = newDispatcher;
+    }
+
+    /** The learned track distances fare previews measure rides with. */
+    public void setMeasure(RouteMeasure newMeasure) {
+        measure = newMeasure;
     }
 
     public JsonObject dispatchState() throws ApiException {
@@ -279,6 +292,110 @@ public final class EditorApi {
             throw new ApiException(409, exception.getMessage(), fares());
         }
         return fares();
+    }
+
+    /** Most rides one preview may chain. */
+    static final int PREVIEW_RIDES = 20;
+
+    /**
+     * Prices a journey with the draft fares, without charging or saving anything. Each ride is
+     * {@code {service, fromIndex, toIndex, laps}} along a service of the draft network (or the saved
+     * one), boarding and alighting at calling stops; {@code laps} adds whole laps of a circular
+     * service. Rides must follow on from each other, at the same station or across a transfer.
+     */
+    public JsonObject previewFares(JsonObject body) throws ApiException {
+        if (fares == null) {
+            throw new ApiException(404, "Fares are not available", null);
+        }
+        if (!body.has("document") || !body.get("document").isJsonObject()) {
+            throw new ApiException(400, "No fares to preview", null);
+        }
+        FareCodec.ReadResult read = fareCodec.read(Documents.toYaml(body.getAsJsonObject("document")));
+        if (!read.clean()) {
+            JsonObject detail = new JsonObject();
+            detail.add("errors", strings(read.errors()));
+            throw new ApiException(400, "The fares have " + read.errors().size() + " error(s)", detail);
+        }
+        Network network = store.network();
+        if (body.has("network") && body.get("network").isJsonObject()) {
+            NetworkCodec.ReadResult draft = networkCodec.read(Documents.toYaml(body.getAsJsonObject("network")));
+            if (!draft.clean()) {
+                JsonObject detail = new JsonObject();
+                detail.add("errors", strings(draft.errors()));
+                throw new ApiException(400, "The network has " + draft.errors().size() + " error(s)", detail);
+            }
+            network = draft.network();
+        }
+        JsonArray rides = body.has("rides") && body.get("rides").isJsonArray() ? body.getAsJsonArray("rides") : new JsonArray();
+        if (rides.isEmpty() || rides.size() > PREVIEW_RIDES) {
+            throw new ApiException(400, "Preview between 1 and " + PREVIEW_RIDES + " rides", null);
+        }
+        List<FareCalculator.RideLeg> legs = new ArrayList<>();
+        boolean distanceKnown = true;
+        for (int i = 0; i < rides.size(); i++) {
+            String ride = "Ride " + (i + 1) + ": ";
+            JsonObject item = rides.get(i).getAsJsonObject();
+            ServiceKey key;
+            try {
+                key = ServiceKey.parse(item.get("service").getAsString());
+            } catch (IllegalArgumentException exception) {
+                throw new ApiException(400, ride + exception.getMessage(), null);
+            }
+            Service service = network.service(key)
+                    .orElseThrow(() -> new ApiException(400, ride + "there is no service " + key + " in the network", null));
+            int from = item.get("fromIndex").getAsInt();
+            int to = item.get("toIndex").getAsInt();
+            int laps = item.has("laps") ? item.get("laps").getAsInt() : 0;
+            if (from < 0 || to < 0 || from >= service.size() || to >= service.size()) {
+                throw new ApiException(400, ride + key + " has stops 0 to " + (service.size() - 1), null);
+            }
+            if (!service.stop(from).stops() || !service.stop(to).stops()) {
+                throw new ApiException(400, ride + "board and leave at stops where " + key + " calls", null);
+            }
+            if (laps < 0 || laps > 10 || laps > 0 && !service.circular()) {
+                throw new ApiException(400, ride + (service.circular() ? "extra laps go from 0 to 10" : key + " is not circular, so it has no laps"), null);
+            }
+            if (to < from && !service.circular()) {
+                throw new ApiException(400, ride + key + " only runs forward; ride its return service instead", null);
+            }
+            String start = service.stop(from).stationId();
+            if (!legs.isEmpty()) {
+                String end = legs.getLast().to();
+                if (!end.equals(start) && network.transfer(end, start).isEmpty()) {
+                    throw new ApiException(400, ride + "starts at " + network.stationName(start) + ", but the ride before ends at "
+                            + network.stationName(end) + " with no transfer between them", null);
+                }
+            }
+            int steps = Math.floorMod(to - from, service.size()) + laps * service.size();
+            List<String> path = new ArrayList<>(List.of(start));
+            int stops = 0;
+            double blocks = 0;
+            for (int step = 0, cursor = from; step < steps; step++) {
+                OptionalDouble distance = measure.segmentBlocks(service, cursor);
+                if (distance.isPresent() && Double.isFinite(distance.getAsDouble()) && distance.getAsDouble() > 0) {
+                    blocks += distance.getAsDouble();
+                } else {
+                    distanceKnown = false;
+                }
+                cursor = service.nextIndex(cursor);
+                path.add(service.stop(cursor).stationId());
+                if (service.stop(cursor).stops()) {
+                    stops++;
+                }
+            }
+            legs.add(new FareCalculator.RideLeg(key.lineId(), start, path.getLast(), stops, blocks, path));
+        }
+        FareTable table = read.table();
+        FareCalculator.Quote quote = new FareCalculator(table, network, RoutePlanner.of(network, new TravelTimes(0.3), measure))
+                .quoteRide(legs);
+        JsonObject result = new JsonObject();
+        result.addProperty("fare", quote.fare());
+        result.addProperty("formatted", table.format(quote.fare()));
+        result.addProperty("currency", table.currency());
+        result.addProperty("layer", quote.layer().name().toLowerCase(java.util.Locale.ROOT));
+        result.add("reasoning", strings(quote.reasoning()));
+        result.addProperty("distanceKnown", distanceKnown);
+        return result;
     }
 
     private String faresYaml() throws ApiException {

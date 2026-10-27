@@ -246,6 +246,10 @@ public final class EditorServer {
                     JsonObject document = Documents.parseObject(body(exchange)).getAsJsonObject("document");
                     json(exchange, 200, sync.call(() -> api.validateFares(document)));
                 }
+                case "preview-fares" -> {
+                    JsonObject preview = Documents.parseObject(body(exchange));
+                    json(exchange, 200, sync.call(() -> api.previewFares(preview)));
+                }
                 case "layout" -> {
                     JsonObject layout = Documents.parseObject(body(exchange));
                     json(exchange, 200, sync.call(() -> api.saveLayout(layout)));

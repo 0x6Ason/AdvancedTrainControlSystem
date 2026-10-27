@@ -113,7 +113,7 @@
         try { data = text ? JSON.parse(text) : null; } catch (ignored) { data = { error: text }; }
         if (response.status === 401) signedOut();
         if (!response.ok) {
-          var error = new Error((data && data.error) || ('The server answered ' + response.status));
+          var error = new Error((data && (data.error || data.message)) || ('The server answered ' + response.status));
           error.status = response.status;
           error.detail = data && data.detail;
           throw error;
@@ -135,6 +135,7 @@
     net: null, saved: '', doc: null,
     fares: null, faresSaved: '', faresDoc: null,
     check: null, faresCheck: null,
+    farePreview: { rides: null, status: 'idle', result: null, error: null },
     section: 'stations', open: null, creating: null, filter: {},
     seed: null, layout: null,
     undo: [], redo: [], coalesce: null, coalesceAt: 0,
@@ -158,7 +159,7 @@
     }
     return memo;
   }
-  function bump() { state.rev++; }
+  function bump() { state.rev++; invalidateFarePreview(); }
 
   function networkDirty() { return !!state.doc && texts().doc !== state.saved; }
   function faresDirty() { return !!state.faresDoc && texts().fares !== state.faresSaved; }
@@ -519,6 +520,12 @@
       else if (kind === 'service-name') { var p = id.split('/'); node.textContent = (services(p[0])[p[1]] || {}).name || p[1]; }
       else if (kind === 'errors') node.innerHTML = errorsBoxFor(id);
     });
+    var builder = $('fare-builder');
+    if (builder && state.faresDoc && builder.getAttribute('data-expression') !== fareCalculation()) {
+      builder.innerHTML = fareBuilderView();
+      builder.setAttribute('data-expression', fareCalculation());
+    }
+    refreshFarePreview();
   }
 
   function errorsBoxFor(spec) {
@@ -960,6 +967,247 @@
 
   // ---- Fares -----------------------------------------------------------------------------------
 
+  var FARE_CALCULATION = 'base + stops + changes + distance + zones + pairs';
+  var FARE_COMPONENTS = [
+    ['base', 'Flat fare'], ['stops', 'Stops'], ['changes', 'Changes of line'],
+    ['distance', 'Distance'], ['zones', 'Zone prices'], ['pairs', 'Station pair prices'],
+    ['formula', 'Formula (flat + stops + changes + distance)']
+  ];
+  var FARE_OPERATORS = [['sum', 'Add together'], ['max', 'Highest of'], ['min', 'Lowest of']];
+  var FARE_PRICING = [
+    ['legacy', 'Pair, else zones, else formula', 'A station pair price wins, then a zone price, then the formula. Nothing is added together. Fare files from 0.2.2 and before use this.'],
+    ['cumulative', 'Add everything up', 'The flat fare once, then every stop, change of line, distance, zone price and pair price of the journey, added together.'],
+    ['highest', 'Highest of formula, zones, pairs', 'The dearest of the formula, the zone prices of the journey and its pair prices.'],
+    ['lowest', 'Lowest of formula, zones, pairs', 'The cheapest of the formula, the zone prices of the journey and its pair prices.'],
+    ['custom', 'My own calculation', 'Pick the amounts and how they combine. Groups mix adding up with highest and lowest; the expression below also takes numbers and + - * /.']
+  ];
+
+  function fareCalculation() { return state.faresDoc.calculation == null ? FARE_CALCULATION : String(state.faresDoc.calculation); }
+
+  function fareOptions(choices, selected) {
+    return choices.map(function (c) { return '<option value="' + esc(c[0]) + '"' + (c[0] === selected ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; }).join('');
+  }
+
+  /* Read only the builder's vocabulary, never evaluate it or validate the math. Expressions using
+   * other supported arithmetic stay untouched in the advanced field and are checked by the server. */
+  function fareBuilderTree(expression) {
+    if (expression.length > 4096) return null;
+    var at = 0, count = 0;
+    function space() { while (/\s/.test(expression.charAt(at)) && at < expression.length) at++; }
+    function take(text) { space(); if (expression.slice(at, at + text.length) !== text) return false; at += text.length; return true; }
+    function atom(depth) {
+      if (depth > 6 || ++count > 80) throw new Error('Use the advanced field');
+      if (take('(')) { var nested = sum(depth + 1); if (!take(')')) throw new Error('Missing bracket'); return nested; }
+      space();
+      var match = /^[a-z]+/.exec(expression.slice(at));
+      if (!match) throw new Error('Not a builder component');
+      var name = match[0]; at += name.length;
+      if (FARE_COMPONENTS.some(function (c) { return c[0] === name; })) return { component: name };
+      if (!FARE_OPERATORS.some(function (op) { return op[0] === name; }) || !take('(')) throw new Error('Not a builder group');
+      var children = [sum(depth + 1)];
+      while (take(',')) children.push(sum(depth + 1));
+      if (!take(')')) throw new Error('Missing bracket');
+      return { op: name, children: children };
+    }
+    function sum(depth) {
+      var children = [atom(depth)];
+      while (take('+')) children.push(atom(depth));
+      return children.length === 1 ? children[0] : { op: 'sum', children: children };
+    }
+    try {
+      var tree = sum(0); space();
+      if (at !== expression.length) return null;
+      return tree.component ? { op: 'sum', children: [tree] } : tree;
+    } catch (ignored) { return null; }
+  }
+
+  function fareBuilderExpression(tree) {
+    if (tree.component) return tree.component;
+    return tree.op + '(' + tree.children.map(fareBuilderExpression).join(', ') + ')';
+  }
+
+  function fareBuilderGroup(tree, parts, removable) {
+    var address = path(parts), id = 'fare-group-' + (parts.join('-') || 'root');
+    return '<fieldset class="fare-group"><legend>' + (parts.length ? 'Group' : 'Fare') + '</legend>'
+      + '<div class="fare-builder-row"><label class="field"><span>Combine</span><select id="' + id + '" data-act-change="fare-builder-op" data-node="' + address + '">'
+      + fareOptions(FARE_OPERATORS, tree.op) + '</select></label>'
+      + (parts.length ? '<button type="button" class="x" data-act="fare-builder-remove" data-node="' + address + '" aria-label="Remove group"' + (removable ? '' : ' disabled') + '>&times;</button>' : '') + '</div>'
+      + '<div class="fare-components">' + tree.children.map(function (child, i) {
+        var childParts = parts.concat(i), childAddress = path(childParts);
+        if (!child.component) return fareBuilderGroup(child, childParts, tree.children.length > 1);
+        return '<div class="fare-component"><select class="input" aria-label="Amount" data-act-change="fare-builder-component" data-node="' + childAddress + '">'
+          + fareOptions(FARE_COMPONENTS, child.component) + '</select><button type="button" class="x" data-act="fare-builder-remove" data-node="' + childAddress
+          + '" aria-label="Remove ' + esc(child.component) + '"' + (tree.children.length === 1 ? ' disabled' : '') + '>&times;</button></div>';
+      }).join('') + '</div><div class="fare-actions">'
+      + '<button type="button" class="button small secondary" data-act="fare-builder-add" data-node="' + address + '">Add amount</button>'
+      + '<button type="button" class="button small secondary" data-act="fare-builder-group" data-node="' + address + '"' + (parts.length >= 4 ? ' disabled' : '') + '>Add group</button>'
+      + '</div></fieldset>';
+  }
+
+  function fareBuilderView() {
+    var tree = fareBuilderTree(fareCalculation());
+    return tree ? fareBuilderGroup(tree, [])
+      : '<p class="hint">This calculation uses arithmetic the rows cannot show. It is kept as written; edit it below, or start again with rows.</p>'
+        + '<div class="fare-actions"><button type="button" class="button small secondary" data-act="fare-builder-reset">Start again with rows</button></div>';
+  }
+
+  function editFareBuilder(node, operation) {
+    var tree = fareBuilderTree(fareCalculation());
+    if (!tree) return;
+    var parts = JSON.parse(data(node, 'node')), target = tree, parent = null;
+    parts.forEach(function (i) { parent = target; target = target.children[i]; });
+    if (operation === 'remove') {
+      if (!parent || parent.children.length <= 1) return;
+      parent.children.splice(parts[parts.length - 1], 1);
+    } else if (operation === 'component') target.component = node.value;
+    else if (operation === 'op') target.op = node.value;
+    else {
+      var used = target.children.map(function (c) { return c.component; });
+      var next = FARE_COMPONENTS.filter(function (c) { return used.indexOf(c[0]) < 0; })[0] || FARE_COMPONENTS[0];
+      target.children.push(operation === 'group' ? { op: 'max', children: [{ component: next[0] }] } : { component: next[0] });
+    }
+    var expression = fareBuilderExpression(tree);
+    // Keep the advanced input in sync without replacing it (and losing its caret) on every keystroke.
+    edit(function () { state.faresDoc.calculation = expression; }, { noMap: true });
+    if ($('fare-calculation')) $('fare-calculation').value = expression;
+    var focus = Array.prototype.filter.call(document.querySelectorAll('#fare-builder [data-node]'), function (el) {
+      return !el.disabled && data(el, 'node') === JSON.stringify(parts) && data(el, 'act-change') === data(node, 'act-change') && data(el, 'act') === data(node, 'act');
+    })[0] || $('fare-group-root');
+    if (focus) focus.focus();
+  }
+
+  function fareRuleView(f) {
+    var pricing = f.pricing == null ? 'legacy' : f.pricing;
+    var preset = FARE_PRICING.filter(function (p) { return p[0] === pricing; })[0];
+    return '<div class="group-head"><span>Fare rule</span></div>'
+      + field('Pricing', '<select data-act-change="fare-pricing">' + (!preset ? '<option selected value="' + esc(pricing) + '">' + esc(pricing) + ' (unknown)</option>' : '')
+        + fareOptions(FARE_PRICING, pricing) + '</select>', { hint: preset ? esc(preset[2]) : 'Choose a supported pricing rule.' })
+      + (pricing !== 'legacy' ? '<p class="hint">Priced over the route actually ridden, every station passed included, so a loop or a trip there and back costs the whole way.</p>' : '')
+      + (keys(f.pairs).length && pricing !== 'legacy' ? '<div class="notice warn"><div class="main"><b>Station pair prices now add up</b>'
+        + 'Each pair price is charged every time a train runs directly between those two stations, on top of the rest. A full price list made with Generate would charge twice: remove it or switch back.</div></div>' : '')
+      + '<p class="hint">Free lines cost nothing. After the rule come the transfer discount, rounding and the minimum fare.</p>'
+      + (pricing !== 'legacy' ? '<p class="hint">Highest and lowest skip a price that is not set for the journey; a price of 0 counts.</p>' : '')
+      + (pricing === 'custom' ? '<div class="fare-custom">'
+        + '<div id="fare-builder" data-expression="' + esc(fareCalculation()) + '">' + fareBuilderView() + '</div>'
+        + '<p class="hint">Formula already holds the flat fare, stops, changes and distance; adding those again charges them twice.</p>'
+        + '<details class="fare-advanced" open><summary>Expression</summary>'
+        + field('Calculation', '<textarea id="fare-calculation" class="input mono" rows="3" data-doc="fares" data-path="' + path(['calculation']) + '" spellcheck="false" aria-describedby="fare-calculation-help">' + esc(fareCalculation()) + '</textarea>')
+        + '<p class="hint" id="fare-calculation-help"><code>base stops changes distance zones pairs formula</code> with numbers, <code>+ - * /</code>, brackets, <code>sum</code>, <code>min</code> and <code>max</code>. For example <code>base + max(stops, zones) + changes</code>, or <code>min(10, formula + zones)</code> to cap at 10. The minimum fare still applies.</p></details></div>' : '');
+  }
+
+  // The ride list is local UI state, not part of either saved document. All amounts come from the API.
+  var farePreviewSeq = 0;
+  function fareRideService(ride) { return allServices().filter(function (s) { return s.key === ride.service; })[0]; }
+  function fareRideServices() {
+    return allServices().filter(function (s) { return Array.isArray(s.service.stops) && s.service.stops.some(function (text) { return !parseStop(text).pass; }); });
+  }
+  function newFareRide(entry, fromStation) {
+    var stops = entry.service.stops || [], calls = [];
+    stops.forEach(function (text, i) { if (!parseStop(text).pass) calls.push(i); });
+    var from = calls.filter(function (i) { return parseStop(stops[i]).station === fromStation; })[0];
+    if (from == null) from = calls.length ? calls[0] : -1;
+    var next = calls.filter(function (i) { return i > from; })[0];
+    if (next == null) next = entry.service.circular && calls.length ? calls[0] : from;
+    return { service: entry.key, fromIndex: from, toIndex: next, laps: 0 };
+  }
+  function fareRideProblem() {
+    var rides = state.farePreview.rides || [];
+    if (!rides.length) return 'Add a ride to preview a journey.';
+    for (var i = 0; i < rides.length; i++) {
+      var r = rides[i], entry = fareRideService(r), prefix = 'Ride ' + (i + 1) + ': ';
+      if (!entry) return prefix + 'choose a service.';
+      var stops = entry.service.stops || [];
+      if ([r.fromIndex, r.toIndex].some(function (n) { return !Number.isInteger(n) || n < 0 || n >= stops.length || parseStop(stops[n]).pass; })) return prefix + 'choose where to get on and off.';
+      if (!Number.isInteger(r.laps) || r.laps < 0 || r.laps > 10) return prefix + 'extra laps are a whole number from 0 to 10.';
+      if (!entry.service.circular && (r.laps !== 0 || r.toIndex < r.fromIndex)) return prefix + 'this service only runs one way; choose the service back for the return.';
+    }
+    return '';
+  }
+  function fareRideStops(entry, selected) {
+    var stops = entry ? entry.service.stops || [] : [];
+    var seen = {};
+    stops.forEach(function (text) { var id = parseStop(text).station; seen[id] = (seen[id] || 0) + 1; });
+    return (selected < 0 || selected >= stops.length ? '<option selected value="-1">Choose a stop</option>' : '') + stops.map(function (text, i) {
+      var stop = parseStop(text);
+      // A loop can call at a station twice; the stop number tells the two apart.
+      return '<option value="' + i + '"' + (i === selected ? ' selected' : '') + (stop.pass ? ' disabled' : '') + '>'
+        + esc(stationName(stop.station)) + (seen[stop.station] > 1 ? ' (stop ' + (i + 1) + ')' : '') + (stop.pass ? ', passes' : '') + '</option>';
+    }).join('');
+  }
+  function fareRideListView() {
+    var entries = fareRideServices();
+    return (state.farePreview.rides || []).map(function (ride, i) {
+      var entry = fareRideService(ride), attrs = ' data-ride="' + i + '"', circular = entry && !!entry.service.circular;
+      return '<fieldset class="fare-ride"><legend>Ride ' + (i + 1) + '</legend><div class="fare-builder-row">'
+        + field('Service', '<select id="fare-ride-' + i + '-service" data-act-change="fare-ride-service"' + attrs + '>'
+          + (!entries.some(function (e) { return e.key === ride.service; }) ? '<option selected value="' + esc(ride.service) + '">' + esc(ride.service) + ' (unavailable)</option>' : '')
+          + entries.map(function (e) { return '<option value="' + esc(e.key) + '"' + (e.key === ride.service ? ' selected' : '') + '>' + esc(lineView(e.line).name + ' / ' + (e.service.name || e.id) + ' (' + e.key + ')') + '</option>'; }).join('') + '</select>')
+        + '<button type="button" class="x" data-act="fare-ride-remove"' + attrs + ' aria-label="Remove ride ' + (i + 1) + '">&times;</button></div><div class="fare-ride-stops">'
+        + field('Get on at', '<select id="fare-ride-' + i + '-fromIndex" data-act-change="fare-ride-stop" data-end="fromIndex"' + attrs + '>' + fareRideStops(entry, ride.fromIndex) + '</select>')
+        + field('Get off at', '<select id="fare-ride-' + i + '-toIndex" data-act-change="fare-ride-stop" data-end="toIndex"' + attrs + '>' + fareRideStops(entry, ride.toIndex) + '</select>') + '</div>'
+        + (circular ? field('Extra laps', '<input type="number" min="0" max="10" step="1" data-act-change="fare-ride-laps"' + attrs + ' value="' + esc(ride.laps) + '">',
+          { hint: 'Times round the whole loop before getting off. Getting on and off at the same stop with 1 lap is once round.' }) : '') + '</fieldset>';
+    }).join('');
+  }
+  function farePreviewResultView() {
+    var p = state.farePreview, problem = fareRideProblem();
+    if (problem) return '<p class="hint">' + esc(problem) + '</p>';
+    if (p.status === 'pending') return '<p class="hint">Calculating this draft journey&hellip;</p>';
+    if (p.error) return '<div class="notice bad"><div class="main"><b>Preview failed</b>' + esc(p.error) + '</div></div>';
+    if (p.result) {
+      var r = p.result;
+      return '<div class="fare-preview-result"><b>Estimated fare: ' + esc(r.formatted || (String(r.fare) + ' ' + (r.currency || ''))) + '</b>'
+        + (r.distanceKnown === false ? '<p class="hint">Some of this track has no recorded length yet, so a distance charge may come out low.</p>' : '')
+        + '<ol>' + (r.reasoning || []).map(function (reason) { return '<li>' + esc(reason) + '</li>'; }).join('') + '</ol></div>';
+    }
+    return '<p class="hint">' + (p.status === 'stale' ? 'The fares or rides changed; preview again.' : 'Choose the rides, then preview.') + '</p>';
+  }
+  function refreshFarePreview() {
+    if ($('fare-preview-result')) $('fare-preview-result').innerHTML = farePreviewResultView();
+    if ($('fare-preview-run')) $('fare-preview-run').disabled = state.farePreview.status === 'pending' || !!fareRideProblem();
+  }
+  function invalidateFarePreview() {
+    farePreviewSeq++;
+    var p = state.farePreview;
+    if (p.status !== 'idle') p.status = 'stale';
+    p.result = null; p.error = null;
+    refreshFarePreview();
+  }
+  function renderFareRides(focusId) {
+    if ($('fare-preview-rides')) $('fare-preview-rides').innerHTML = fareRideListView();
+    refreshFarePreview();
+    if (focusId && $(focusId)) $(focusId).focus();
+  }
+  function farePreviewView() {
+    var entries = fareRideServices();
+    if (state.farePreview.rides === null) state.farePreview.rides = entries.length ? [newFareRide(entries[0])] : [];
+    return '<div class="group-head"><span>Preview a journey</span></div>'
+      + '<p class="hint">What a journey would cost with the fares on this page, saved or not. Add one ride for each train, in order; nobody is charged.</p>'
+      + (!entries.length ? '<p class="hint">Add a service with stops in Lines to preview a ride.</p>' : '')
+      + '<div id="fare-preview-rides">' + fareRideListView() + '</div><div class="fare-actions">'
+      + '<button type="button" class="button small secondary" data-act="fare-ride-add"' + (entries.length ? '' : ' disabled') + '>Add ride</button>'
+      + '<button type="button" class="button small" id="fare-preview-run" data-act="fare-preview"' + (fareRideProblem() || state.farePreview.status === 'pending' ? ' disabled' : '') + '>Preview</button></div>'
+      + '<div id="fare-preview-result" role="status" aria-live="polite">' + farePreviewResultView() + '</div>';
+  }
+  function previewFare() {
+    if (!state.faresDoc || fareRideProblem() || state.farePreview.status === 'pending') return;
+    var p = state.farePreview, seq = ++farePreviewSeq;
+    function body() { return { document: state.faresDoc, network: state.doc, rides: p.rides }; }
+    var sent = JSON.stringify(body());
+    function current() { return seq === farePreviewSeq && sent === JSON.stringify(body()); }
+    p.status = 'pending'; p.result = null; p.error = null; refreshFarePreview();
+    request('POST', '/api/preview-fares', JSON.parse(sent)).then(function (result) {
+      if (!current()) return;
+      if (!result || typeof result.fare !== 'number' || !isFinite(result.fare) || !Array.isArray(result.reasoning)) throw new Error('The server did not return a fare preview.');
+      p.result = result; p.status = 'ready'; refreshFarePreview();
+    }).catch(function (error) {
+      if (!current()) return;
+      var detail = error.detail;
+      p.error = error.message + (detail ? ' — ' + (typeof detail === 'string' ? detail : Array.isArray(detail.errors) ? detail.errors.join('; ') : JSON.stringify(detail)) : '');
+      p.status = 'error'; refreshFarePreview();
+    });
+  }
+
   function fareLineIds() {
     return keys(lines()).sort(function (a, b) { return lineView(a).name.localeCompare(lineView(b).name); });
   }
@@ -1012,15 +1260,19 @@
     if (!f) return '<h2 class="title">Fares</h2><p class="empty-state"><b>Fares are not available</b>The plugin did not load fares.yml.</p>';
     var formula = f.formula || {};
     var cur = f.currency || '$';
-    var html = '<h2 class="title">Fares</h2><p class="lede">The highest layer that applies wins: a fare set for the pair, then the zones, then the formula. '
-      + 'Check one in game with <code>/atcs fare check &lt;from&gt; &lt;to&gt;</code>.</p>'
+    var legacy = f.pricing == null || f.pricing === 'legacy';
+    var html = '<h2 class="title">Fares</h2><p class="lede">Choose how fare components combine, then test the actual journey before saving. Preview never charges a rider.</p>'
       + '<div data-preview="errors:fares|">' + errorsBoxFor('fares|') + '</div>'
       + (state.fares.loadErrors && state.fares.loadErrors.length ? '<div class="notice bad"><div class="main"><b>fares.yml has errors on disk</b>' + esc(state.fares.loadErrors.join(' · ')) + '</div></div>' : '')
       + '<div class="grid three">' + field('Currency', textInput(['currency'], f.currency, { doc: 'fares', placeholder: '$' })) + '</div>'
+      + fareRuleView(f)
+      + farePreviewView()
       + billingView(f, cur)
-      + '<div class="group-head"><span>3. Formula</span></div><div class="grid three">'
-      + [['flat', 'Every trip'], ['per-stop', 'Per stop'], ['per-change', 'Per change'], ['round-to', 'Round to'], ['minimum', 'At least']].map(function (k) {
-        return field(k[1] + ' (' + cur + ')', '<input type="text" inputmode="decimal" data-doc="fares" data-path="' + path(['formula', k[0]]) + '" data-kind="number" value="' + esc(numberText(formula[k[0]])) + '" placeholder="0">');
+      + '<div class="group-head"><span>' + (legacy ? 'Formula fallback' : 'Component rates') + '</span></div>'
+      + '<p class="hint">Blank removes a rate; it is not an explicit zero. These rates supply the money amounts used by the fare rule.</p><div class="grid three">'
+      + [['flat', 'Base', 'base: once per journey.'], ['per-stop', 'Per stop', 'stops: the rate multiplied by calling stops travelled.'], ['per-change', 'Per change', 'changes: the rate multiplied by changes.'],
+        ['round-to', 'Round to', 'Applied after discounts, outside the expression.'], ['minimum', 'Formula minimum', 'A floor, not a cap. The higher of this and the billing minimum applies last.']].map(function (k) {
+        return field(k[1] + ' (' + cur + ')', '<input type="text" inputmode="decimal" data-doc="fares" data-path="' + path(['formula', k[0]]) + '" data-kind="number" value="' + esc(numberText(formula[k[0]])) + '" placeholder="0">', { hint: k[2] });
       }).join('') + '</div>'
       + '<div class="field"><span>Distance bands</span><table class="table"><thead><tr><th>Up to, blocks</th><th>Adds (' + esc(cur) + ')</th><th></th></tr></thead><tbody>'
       + (formula['distance-bands'] || []).map(function (band, i) {
@@ -1028,7 +1280,7 @@
           + '<td><input type="text" class="input" inputmode="decimal" data-doc="fares" data-path="' + path(['formula', 'distance-bands', i, 'fare']) + '" data-kind="number" value="' + esc(numberText(band.fare)) + '"></td>'
           + '<td class="tiny"><button type="button" class="x" data-act="remove-band" data-index="' + i + '" aria-label="Remove band">&times;</button></td></tr>';
       }).join('') + '</tbody></table><button type="button" class="button small secondary" data-act="add-band">Add a band</button>'
-      + '<small class="hint">The first band whose distance fits applies; leave the distance empty on the last one for any distance.</small></div>';
+      + '<small class="hint">The first band whose distance fits supplies the distance amount; leave the distance empty on the last one for any distance.</small></div>';
 
     var zones = f.zones || {}, zoneNames = [];
     keys(zones).forEach(function (id) {
@@ -1036,7 +1288,8 @@
       if (name && zoneNames.indexOf(name) < 0) zoneNames.push(name);
     });
     var lineIds = fareLineIds();
-    html += '<div class="group-head"><span>2. Zones</span></div>'
+    html += '<div class="group-head"><span>' + (legacy ? 'Zone overrides' : 'Zone additions') + '</span></div>'
+      + '<p class="hint">' + (legacy ? 'A matching zone fare replaces the formula unless a station pair overrides it.' : 'zones: total matching prices between adjacent visited service stations, including passing stops and repeated loop visits. Missing prices add nothing; a configured zero is applicable.') + '</p>'
       + '<div class="grid">'
       + field('Assign stations on line', '<select id="fare-zone-line"><option value="">Choose a line</option>' + lineIds.map(function (id) {
         return '<option value="' + esc(id) + '">' + esc(lineView(id).name) + ' (' + esc(id) + ')</option>';
@@ -1062,7 +1315,8 @@
     var q = fold(state.filter.fares);
     var pairKeys = keys(pairs).filter(function (k) { return !q || fold(k.split('|').map(stationName).join(' ')).indexOf(q) >= 0; });
     var shown = pairKeys.slice(0, 150);
-    html += '<div class="group-head"><span>1. Fares set for a pair (' + keys(pairs).length + ')</span></div>'
+    html += '<div class="group-head"><span>' + (legacy ? 'Pair overrides' : 'Pair additions') + ' (' + keys(pairs).length + ')</span></div>'
+      + '<p class="hint">' + (legacy ? 'A matching station-pair fare takes priority over zones and the formula.' : 'pairs: total matching station-pair supplements on each adjacent service hop, including passing stops. A non-adjacent end-to-end pair is not a whole-journey override. A configured zero remains applicable.') + '</p>'
       + searchBar('fares', 'Find pairs by station')
       + '<table class="table"><thead><tr><th>Between</th><th>Fare (' + esc(cur) + ')</th><th>Kept</th><th></th></tr></thead><tbody id="list">'
       + shown.map(function (k) {
@@ -1596,8 +1850,8 @@
   }
 
   function applyFares(payload, replaceDoc) {
-    if (!payload) { state.fares = null; state.faresDoc = null; state.faresSaved = ''; return; }
     bump();
+    if (!payload) { state.fares = null; state.faresDoc = null; state.faresSaved = ''; return; }
     state.fares = payload;
     state.faresSaved = JSON.stringify(payload.document);
     if (replaceDoc || !state.faresDoc) state.faresDoc = clone(payload.document);
@@ -2209,6 +2463,33 @@
       edit(function () { doc().transfers[i].outside = outside; }, { render: true });
     },
 
+    'fare-builder-add': function (node) { editFareBuilder(node, 'add'); },
+    'fare-builder-group': function (node) { editFareBuilder(node, 'group'); },
+    'fare-builder-remove': function (node) { editFareBuilder(node, 'remove'); },
+    'fare-builder-reset': function () {
+      modal({ title: 'Replace the custom expression?', narrow: true,
+        body: '<p>This replaces the draft calculation with the sum of all six components. No prices are changed. Ctrl+Z can restore the expression.</p>',
+        buttons: [{ label: 'Keep expression', kind: 'secondary' }, { label: 'Replace expression', action: function () {
+          edit(function () { state.faresDoc.calculation = FARE_CALCULATION; }, { render: true, noMap: true });
+          if ($('fare-group-root')) $('fare-group-root').focus();
+        } }] });
+    },
+    'fare-ride-add': function () {
+      var available = fareRideServices();
+      if (!available.length) return;
+      var rides = state.farePreview.rides || (state.farePreview.rides = []), last = rides[rides.length - 1];
+      var entry = last && fareRideService(last), from = entry && parseStop((entry.service.stops || [])[last.toIndex]).station;
+      rides.push(newFareRide(entry && available.some(function (s) { return s.key === entry.key; }) ? entry : available[0], from));
+      invalidateFarePreview(); renderFareRides('fare-ride-' + (rides.length - 1) + '-service');
+    },
+    'fare-ride-remove': function (node) {
+      state.farePreview.rides.splice(+data(node, 'ride'), 1);
+      invalidateFarePreview(); renderFareRides();
+      var next = $('fare-ride-' + Math.max(0, Math.min(+data(node, 'ride'), state.farePreview.rides.length - 1)) + '-service')
+        || document.querySelector('[data-act="fare-ride-add"]');
+      if (next) next.focus();
+    },
+    'fare-preview': previewFare,
     'add-band': function () { edit(function () { var f = state.faresDoc; if (!f.formula) f.formula = {}; if (!f.formula['distance-bands']) f.formula['distance-bands'] = []; f.formula['distance-bands'].push({ fare: 0 }); }, { render: true, noMap: true }); },
     'remove-band': function (node) { var i = +data(node, 'index'); edit(function () { state.faresDoc.formula['distance-bands'].splice(i, 1); }, { render: true, noMap: true }); },
     'assign-line-zone': function () {
@@ -2361,6 +2642,30 @@
       if (!heading) return;
       node.value = '';
       order({ action: 'switch', sign: sign, heading: heading, minutes: 10 }, 'Set ' + heading + ' at ' + sign + ' for 10 minutes');
+    },
+    'fare-pricing': function (node) {
+      var pricing = node.value;
+      edit(function () { state.faresDoc.pricing = pricing; }, { render: true, noMap: true });
+      var select = document.querySelector('[data-act-change="fare-pricing"]');
+      if (select) select.focus();
+    },
+    'fare-builder-op': function (node) { editFareBuilder(node, 'op'); },
+    'fare-builder-component': function (node) { editFareBuilder(node, 'component'); },
+    'fare-ride-service': function (node) {
+      var i = +data(node, 'ride'), previous = state.farePreview.rides[i], old = fareRideService(previous);
+      var from = old && parseStop((old.service.stops || [])[previous.fromIndex]).station;
+      var entry = fareRideServices().filter(function (s) { return s.key === node.value; })[0];
+      if (!entry) return;
+      state.farePreview.rides[i] = newFareRide(entry, from);
+      invalidateFarePreview(); renderFareRides(node.id);
+    },
+    'fare-ride-stop': function (node) {
+      state.farePreview.rides[+data(node, 'ride')][data(node, 'end')] = Number(node.value);
+      invalidateFarePreview(); refreshFarePreview();
+    },
+    'fare-ride-laps': function (node) {
+      state.farePreview.rides[+data(node, 'ride')].laps = node.value === '' ? '' : Number(node.value);
+      invalidateFarePreview(); refreshFarePreview();
     },
     'fare-free-line': function (node) {
       var id = data(node, 'id');
@@ -2524,6 +2829,7 @@
         else { var at = event.target.selectionStart; renderPane(true); var again = document.querySelector('[data-filter="' + filter + '"]'); if (again) { again.focus(); again.setSelectionRange(at, at); } }
         return;
       }
+      if (event.target.getAttribute('data-act-change') === 'fare-ride-laps') changeActions['fare-ride-laps'](event.target);
       if (event.target.hasAttribute('data-path') && event.target.tagName !== 'SELECT' && event.target.type !== 'checkbox') applyBinding(event.target);
       if (event.target.id === 'new-name' && $('new-id') && !$('new-id').dataset.touched) {
         $('new-id').placeholder = slugify(event.target.value) || 'from the name';

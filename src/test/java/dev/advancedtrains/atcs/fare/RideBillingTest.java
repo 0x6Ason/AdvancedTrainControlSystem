@@ -211,6 +211,29 @@ class RideBillingTest {
     }
 
     @Test
+    void routeAwareFaresChargeTheWholeRoundTripWithAnItemizedReceipt() throws IOException {
+        wallet.balances.put(ALICE, 50.0);
+        table = table.withZone("s1", "1").withZone("s2", "1").withZone("s3", "2").withZoneFare("1", "2", 1.5)
+                .withPricing(FareTable.Pricing.CUMULATIVE);
+        RideBilling billing = billing(0);
+        ride(billing, "t1", east, 0, 0, 1, 2);
+        billing.leave(ALICE, 5_000);
+        ride(billing, "t2", west, 1, 10_000, 2, 3);
+        billing.leave(ALICE, 15_000);
+        assertEquals(RideBilling.Boarding.CONTINUED, billing.board(ALICE, "Alice", "t3", east, 0, "s1", 20_000),
+                "back at the start is still the same journey");
+        billing.leave(ALICE, 21_000);
+        assertEquals(List.of("s1", "s2", "s3"), billing.ride(ALICE).orElseThrow().legs().getFirst().path());
+        BillingLedger.Charge charge = billing.end(ALICE, 22_000).orElseThrow();
+        // base 2 + 4 stops + the 1-2 boundary crossed twice
+        assertEquals(List.of(9.0), wallet.withdrawals);
+        assertTrue(charge.details().contains("Zone 1-2: 2 × $1.50 = $3"), charge.details()::toString);
+        assertTrue(charge.details().contains("Route (a): Station S1 → Station S2 → Station S3 → Station S2 → Station S1"),
+                charge.details()::toString);
+        assertEquals(charge.details(), billing(30_000).charge(charge.id()).orElseThrow().details(), "the receipt keeps its details");
+    }
+
+    @Test
     void aJourneyCannotContinueFromAnUnconnectedStation() throws IOException {
         wallet.balances.put(ALICE, 20.0);
         RideBilling billing = billing(0);
@@ -227,7 +250,7 @@ class RideBillingTest {
         billing.visit("t1", east, 0, 1_000);
         billing.visit("t1", east, 3, 2_000);
         BillingLedger.Ride ride = billing.ride(ALICE).orElseThrow();
-        assertEquals(new FareCalculator.RideLeg("a", "s1", "s4", 3, 900), ride.legs().getFirst());
+        assertEquals(new FareCalculator.RideLeg("a", "s1", "s4", 3, 900, List.of("s1", "s2", "s3", "s4")), ride.legs().getFirst());
         billing.visit("t1", east, 2, 1_500);
         assertEquals(ride, billing.ride(ALICE).orElseThrow(), "an event older than the last is ignored");
     }
@@ -341,7 +364,7 @@ class RideBillingTest {
         BillingLedger.Ride ride = after.ride(ALICE).orElseThrow();
         assertNull(ride.train(), "nobody is on a train the server stopped under");
         assertEquals(60_000 + WINDOW, ride.expiresAt());
-        assertEquals(List.of(new FareCalculator.RideLeg("a", "s1", "s3", 2, 600)), ride.legs());
+        assertEquals(List.of(new FareCalculator.RideLeg("a", "s1", "s3", 2, 600, List.of("s1", "s2", "s3"))), ride.legs());
         assertEquals(table, after.tariff(ride));
         assertEquals(RideBilling.Boarding.CONTINUED, after.board(ALICE, "Alice", "t9", east, 2, "s3", 70_000));
     }

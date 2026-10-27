@@ -397,6 +397,92 @@ class FareTest {
                 .quote("s1", "s5").orElseThrow().fare(), "paid ride then walk retains the paid minimum");
     }
 
+    /** Flat 3, 1.5 a stop, 2.5 a change; s1 s2 in zone 1, s3 in zone 2, s4 s5 in zone 3, crossing a boundary costs extra. */
+    private static FareTable zoned(FareTable.Pricing pricing, double minimum) {
+        return FareTable.EMPTY.withFormula(new FareTable.Formula(3, 1.5, 2.5, List.of(), 0, minimum))
+                .withZone("s1", "1").withZone("s2", "1").withZone("s3", "2").withZone("s4", "3").withZone("s5", "3")
+                .withZoneFare("1", "2", 1.5).withZoneFare("2", "3", 1.0).withZoneFare("1", "3", 0.5)
+                .withBilling(billing(Set.of("nerdy"), 0, 0, 0)).withPricing(pricing);
+    }
+
+    private static FareCalculator.RideLeg ride(String line, int stops, String... path) {
+        return new FareCalculator.RideLeg(line, path[0], path[path.length - 1], stops, 300.0 * (path.length - 1), List.of(path));
+    }
+
+    @Test
+    void cumulativePricingAddsEveryPartOfTheRouteRidden() {
+        FareCalculator legacy = calculator(rails, zoned(FareTable.Pricing.LEGACY, 5));
+        FareCalculator cumulative = calculator(rails, zoned(FareTable.Pricing.CUMULATIVE, 5));
+        FareCalculator.RideLeg s1ToS4 = ride("a", 3, "s1", "s2", "s3", "s4");
+        assertEquals(0.5, legacy.quoteRide(List.of(s1ToS4)).fare(), "the old way: the 1-3 zone fare replaces everything");
+        FareCalculator.Quote quote = cumulative.quoteRide(List.of(s1ToS4));
+        assertEquals(10, quote.fare(), "base 3 + 3 stops 4.5 + crossing 1-2 1.5 + crossing 2-3 1.0: " + quote.reasoning());
+        assertEquals(FareCalculator.Layer.COMBINED, quote.layer());
+        assertTrue(quote.reasoning().contains("Zone 1-2: 1 × $1.50 = $1.50"), quote.reasoning()::toString);
+        assertTrue(quote.reasoning().contains("Total: $10"), quote.reasoning()::toString);
+        assertFalse(quote.reasoning().stream().anyMatch(line -> line.startsWith("Subtotal")), "nothing to adjust: " + quote.reasoning());
+        assertTrue(quote.reasoning().contains("Route (a): Station S1 → Station S2 → Station S3 → Station S4"), quote.reasoning()::toString);
+
+        // Out and back again is the whole trip, not "s1 to s1": 4 stops and two crossings of the 1-2 boundary.
+        assertEquals(12, cumulative.quoteRide(List.of(ride("a", 2, "s1", "s2", "s3"), ride("a", 2, "s3", "s2", "s1"))).fare());
+        // A change to line b adds its stop and the change, and costs no zone fare inside zone 3.
+        assertEquals(14, cumulative.quoteRide(List.of(s1ToS4, ride("b", 1, "s4", "s5"))).fare());
+        assertEquals(5, cumulative.quoteRide(List.of(ride("a", 0, "s1"))).fare(), "boarding and leaving still costs the minimum");
+        assertEquals(0, cumulative.quoteRide(List.of(ride("nerdy", 3, "s1", "s2", "s3", "s4"))).fare(), "free lines stay free");
+        assertEquals(13, calculator(rails, zoned(FareTable.Pricing.CUMULATIVE, 5).withBilling(billing(Set.of(), 0, 1, 0)))
+                .quoteRide(List.of(s1ToS4, ride("b", 1, "s4", "s5"))).fare(), "the transfer discount comes off the second line's part");
+    }
+
+    @Test
+    void highestLowestAndCustomRulesCombineTheParts() {
+        FareCalculator.RideLeg s1ToS4 = ride("a", 3, "s1", "s2", "s3", "s4");
+        // formula 3 + 4.5 = 7.5; zones along the way 2.5
+        assertEquals(7.5, calculator(rails, zoned(FareTable.Pricing.HIGHEST, 0)).quoteRide(List.of(s1ToS4)).fare());
+        assertEquals(2.5, calculator(rails, zoned(FareTable.Pricing.LOWEST, 0)).quoteRide(List.of(s1ToS4)).fare());
+        assertEquals(5, calculator(rails, zoned(FareTable.Pricing.LOWEST, 5)).quoteRide(List.of(s1ToS4)).fare(), "the minimum is still a floor");
+        FareCalculator.RideLeg inZone = ride("a", 1, "s1", "s2");
+        assertEquals(4.5, calculator(rails, zoned(FareTable.Pricing.LOWEST, 0)).quoteRide(List.of(inZone)).fare(),
+                "no zone fare inside zone 1 is not a free zone fare");
+        assertEquals(0, calculator(rails, zoned(FareTable.Pricing.LOWEST, 0).withPair("s1", "s2", new FareTable.Pair(0, true)))
+                .quoteRide(List.of(inZone)).fare(), "a pair set to zero is a price");
+
+        FareTable custom = zoned(FareTable.Pricing.LEGACY, 0).withCalculation("base + max(stops, zones) + changes");
+        assertEquals(FareTable.Pricing.CUSTOM, custom.pricing());
+        assertEquals(7.5, calculator(rails, custom).quoteRide(List.of(s1ToS4)).fare());
+        FareCalculator.Quote capped = calculator(rails, custom.withCalculation("min(10, formula + zones)"))
+                .quoteRide(List.of(ride("a", 2, "s1", "s2", "s3"), ride("a", 2, "s3", "s2", "s1")));
+        assertEquals(10, capped.fare());
+        assertTrue(capped.reasoning().contains("Rule: min(10, formula + zones)"), capped.reasoning()::toString);
+        assertThrows(IllegalArgumentException.class, () -> custom.withCalculation("base / stops"));
+    }
+
+    @Test
+    void pricingAndCalculationRoundTripAndOldFilesStayLegacy() {
+        FareCodec codec = new FareCodec();
+        FareTable table = zoned(FareTable.Pricing.LEGACY, 5).withCalculation("max(formula, zones) + pairs");
+        String yaml = codec.write(table);
+        assertTrue(yaml.contains("pricing: custom"), yaml);
+        FareCodec.ReadResult read = codec.read(yaml);
+        assertTrue(read.clean(), read.errors()::toString);
+        assertEquals(table, read.table());
+        assertEquals(table.withPricing(FareTable.Pricing.HIGHEST), codec.read(codec.write(table.withPricing(FareTable.Pricing.HIGHEST))).table());
+        FareCodec.ReadResult old = codec.read("format: 1\ncurrency: $\nformula:\n  flat: 2\n");
+        assertTrue(old.clean(), old.errors()::toString);
+        assertEquals(FareTable.Pricing.LEGACY, old.table().pricing());
+        FareCodec.ReadResult bad = codec.read("pricing: sideways\ncalculation: base +\n");
+        assertEquals(2, bad.errors().size(), bad.errors()::toString);
+        assertFalse(bad.table().billing().enabled());
+    }
+
+    @Test
+    void plannedQuotesFollowTheRouteInRouteAwareModes() {
+        FareCalculator calculator = calculator(rails, zoned(FareTable.Pricing.CUMULATIVE, 0));
+        FareCalculator.Quote quote = calculator.quote("s1", "s5").orElseThrow();
+        // a s1 to s4 (10) then b to s5: a stop 1.5 and a change 2.5
+        assertEquals(14, quote.fare(), quote.reasoning()::toString);
+        assertTrue(calculator.quote("s1", "nowhere").isEmpty());
+    }
+
     @Test
     void calculationRejectsOverflowAndRoundingDoesNotSaturateLongs() {
         FareTable table = FareTable.EMPTY.withFormula(new FareTable.Formula(0, Double.MAX_VALUE, 0, List.of(), 0, 0));
